@@ -1,0 +1,47 @@
+.{
+    .name = .innigkeit,
+    .version = "0.0.1",
+    .fingerprint = 0x4da44fad2a9b58be,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .limine_bin = .{
+            .url = "git+https://github.com/Limine-Bootloader/Limine.git?ref=v11.3.1-binary#3c16d4c3bb2bb54ecc8b37b71760fdb20a193caa",
+            .hash = "N-V-__8AAEgRTQD5aYigsigI4K1eUsxm1QWk9c_i0FGjMEr2",
+        },
+        .zuacpi = .{
+            .url = "git+https://github.com/uACPI/zuacpi?ref=main#d3080d8e891bbaaddb163fa42b400e9e7b0f4b87",
+            .hash = "zuacpi-0.0.0--wIHKOn0AAA-8GRNngSrQb06_pf7oobGw4aNkxEB1IUk",
+        },
+        .edk2 = .{
+            .url = "https://github.com/rust-osdev/ovmf-prebuilt/releases/download/edk2-stable202602-r1/edk2-stable202602-r1-bin.tar.xz",
+            .hash = "N-V-__8AAMDxxwxp8UiIRV4nhhm0cc_J35Cw5TxKQye7IKNQ",
+        },
+        .flanterm = .{
+            .url = "git+https://github.com/Mintsuki/Flanterm#dfa1922c0749faf64c4423a81b233a20c08a7db7",
+            .hash = "N-V-__8AAFzMAgDhyvYa59SK9LFVE_zEawBdmp0lEe171fcp",
+        },
+        .uacpi = .{
+            .url = "git+https://github.com/uACPI/uACPI?ref=4.0.0#e05715b2e6a3ae913aecdb86f4fd2dba30304e45",
+            .hash = "N-V-__8AACf_EwAqU0c833d6mIfScf7rsW0lDps-JYnPWiqY",
+        },
+        .translate_c = .{
+            .url = "git+https://codeberg.org/ziglang/translate-c#7a1a9fdc4ab00835748a6657ecbb835e3d5d45f7",
+            .hash = "translate_c-0.0.0-Q_BUWvP1BgCjAk6PWv5286tOlvzD9-X-NkuTzh0KxY0Q",
+        },
+        .devicetree = .{
+            .url = "git+https://github.com/CascadeOS/zig-devicetree#53ec12cb0e724c16ee9cebb04ed3e97ff93ef82c",
+            .hash = "devicetree-4.0.1-cZRcrCCRAQC_m06ln8G0jL9d53Qij11v5cJgJ7LJfB74",
+        },
+        .sbi = .{
+            .url = "git+https://github.com/leecannon/zig-sbi#82c2376f13dda5034f1fcfbcbfa15788d5b35ec9",
+            .hash = "sbi-7.0.0-Muvb-gLyAQDyO6WOzpLCZ7EXPlL48WR-t4aaDkM1SSyb",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "LICENSE",
+        "README.md",
+    },
+}

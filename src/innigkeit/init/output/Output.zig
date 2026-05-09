@@ -1,0 +1,213 @@
+const std = @import("std");
+
+const architecture = @import("architecture");
+const innigkeit = @import("innigkeit");
+const core = @import("core");
+
+const devicetree = @import("../devicetree.zig");
+const framebuffer = @import("framebuffer.zig");
+pub const uart = @import("uart.zig");
+
+const log = innigkeit.debug.log.scoped(.output_init);
+
+const Output = @This();
+
+name: Name,
+
+writeFn: *const fn (state: *anyopaque, str: []const u8) void,
+
+splatFn: *const fn (state: *anyopaque, str: []const u8, splat: usize) void,
+
+state: *anyopaque,
+
+pub const Name = core.containers.BoundedArray(u8, 32);
+
+// TODO: once we have kernel cmdline support changing the mode of this terminal
+pub const terminal: std.Io.Terminal = .{
+    .writer = &globals.writer,
+    .mode = .escape_codes,
+};
+pub const lock = &globals.lock;
+
+const innigkeit_starting_message: []const u8 = "starting Innigkeit " ++ innigkeit.config.innigkeit_version ++ "\n";
+
+pub const RegisterOutputsStage = enum {
+    /// Before the memory system is initialized so anything that needs heap allocation or the special heap cannot be initialized yet.
+    early,
+
+    /// After the memory system is initialized.
+    ///
+    /// Only attempts to initialize a serial or graphical output if an output of each type has not already been initialized.
+    full,
+};
+
+pub fn registerOutputs(stage: RegisterOutputsStage) void {
+    const memory_system_available = switch (stage) {
+        .early => false,
+        .full => true,
+    };
+
+    if (globals.serial_output == null) {
+        globals.serial_output = getSerialOutput(memory_system_available);
+        if (globals.serial_output) |serial_output| serial_output.writeFn(serial_output.state, innigkeit_starting_message);
+    }
+
+    if (globals.graphical_output == null) {
+        globals.graphical_output = framebuffer.tryGetFramebufferOutput(memory_system_available);
+        if (globals.graphical_output) |*graphical_output| graphical_output.writeFn(graphical_output.state, innigkeit_starting_message);
+    }
+
+    if (log.levelEnabled(.debug)) {
+        switch (stage) {
+            .early => {
+                if (globals.graphical_output) |*output| log.debug(
+                    "before memory system - selected graphical output: {s}",
+                    .{output.name.constSlice()},
+                );
+
+                if (globals.serial_output) |*output| log.debug(
+                    "before memory system - selected serial output: {s}",
+                    .{output.name.constSlice()},
+                );
+            },
+            .full => {
+                const graphical_output: ?*const Output = if (globals.graphical_output) |*output| output else null;
+                const serial_output: ?*const Output = if (globals.serial_output) |*output| output else null;
+
+                if (graphical_output != null or serial_output != null) {
+                    if (graphical_output) |output|
+                        log.debug("selected graphical output: {s}", .{output.name.constSlice()})
+                    else
+                        log.debug("no graphical output selected", .{});
+
+                    if (serial_output) |output|
+                        log.debug("selected serial output: {s}", .{output.name.constSlice()})
+                    else
+                        log.debug("no serial output selected", .{});
+                } else {
+                    // there is no actual point in logging here as there is no output to log to
+                    log.debug("no output selected", .{});
+                }
+            },
+        }
+    }
+}
+
+fn getSerialOutput(memory_system_available: bool) ?Output {
+    if (architecture.init.tryGetSerialOutput(memory_system_available)) |output| {
+        return switch (output.preference) {
+            .use => output.output,
+            .prefer_generic => if (tryGetSerialOutputFromGenericSources(memory_system_available)) |generic_output|
+                generic_output
+            else
+                output.output,
+        };
+    }
+
+    return tryGetSerialOutputFromGenericSources(memory_system_available);
+}
+
+/// Attempt to get some form of init output from generic sources, like ACPI tables or device tree.
+fn tryGetSerialOutputFromGenericSources(memory_system_available: bool) ?innigkeit.init.Output {
+    const static = struct {
+        var init_output_uart: uart.Uart = undefined;
+    };
+
+    blk: {
+        if (innigkeit.acpi.tables.SPCR.init.tryGetSerialOutput(memory_system_available)) |output_uart| {
+            log.debug("got serial output from SPCR", .{});
+
+            static.init_output_uart = output_uart;
+            break :blk;
+        }
+
+        if (innigkeit.acpi.tables.DBG2.init.tryGetSerialOutput(memory_system_available)) |output_uart| {
+            log.debug("got serial output from DBG2", .{});
+
+            static.init_output_uart = output_uart;
+            break :blk;
+        }
+
+        if (devicetree.tryGetSerialOutput(memory_system_available)) |output_uart| {
+            log.debug("got serial output from device tree", .{});
+
+            static.init_output_uart = output_uart;
+            break :blk;
+        }
+
+        return null;
+    }
+
+    return static.init_output_uart.output();
+}
+
+fn writeToOutputs(str: []const u8) void {
+    if (globals.graphical_output) |*output| output.writeFn(output.state, str);
+    if (globals.serial_output) |*output| output.writeFn(output.state, str);
+}
+
+fn splatToOutputs(str: []const u8, splat: usize) void {
+    if (globals.graphical_output) |*output| output.splatFn(output.state, str, splat);
+    if (globals.serial_output) |*output| output.splatFn(output.state, str, splat);
+}
+
+/// Replaces `\n' with `\r\n'.
+pub fn writeWithCarridgeReturns(
+    context: anytype,
+    comptime writeFn: fn (context: @TypeOf(context), str: []const u8) void,
+    full_str: []const u8,
+) void {
+    var str = full_str;
+
+    while (str.len != 0) {
+        const index_of_newline = std.mem.indexOfScalar(u8, str, '\n') orelse {
+            writeFn(context, str);
+            return;
+        };
+
+        writeFn(context, str[0..index_of_newline]);
+        writeFn(context, "\r\n");
+        str = str[index_of_newline + 1 ..];
+    }
+}
+
+const globals = struct {
+    var lock: innigkeit.sync.TicketSpinLock = .{};
+
+    var graphical_output: ?Output = null;
+    var serial_output: ?Output = null;
+
+    var writer_buffer: [architecture.paging.standard_page_size.value]u8 = undefined;
+
+    var writer: std.Io.Writer = .{
+        .buffer = &globals.writer_buffer,
+        .vtable = &.{
+            .drain = struct {
+                fn drain(w: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
+                    // TODO: is this even correct? the new writer interface is a bit confusing
+
+                    if (w.end != 0) {
+                        writeToOutputs(w.buffered());
+                        w.end = 0;
+                    }
+
+                    var written: usize = 0;
+
+                    for (data[0 .. data.len - 1]) |slice| {
+                        if (slice.len == 0) continue;
+                        writeToOutputs(slice);
+                        written += slice.len;
+                    }
+
+                    const last_data = data[data.len - 1];
+                    if (last_data.len != 0) {
+                        splatToOutputs(last_data, splat);
+                        written += last_data.len * splat;
+                    }
+
+                    return written;
+                }
+            }.drain,
+        },
+    };
+};
