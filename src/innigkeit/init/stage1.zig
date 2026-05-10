@@ -2,6 +2,7 @@ const std = @import("std");
 const architecture = @import("architecture");
 const boot = @import("boot");
 const innigkeit = @import("innigkeit");
+const builtin = @import("builtin");
 
 const stage2 = @import("stage2.zig");
 
@@ -82,6 +83,8 @@ pub fn bootstrap() !noreturn {
         log.debug("booting non-bootstrap executors", .{});
         try bootNonBootstrapExecutors();
     }
+
+    log.info("zig version: {s}", .{builtin.zig_version_string});
 
     try stage2.start(new_bootstrap_executor);
     unreachable;

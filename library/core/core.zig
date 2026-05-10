@@ -4,7 +4,6 @@ const std = @import("std");
 pub const hash = @import("hash.zig");
 pub const lock = @import("lock.zig");
 pub const simd = @import("simd.zig");
-pub const trees = @import("trees.zig");
 pub const masking = @import("masking.zig");
 pub const queue = @import("queue.zig");
 pub const containers = @import("containers/root.zig");
@@ -13,6 +12,7 @@ pub const endian_ = @import("endian.zig");
 pub const Duration = @import("duration.zig").Duration;
 pub const Size = @import("size.zig").Size;
 pub const TypeErasedCall = @import("containers/TypeErasedCall.zig").TypeErasedCall;
+pub const RedBlackTree = @import("containers/RedBlackTree.zig");
 
 const Endian = std.builtin.Endian;
 pub const is_debug = builtin.mode == .Debug;

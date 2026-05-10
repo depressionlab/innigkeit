@@ -11,6 +11,9 @@ pub const SyscallFrame = @import("SyscallFrame.zig").SyscallFrame;
 pub const PerThread = @import("PerThread.zig");
 pub const init = @import("init.zig");
 
+// TODO: make this better. look at what linux does for syscalls
+// TODO: use @memset and @memcpy instead of `mov`
+
 /// Enter userspace for the first time in the current task.
 pub fn enterUserspace(options: architecture.user.EnterUserspaceOptions) noreturn {
     const per_thread: *x64.user.PerThread = .from(.from(innigkeit.Task.Current.get().task));
