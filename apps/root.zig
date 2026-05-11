@@ -4,6 +4,11 @@ pub const apps: []const AppDescription = &.{
         .dependencies = &.{"innigkeit"},
         .configuration = .simple,
     },
+    .{
+        .name = "calculator",
+        .dependencies = &.{"innigkeit"},
+        .configuration = .simple,
+    },
 };
 
 const AppDescription = @import("../build/AppDescription.zig");

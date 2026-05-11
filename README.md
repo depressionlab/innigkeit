@@ -44,6 +44,16 @@
 - zig 0.16.0
 - qemu 11.0.0 (used for running and testing)
 
+#### download it
+
+```sh
+brew install zig qemu
+```
+
+good job!!! :D
+
+### doit
+
 see all build targets:
 
 ```sh
@@ -59,5 +69,5 @@ zig build -h
 build and run x64:
 
 ```sh
-zig build run_x64
+zig build run_x64 -Dlog_level=debug
 ```

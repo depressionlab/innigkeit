@@ -2,6 +2,8 @@ const builtin = @import("builtin");
 
 pub const Syscall = enum(usize) {
     exit_current_thread = 0,
+    write = 1,
+    read = 2,
 
     pub inline fn call0(syscall: Syscall) isize {
         return switch (builtin.cpu.arch) {
