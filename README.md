@@ -2,7 +2,7 @@
 
 ## goals
 
-- [x] it boots
+- it boots
   - [x] works on my machine
 - learn [Jujutsu VCS](https://www.jj-vcs.dev)
   - [x] first commit!
@@ -34,6 +34,7 @@
   - [ ] physics engine???
   - [ ] make it run DOOM
 - userspace support
+  - [ ] export libraries needed so that all the apps aren't in the same repo
   - [ ] good, fast syscalls
   - [ ] good standard library support
   - [ ] good Zig support
@@ -62,13 +63,13 @@ good job!!! :D
 see all build targets:
 
 ```sh
-zig build -l
+zig build --list-steps
 ```
 
 see all steps and options:
 
 ```sh
-zig build -h
+zig build --help
 ```
 
 build and run x64:
