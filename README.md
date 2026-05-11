@@ -4,6 +4,8 @@
 
 - [x] it boots
   - [x] works on my machine
+- [ ] learn [Jujutsu VCS](https://www.jj-vcs.dev)
+  - [x] first commit!
 - [ ] target architecture (64-bit only)
   - [x] x64
   - [ ] arm (next priority)
