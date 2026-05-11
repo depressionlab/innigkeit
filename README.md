@@ -4,15 +4,17 @@
 
 - [x] it boots
   - [x] works on my machine
-- [ ] learn [Jujutsu VCS](https://www.jj-vcs.dev)
+- learn [Jujutsu VCS](https://www.jj-vcs.dev)
   - [x] first commit!
-- [ ] target architecture (64-bit only)
+- target architecture (64-bit only)
   - [x] x64
   - [ ] arm (next priority)
   - [ ] riscv
   - [ ] good cross-architecture abi
-- [x] target bootloader
+- target bootloader
   - [x] limine
+  - [ ] EFI stub?
+  - [ ] multiboot for grub support, mayb (ew)
 - target bios
   - [x] uefi
 - disk layout
@@ -33,7 +35,8 @@
   - [ ] make it run DOOM
 - userspace support
   - [ ] good, fast syscalls
-  - [ ] good API
+  - [ ] good standard library support
+  - [ ] good Zig support
   - [ ] print hello world from the user level
   - [ ] make a small CLI
   - [ ] re-implement a small CLI
