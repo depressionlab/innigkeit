@@ -18,7 +18,7 @@ manifest_file: std.Build.LazyPath,
 kernel: Kernel,
 limine_dep: *std.Build.Dependency,
 
-fn create(
+pub fn create(
     b: *std.Build,
     kernel: Kernel,
     arch: Bundle.Architecture,
