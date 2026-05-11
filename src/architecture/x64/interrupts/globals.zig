@@ -44,4 +44,4 @@ pub var handlers: [Idt.number_of_handlers]Handler = handlers: {
 
     break :handlers temp_handlers;
 };
-pub var interrupt_arena: innigkeit.mem.resource_arena.Arena(.none) = undefined; // initialized by `init.initializeInterruptRouting`
+pub var interrupt_arena: innigkeit.mem.arena.Arena(.none) = undefined; // initialized by `init.initializeInterruptRouting`

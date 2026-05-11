@@ -1,0 +1,8 @@
+{
+    "recommendations": [
+        "ziglang.vscode-zig",
+        "EditorConfig.EditorConfig",
+        "usernamehw.errorlens",
+        "tamasfe.even-better-toml",
+    ],
+}

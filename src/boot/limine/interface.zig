@@ -214,29 +214,59 @@ const target_limine_revison: root.BaseRevison.Revison = .@"6";
 var limine_revison: root.BaseRevison.Revison = .@"0";
 
 pub fn exportRequests() void {
-    @export(&requests.limine_base_revison, .{ .name = "limine_base_revison_request" });
-    @export(&requests.entry_point, .{ .name = "limine_entry_point_request" });
-    @export(&requests.kernel_address, .{ .name = "limine_kernel_address_request" });
-    @export(&requests.memory_map, .{ .name = "limine_memmap_request" });
-    @export(&requests.hhdm, .{ .name = "limine_hhdm_request" });
-    @export(&requests.rsdp, .{ .name = "limine_rsdp_request" });
-    @export(&requests.smp, .{ .name = "limine_smp_request" });
-    @export(&requests.framebuffer, .{ .name = "limine_framebuffer_request" });
-    @export(&requests.device_tree_blob, .{ .name = "limine_device_tree_blob_request" });
-    @export(&requests.executable_file, .{ .name = "limine_executable_file_request" });
-    @export(&requests.stack_size, .{ .name = "limine_stack_size_request" });
+    @export(&requests.limine_base_revison, .{
+        .name = "limine_base_revison_request",
+    });
+    @export(&requests.entry_point, .{
+        .name = "limine_entry_point_request",
+    });
+    @export(&requests.kernel_address, .{
+        .name = "limine_kernel_address_request",
+    });
+    @export(&requests.memory_map, .{
+        .name = "limine_memmap_request",
+    });
+    @export(&requests.hhdm, .{
+        .name = "limine_hhdm_request",
+    });
+    @export(&requests.rsdp, .{
+        .name = "limine_rsdp_request",
+    });
+    @export(&requests.smp, .{
+        .name = "limine_smp_request",
+    });
+    @export(&requests.framebuffer, .{
+        .name = "limine_framebuffer_request",
+    });
+    @export(&requests.device_tree_blob, .{
+        .name = "limine_device_tree_blob_request",
+    });
+    @export(&requests.executable_file, .{
+        .name = "limine_executable_file_request",
+    });
+    @export(&requests.stack_size, .{
+        .name = "limine_stack_size_request",
+    });
 }
 
 const requests = struct {
-    var limine_base_revison: root.BaseRevison = .{ .revison = target_limine_revison };
-    var entry_point: root.EntryPoint.Request = .{ .entry = limineEntryPoint };
+    var limine_base_revison: root.BaseRevison = .{
+        .revison = target_limine_revison,
+    };
+    var entry_point: root.EntryPoint.Request = .{
+        .entry = limineEntryPoint,
+    };
     var kernel_address: root.ExecutableAddress.Request = .{};
     var memory_map: root.MemoryMap.Request = .{};
     var hhdm: root.HHDM.Request = .{};
     var rsdp: root.RSDP.Request = .{};
-    var smp: root.MP.Request = .{ .flags = .{ .x2apic = true } };
+    var smp: root.MP.Request = .{
+        .flags = .{ .x2apic = true },
+    };
     var framebuffer: root.Framebuffer.Request = .{};
     var device_tree_blob: root.DeviceTreeBlob.Request = .{};
     var executable_file: root.ExecutableFile.Request = .{};
-    var stack_size: root.StackSize.Request = .{ .stack_size = innigkeit.config.task.kernel_stack_size };
+    var stack_size: root.StackSize.Request = .{
+        .stack_size = innigkeit.config.task.kernel_stack_size,
+    };
 };

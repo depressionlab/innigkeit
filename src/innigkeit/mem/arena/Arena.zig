@@ -1,19 +1,13 @@
-// TODO: use `core.Size`
-// TODO: return unused tags to the cache when they exceed a threshold
-// TODO: stats
-// TODO: next fit
+// TODO: split this file without tragic
 
 const std = @import("std");
-const Wyhash = std.hash.Wyhash;
-
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 const RawCache = innigkeit.mem.cache.RawCache;
 const core = @import("core");
 
-const log = innigkeit.debug.log.scoped(.resource_arena);
-
-// TODO: use `core.Size`
+const log = innigkeit.debug.log.scoped(.arena);
+const globals = @import("globals.zig");
 
 /// A general resource arena providing reasonably low fragmentation with constant time performance.
 ///
@@ -26,13 +20,10 @@ const log = innigkeit.debug.log.scoped(.resource_arena);
 ///
 pub fn Arena(comptime quantum_caching: QuantumCaching) type {
     return struct {
-        _name: Name,
-
+        _name: innigkeit.mem.arena.Name,
         quantum: usize,
-
         mutex: innigkeit.sync.Mutex,
-
-        source: ?Source,
+        source: ?innigkeit.mem.arena.Source,
 
         /// List of all boundary tags in the arena.
         ///
@@ -45,10 +36,10 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
         spans: DoublyLinkedList(KindNode),
 
         /// Hash table of allocated boundary tags.
-        allocation_table: [NUMBER_OF_HASH_BUCKETS]DoublyLinkedList(KindNode),
+        allocation_table: [globals.NUMBER_OF_HASH_BUCKETS]DoublyLinkedList(KindNode),
 
         /// Power-of-two freelists.
-        freelists: [NUMBER_OF_FREELISTS]DoublyLinkedList(KindNode),
+        freelists: [globals.NUMBER_OF_FREELISTS]DoublyLinkedList(KindNode),
 
         /// Bitmap of freelists that are non-empty.
         freelist_bitmap: Bitmap,
@@ -61,19 +52,16 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
 
         quantum_caches: QuantumCaches,
 
-        pub fn name(resource_arena: *const @This()) []const u8 {
-            return resource_arena._name.constSlice();
+        pub fn name(self: *const @This()) []const u8 {
+            return self._name.constSlice();
         }
 
-        pub fn init(
-            arena: *@This(),
-            options: InitOptions,
-        ) InitError!void {
-            if (!std.mem.isValidAlign(options.quantum)) return InitError.InvalidQuantum;
+        pub fn init(self: *@This(), options: innigkeit.mem.arena.InitOptions) innigkeit.mem.arena.InitError!void {
+            if (!std.mem.isValidAlign(options.quantum)) return innigkeit.mem.arena.InitError.InvalidQuantum;
 
             log.debug("{s}: init with quantum 0x{x}", .{ options.name.constSlice(), options.quantum });
 
-            arena.* = .{
+            self.* = .{
                 ._name = options.name,
                 .quantum = options.quantum,
                 .mutex = .{},
@@ -101,18 +89,18 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
 
                     for (quantum_caches, 0..) |*quantum_cache, i| {
                         var cache_name: innigkeit.mem.cache.Name = .{};
-                        cache_name.writer().print("{s} qcache {}", .{ arena.name(), i + 1 }) catch unreachable;
+                        cache_name.writer().print("{s} qcache {}", .{ self.name(), i + 1 }) catch unreachable;
 
                         quantum_cache.init(.{
                             .name = cache_name,
                             .size = options.quantum * (i + 1),
                             .alignment = .fromByteUnits(options.quantum),
                         });
-                        arena.quantum_caches.caches.append(quantum_cache) catch unreachable;
+                        self.quantum_caches.caches.append(quantum_cache) catch unreachable;
                     }
 
-                    arena.quantum_caches.allocation = quantum_caches;
-                    arena.quantum_caches.max_cached_size = count * options.quantum;
+                    self.quantum_caches.allocation = quantum_caches;
+                    self.quantum_caches.max_cached_size = count * options.quantum;
                 },
                 .heap => |count| {
                     if (core.is_debug) std.debug.assert(count > 0);
@@ -130,7 +118,8 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
                             @panic("heap quantum cache allocation failed!");
                         pages.prepend(page);
 
-                        const page_caches = page.baseAddress().toDirectMap().toPtr(*[QUANTUM_CACHES_PER_PAGE]RawCache);
+                        const page_caches = page.baseAddress().toDirectMap()
+                            .toPtr(*[globals.QUANTUM_CACHES_PER_PAGE]RawCache);
 
                         for (page_caches) |*cache| {
                             caches_created += 1;
@@ -144,14 +133,14 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
                                 .alignment = .fromByteUnits(options.quantum),
                             });
 
-                            arena.quantum_caches.caches.append(cache) catch unreachable;
+                            self.quantum_caches.caches.append(cache) catch unreachable;
 
                             if (caches_created == count) break;
                         }
                     }
 
-                    arena.quantum_caches.allocation = pages;
-                    arena.quantum_caches.max_cached_size = count * options.quantum;
+                    self.quantum_caches.allocation = pages;
+                    self.quantum_caches.max_cached_size = count * options.quantum;
                 },
             }
         }
@@ -161,18 +150,18 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
         /// Assumes that no concurrent access to the resource arena is happening, does not lock.
         ///
         /// Panics if there are any allocations in the resource arena.
-        pub fn deinit(arena: *@This()) void {
-            log.debug("{s}: deinit", .{arena.name()});
+        pub fn deinit(self: *@This()) void {
+            log.debug("{s}: deinit", .{self.name()});
 
             if (quantum_caching.haveQuantumCache()) {
-                for (arena.quantum_caches.caches.constSlice()) |quantum_cache| {
+                for (self.quantum_caches.caches.constSlice()) |quantum_cache| {
                     quantum_cache.deinit();
                 }
 
                 switch (quantum_caching) {
                     .no => {},
-                    .yes => innigkeit.mem.heap.allocator.free(arena.quantum_caches.allocation),
-                    .heap => innigkeit.mem.phys.allocator.deallocate(arena.quantum_caches.allocation),
+                    .yes => innigkeit.mem.heap.allocator.free(self.quantum_caches.allocation),
+                    .heap => innigkeit.mem.phys.allocator.deallocate(self.quantum_caches.allocation),
                 }
             }
 
@@ -181,11 +170,11 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
             var any_allocations = false;
 
             // return imported spans and add all used boundary tags to the `tags_to_release` list
-            while (arena.all_tags.pop()) |node| {
+            while (self.all_tags.pop()) |node| {
                 const tag = node.toTag();
 
                 switch (tag.kind) {
-                    .imported_span => arena.source.?.callRelease(
+                    .imported_span => self.source.?.callRelease(
                         .{
                             .base = tag.base,
                             .len = tag.len,
@@ -199,15 +188,18 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
             }
 
             // add all unused tags to the `tags_to_release` list
-            while (arena.unused_tags.pop()) |node| {
+            while (self.unused_tags.pop()) |node| {
                 tags_to_release.push(node);
             }
 
             // return all tags to the global tag cache
             var any_tags_to_release = tags_to_release.first != null;
             while (any_tags_to_release) {
-                const capacity = MAX_TAGS_PER_ALLOCATION * 4;
-                var temp_tag_buffer: core.containers.BoundedArray(*BoundaryTag, capacity) = .{};
+                const capacity = globals.MAX_TAGS_PER_ALLOCATION * 4;
+                var temp_tag_buffer: core.containers.BoundedArray(
+                    *BoundaryTag,
+                    capacity,
+                ) = .{};
 
                 while (temp_tag_buffer.len < capacity) {
                     const node = tags_to_release.pop() orelse {
@@ -225,11 +217,11 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
                 // TODO: log instead?
                 std.debug.panic(
                     "leaks detected when deinitializing arena '{s}'!",
-                    .{arena.name()},
+                    .{self.name()},
                 );
             }
 
-            arena.* = undefined;
+            self.* = undefined;
         }
 
         /// Add the span [base, base + len) to the arena.
@@ -237,40 +229,40 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
         /// Both `base` and `len` must be aligned to the arena's quantum.
         ///
         /// O(N) runtime.
-        pub fn addSpan(arena: *@This(), base: usize, len: usize) AddSpanError!void {
-            log.debug("{s}: adding span [0x{x}, 0x{x})", .{ arena.name(), base, base + len });
+        pub fn addSpan(self: *@This(), base: usize, len: usize) innigkeit.mem.arena.AddSpanError!void {
+            log.debug("{s}: adding span [0x{x}, 0x{x})", .{ self.name(), base, base + len });
 
-            try arena.ensureBoundaryTags();
-            defer arena.mutex.unlock();
+            try self.ensureBoundaryTags();
+            defer self.mutex.unlock();
 
             const span_tag, const free_tag =
-                try arena.getTagsForNewSpan(base, len, .span);
+                try self.getTagsForNewSpan(base, len, .span);
             errdefer {
-                arena.pushUnusedTag(span_tag);
-                arena.pushUnusedTag(free_tag);
+                self.pushUnusedTag(span_tag);
+                self.pushUnusedTag(free_tag);
             }
 
-            try arena.addSpanInner(span_tag, free_tag, .add);
+            try self.addSpanInner(span_tag, free_tag, .add);
         }
 
         fn getTagsForNewSpan(
-            arena: *@This(),
+            self: *@This(),
             base: usize,
             len: usize,
             span_type: enum { imported_span, span },
-        ) AddSpanError!struct { *BoundaryTag, *BoundaryTag } {
-            if (len == 0) return AddSpanError.ZeroLength;
+        ) innigkeit.mem.arena.AddSpanError!struct { *BoundaryTag, *BoundaryTag } {
+            if (len == 0) return innigkeit.mem.arena.AddSpanError.ZeroLength;
 
-            if (std.math.maxInt(usize) - base < len) return AddSpanError.WouldWrap;
+            if (std.math.maxInt(usize) - base < len) return innigkeit.mem.arena.AddSpanError.WouldWrap;
 
-            if (!std.mem.isAligned(base, arena.quantum) or
-                !std.mem.isAligned(len, arena.quantum))
+            if (!std.mem.isAligned(base, self.quantum) or
+                !std.mem.isAligned(len, self.quantum))
             {
-                return AddSpanError.Unaligned;
+                return innigkeit.mem.arena.AddSpanError.Unaligned;
             }
             errdefer comptime unreachable;
 
-            const span_tag = arena.popUnusedTag();
+            const span_tag = self.popUnusedTag();
             span_tag.* = .{
                 .base = base,
                 .len = len,
@@ -282,7 +274,7 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
                 },
             };
 
-            const free_tag = arena.popUnusedTag();
+            const free_tag = self.popUnusedTag();
             free_tag.* = .{
                 .base = base,
                 .len = len,
@@ -295,7 +287,7 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
         }
 
         fn addSpanInner(
-            arena: *@This(),
+            self: *@This(),
             span_tag: *BoundaryTag,
             free_tag: *BoundaryTag,
             comptime freelist_decision: enum { add, nop },
@@ -305,45 +297,45 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
                 std.debug.assert(free_tag.kind == .free);
             }
 
-            const opt_previous_span = try arena.findSpanListPreviousSpan(span_tag.base, span_tag.len);
+            const opt_previous_span = try self.findSpanListPreviousSpan(span_tag.base, span_tag.len);
 
             errdefer comptime unreachable;
 
             const previous_all_tag_node = findSpanAllTagInsertionPoint(opt_previous_span);
 
             // insert the new span into the list of spans
-            arena.spans.insertAfter(
+            self.spans.insertAfter(
                 &span_tag.kind_node,
                 if (opt_previous_span) |previous_span| &previous_span.kind_node else null,
             );
 
             // insert the new span tag into the list of all tags
-            arena.all_tags.insertAfter(
+            self.all_tags.insertAfter(
                 &span_tag.all_tag_node,
                 previous_all_tag_node,
             );
 
             // insert the new free tag into the list of all tags (after the span tag)
-            arena.all_tags.insertAfter(
+            self.all_tags.insertAfter(
                 &free_tag.all_tag_node,
                 &span_tag.all_tag_node,
             );
 
             switch (freelist_decision) {
                 // insert the new free tag into the appropriate freelist
-                .add => arena.pushToFreelist(free_tag),
+                .add => self.pushToFreelist(free_tag),
                 .nop => {},
             }
         }
 
         fn findSpanListPreviousSpan(
-            arena: *const @This(),
+            self: *const @This(),
             base: usize,
             len: usize,
         ) error{Overlap}!?*BoundaryTag {
             const end = base + len - 1;
 
-            var opt_next_span_kind_node: ?*KindNode = arena.spans.first;
+            var opt_next_span_kind_node: ?*KindNode = self.spans.first;
 
             var candidate_previous_span: ?*BoundaryTag = null;
 
@@ -365,9 +357,7 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
             return candidate_previous_span;
         }
 
-        fn findSpanAllTagInsertionPoint(
-            opt_previous_span: ?*BoundaryTag,
-        ) ?*AllTagNode {
+        fn findSpanAllTagInsertionPoint(opt_previous_span: ?*BoundaryTag) ?*AllTagNode {
             if (opt_previous_span) |previous_span| {
                 if (core.is_debug) std.debug.assert(previous_span.kind == .span or previous_span.kind == .imported_span);
 
@@ -393,26 +383,30 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
         }
 
         /// Allocate a block of length `len` from the arena.
-        pub fn allocate(arena: *@This(), len: usize, policy: Policy) AllocateError!Allocation {
-            if (len == 0) return AllocateError.ZeroLength;
+        pub fn allocate(
+            self: *@This(),
+            len: usize,
+            policy: innigkeit.mem.arena.Policy,
+        ) innigkeit.mem.arena.AllocateError!innigkeit.mem.arena.Allocation {
+            if (len == 0) return innigkeit.mem.arena.AllocateError.ZeroLength;
 
-            const quantum_aligned_len = std.mem.alignForward(usize, len, arena.quantum);
+            const quantum_aligned_len = std.mem.alignForward(usize, len, self.quantum);
 
             log.verbose("{s}: allocating len 0x{x} (quantum_aligned_len: 0x{x}) with policy {t}", .{
-                arena.name(),
+                self.name(),
                 len,
                 quantum_aligned_len,
                 policy,
             });
 
             if (quantum_caching.haveQuantumCache()) {
-                if (quantum_aligned_len <= arena.quantum_caches.max_cached_size) {
-                    const cache_index: usize = (quantum_aligned_len / arena.quantum) - 1;
-                    const cache = arena.quantum_caches.caches.constSlice()[cache_index];
+                if (quantum_aligned_len <= self.quantum_caches.max_cached_size) {
+                    const cache_index: usize = (quantum_aligned_len / self.quantum) - 1;
+                    const cache = self.quantum_caches.caches.constSlice()[cache_index];
                     if (core.is_debug) std.debug.assert(cache.item_size.value == quantum_aligned_len);
 
                     const buffer = cache.allocate() catch
-                        return AllocateError.RequestedLengthUnavailable; // TODO: is there a better way to handle this?
+                        return innigkeit.mem.arena.AllocateError.RequestedLengthUnavailable; // TODO: is there a better way to handle this?
                     if (core.is_debug) std.debug.assert(buffer.len == quantum_aligned_len);
 
                     return .{
@@ -422,64 +416,65 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
                 }
             }
 
-            try arena.ensureBoundaryTags();
-            errdefer arena.mutex.unlock(); // unconditionally unlock mutex on error
+            try self.ensureBoundaryTags();
+            errdefer self.mutex.unlock(); // unconditionally unlock mutex on error
 
             const target_tag: *BoundaryTag = while (true) {
                 break switch (policy) {
-                    .instant_fit => arena.findInstantFit(quantum_aligned_len),
-                    .best_fit => arena.findBestFit(quantum_aligned_len),
-                    .first_fit => arena.findFirstFit(quantum_aligned_len),
+                    .instant_fit => self.findInstantFit(quantum_aligned_len),
+                    .best_fit => self.findBestFit(quantum_aligned_len),
+                    .first_fit => self.findFirstFit(quantum_aligned_len),
                 } orelse {
-                    const source = arena.source orelse return AllocateError.RequestedLengthUnavailable;
+                    const source = self.source orelse
+                        return innigkeit.mem.arena.AllocateError.RequestedLengthUnavailable;
 
-                    break arena.importFromSource(source, quantum_aligned_len) catch
-                        return AllocateError.RequestedLengthUnavailable;
+                    break self.importFromSource(source, quantum_aligned_len) catch
+                        return innigkeit.mem.arena.AllocateError.RequestedLengthUnavailable;
                 };
             };
             if (core.is_debug) std.debug.assert(target_tag.kind == .free);
             errdefer comptime unreachable;
 
-            arena.splitFreeTag(target_tag, quantum_aligned_len);
+            self.splitFreeTag(target_tag, quantum_aligned_len);
 
             target_tag.kind = .allocated;
             if (core.is_debug) std.debug.assert(target_tag.len == quantum_aligned_len);
 
-            arena.insertIntoAllocationTable(target_tag);
+            self.insertIntoAllocationTable(target_tag);
 
-            arena.mutex.unlock();
+            self.mutex.unlock();
 
-            const allocation: Allocation = .{
+            const allocation: innigkeit.mem.arena.Allocation = .{
                 .base = target_tag.base,
                 .len = quantum_aligned_len,
             };
 
-            log.verbose("{s}: allocated {f}", .{ arena.name(), allocation });
+            log.verbose("{s}: allocated {f}", .{ self.name(), allocation });
 
             return allocation;
         }
 
-        fn findInstantFit(arena: *@This(), quantum_aligned_len: usize) ?*BoundaryTag {
-            if (arena.performStrictInstantFit(quantum_aligned_len)) |tag| {
+        fn findInstantFit(self: *@This(), quantum_aligned_len: usize) ?*BoundaryTag {
+            if (self.performStrictInstantFit(quantum_aligned_len)) |tag| {
                 @branchHint(.likely);
                 return tag;
             }
 
-            return arena.performStrictFirstFit(quantum_aligned_len);
+            return self.performStrictFirstFit(quantum_aligned_len);
         }
 
-        fn findBestFit(arena: *@This(), quantum_aligned_len: usize) ?*BoundaryTag {
+        fn findBestFit(self: *@This(), quantum_aligned_len: usize) ?*BoundaryTag {
             // search the freelist that would contain the exact length tag
             {
                 var opt_best_tag: ?*BoundaryTag = null;
-                var opt_node: ?*KindNode = arena.freelists[indexOfFreelistContainingLen(quantum_aligned_len)].first;
+                var opt_node: ?*KindNode = self.freelists[indexOfFreelistContainingLen(quantum_aligned_len)].first;
 
                 while (opt_node) |node| : (opt_node = node.next) {
                     const tag = node.toTag();
                     if (core.is_debug) std.debug.assert(tag.kind == .free);
 
                     if (tag.len == quantum_aligned_len) {
-                        arena.removeFromFreelist(tag);
+                        self.removeFromFreelist(tag);
                         return tag;
                     }
 
@@ -493,17 +488,17 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
                 }
 
                 if (opt_best_tag) |best_tag| {
-                    arena.removeFromFreelist(best_tag);
+                    self.removeFromFreelist(best_tag);
                     return best_tag;
                 }
             }
 
             // search a freelist that is guaranteed to contain a tag that is large enough for the requested size
-            if (arena.indexOfNonEmptyFreelistInstantFit(quantum_aligned_len)) |index| {
+            if (self.indexOfNonEmptyFreelistInstantFit(quantum_aligned_len)) |index| {
                 const smallest_possible_len = smallestPossibleLenInFreelist(index);
 
                 var opt_best_tag: ?*BoundaryTag = null;
-                var opt_node: ?*KindNode = arena.freelists[index].first;
+                var opt_node: ?*KindNode = self.freelists[index].first;
 
                 while (opt_node) |node| : (opt_node = node.next) {
                     const tag = node.toTag();
@@ -511,7 +506,7 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
 
                     // if this tag is the smallest possible len in this freelist we can never do better
                     if (tag.len == smallest_possible_len) {
-                        arena.removeFromFreelist(tag);
+                        self.removeFromFreelist(tag);
                         return tag;
                     }
 
@@ -523,7 +518,7 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
                 }
 
                 if (opt_best_tag) |best_tag| {
-                    arena.removeFromFreelist(best_tag);
+                    self.removeFromFreelist(best_tag);
                     return best_tag;
                 }
             }
@@ -531,31 +526,31 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
             return null;
         }
 
-        fn findFirstFit(arena: *@This(), quantum_aligned_len: usize) ?*BoundaryTag {
-            if (arena.performStrictFirstFit(quantum_aligned_len)) |tag| return tag;
-            return arena.performStrictInstantFit(quantum_aligned_len);
+        fn findFirstFit(self: *@This(), quantum_aligned_len: usize) ?*BoundaryTag {
+            if (self.performStrictFirstFit(quantum_aligned_len)) |tag| return tag;
+            return self.performStrictInstantFit(quantum_aligned_len);
         }
 
         /// Find a free tag in any freelist that is guaranteed to satisfy the requested size.
-        fn performStrictInstantFit(arena: *@This(), quantum_aligned_len: usize) ?*BoundaryTag {
-            const index = arena.indexOfNonEmptyFreelistInstantFit(quantum_aligned_len) orelse {
+        fn performStrictInstantFit(self: *@This(), quantum_aligned_len: usize) ?*BoundaryTag {
+            const index = self.indexOfNonEmptyFreelistInstantFit(quantum_aligned_len) orelse {
                 @branchHint(.unlikely);
                 return null;
             };
-            const tag = arena.popFromFreelist(index) orelse unreachable;
+            const tag = self.popFromFreelist(index) orelse unreachable;
             if (core.is_debug) std.debug.assert(tag.kind == .free);
             return tag;
         }
 
         /// Search for the first fit tag in the freelist containing the requested size.
-        fn performStrictFirstFit(arena: *@This(), quantum_aligned_len: usize) ?*BoundaryTag {
-            var opt_node: ?*KindNode = arena.freelists[indexOfFreelistContainingLen(quantum_aligned_len)].first;
+        fn performStrictFirstFit(self: *@This(), quantum_aligned_len: usize) ?*BoundaryTag {
+            var opt_node: ?*KindNode = self.freelists[indexOfFreelistContainingLen(quantum_aligned_len)].first;
 
             while (opt_node) |node| : (opt_node = node.next) {
                 const tag = node.toTag();
                 if (core.is_debug) std.debug.assert(tag.kind == .free);
                 if (tag.len >= quantum_aligned_len) {
-                    arena.removeFromFreelist(tag);
+                    self.removeFromFreelist(tag);
                     return tag;
                 }
             }
@@ -567,38 +562,38 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
         ///
         /// The mutex must be locked upon entry and will be locked upon exit.
         fn importFromSource(
-            arena: *@This(),
-            source: Source,
+            self: *@This(),
+            source: innigkeit.mem.arena.Source,
             len: usize,
-        ) (AllocateError || AddSpanError)!*BoundaryTag {
-            arena.mutex.unlock();
+        ) (innigkeit.mem.arena.AllocateError || innigkeit.mem.arena.AddSpanError)!*BoundaryTag {
+            self.mutex.unlock();
 
-            log.verbose("{s}: importing len 0x{x} from source {s}", .{ arena.name(), len, source.name });
+            log.verbose("{s}: importing len 0x{x} from source {s}", .{ self.name(), len, source.name });
 
             var need_to_lock_mutex = true;
-            defer if (need_to_lock_mutex) arena.mutex.lock();
+            defer if (need_to_lock_mutex) self.mutex.lock();
 
             const allocation = try source.callImport(len, .instant_fit);
             errdefer source.callRelease(allocation);
 
-            try arena.ensureBoundaryTags();
+            try self.ensureBoundaryTags();
             need_to_lock_mutex = false;
 
             const span_tag, const free_tag =
-                try arena.getTagsForNewSpan(allocation.base, allocation.len, .imported_span);
+                try self.getTagsForNewSpan(allocation.base, allocation.len, .imported_span);
             errdefer {
-                arena.pushUnusedTag(span_tag);
-                arena.pushUnusedTag(free_tag);
+                self.pushUnusedTag(span_tag);
+                self.pushUnusedTag(free_tag);
             }
 
-            try arena.addSpanInner(span_tag, free_tag, .nop);
+            try self.addSpanInner(span_tag, free_tag, .nop);
 
-            log.verbose("{s}: imported {f} from source {s}", .{ arena.name(), allocation, source.name });
+            log.verbose("{s}: imported {f} from source {s}", .{ self.name(), allocation, source.name });
 
             return free_tag;
         }
 
-        fn splitFreeTag(arena: *@This(), tag: *BoundaryTag, allocation_len: usize) void {
+        fn splitFreeTag(self: *@This(), tag: *BoundaryTag, allocation_len: usize) void {
             if (core.is_debug) {
                 std.debug.assert(tag.kind == .free);
                 std.debug.assert(tag.len >= allocation_len);
@@ -606,7 +601,7 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
 
             if (tag.len == allocation_len) return;
 
-            const new_tag = arena.popUnusedTag();
+            const new_tag = self.popUnusedTag();
 
             new_tag.* = .{
                 .base = tag.base + allocation_len,
@@ -618,29 +613,29 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
 
             tag.len = allocation_len;
 
-            arena.all_tags.insertAfter(
+            self.all_tags.insertAfter(
                 &new_tag.all_tag_node,
                 &tag.all_tag_node,
             );
 
-            arena.pushToFreelist(new_tag);
+            self.pushToFreelist(new_tag);
         }
 
         /// Deallocate the allocation.
         ///
         /// Panics if the allocation does not match a previous call to `allocate`.
-        pub fn deallocate(arena: *@This(), allocation: Allocation) void {
-            log.verbose("{s}: deallocating {f}", .{ arena.name(), allocation });
+        pub fn deallocate(self: *@This(), allocation: innigkeit.mem.arena.Allocation) void {
+            log.verbose("{s}: deallocating {f}", .{ self.name(), allocation });
 
             if (core.is_debug) {
-                std.debug.assert(std.mem.isAligned(allocation.base, arena.quantum));
-                std.debug.assert(std.mem.isAligned(allocation.len, arena.quantum));
+                std.debug.assert(std.mem.isAligned(allocation.base, self.quantum));
+                std.debug.assert(std.mem.isAligned(allocation.len, self.quantum));
             }
 
             if (quantum_caching.haveQuantumCache()) {
-                if (allocation.len <= arena.quantum_caches.max_cached_size) {
-                    const cache_index: usize = (allocation.len / arena.quantum) - 1;
-                    const cache = arena.quantum_caches.caches.constSlice()[cache_index];
+                if (allocation.len <= self.quantum_caches.max_cached_size) {
+                    const cache_index: usize = (allocation.len / self.quantum) - 1;
+                    const cache = self.quantum_caches.caches.constSlice()[cache_index];
                     if (core.is_debug) std.debug.assert(cache.item_size.value == allocation.len);
 
                     const buffer_ptr: [*]u8 = @ptrFromInt(allocation.base);
@@ -652,12 +647,12 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
                 }
             }
 
-            arena.mutex.lock();
+            self.mutex.lock();
 
             var need_to_unlock_mutex = true;
-            defer if (need_to_unlock_mutex) arena.mutex.unlock();
+            defer if (need_to_unlock_mutex) self.mutex.unlock();
 
-            const tag = arena.removeFromAllocationTable(allocation.base) orelse {
+            const tag = self.removeFromAllocationTable(allocation.base) orelse {
                 std.debug.panic(
                     "no allocation at '{}' found!",
                     .{allocation.base},
@@ -683,13 +678,13 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
                 if (previous_tag.kind != .free) break :coalesce_previous_tag;
                 if (core.is_debug) std.debug.assert(previous_tag.base + previous_tag.len == tag.base);
 
-                arena.removeFromFreelist(previous_tag);
-                arena.all_tags.remove(&previous_tag.all_tag_node);
+                self.removeFromFreelist(previous_tag);
+                self.all_tags.remove(&previous_tag.all_tag_node);
 
                 tag.base = previous_tag.base;
                 tag.len = previous_tag.len + tag.len;
 
-                arena.pushUnusedTag(previous_tag);
+                self.pushUnusedTag(previous_tag);
             }
 
             coalesce_next_tag: {
@@ -699,15 +694,15 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
                 if (next_tag.kind != .free) break :coalesce_next_tag;
                 if (core.is_debug) std.debug.assert(tag.base + tag.len == next_tag.base);
 
-                arena.removeFromFreelist(next_tag);
-                arena.all_tags.remove(&next_tag.all_tag_node);
+                self.removeFromFreelist(next_tag);
+                self.all_tags.remove(&next_tag.all_tag_node);
 
                 tag.len = tag.len + next_tag.len;
 
-                arena.pushUnusedTag(next_tag);
+                self.pushUnusedTag(next_tag);
             }
 
-            if (arena.source) |source| {
+            if (self.source) |source| {
                 const previous_node = tag.all_tag_node.previous orelse
                     unreachable; // a free tag will always have atleast its containing spans' tag before it
 
@@ -716,68 +711,71 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
                 if (previous_tag.kind == .imported_span and previous_tag.len == tag.len) {
                     if (core.is_debug) std.debug.assert(previous_tag.base == tag.base);
 
-                    arena.spans.remove(&previous_tag.kind_node);
-                    arena.all_tags.remove(&previous_tag.all_tag_node);
-                    arena.all_tags.remove(&tag.all_tag_node);
+                    self.spans.remove(&previous_tag.kind_node);
+                    self.all_tags.remove(&previous_tag.all_tag_node);
+                    self.all_tags.remove(&tag.all_tag_node);
 
-                    const allocation_to_release: Allocation = .{ .base = previous_tag.base, .len = previous_tag.len };
+                    const allocation_to_release: innigkeit.mem.arena.Allocation = .{
+                        .base = previous_tag.base,
+                        .len = previous_tag.len,
+                    };
 
                     previous_tag.* = .empty(.free);
 
-                    arena.pushUnusedTag(previous_tag);
-                    arena.pushUnusedTag(tag);
+                    self.pushUnusedTag(previous_tag);
+                    self.pushUnusedTag(tag);
 
-                    arena.mutex.unlock();
+                    self.mutex.unlock();
                     need_to_unlock_mutex = false;
 
                     source.callRelease(allocation_to_release);
 
                     log.verbose(
                         "{s}: released {f} to source {s}",
-                        .{ arena.name(), allocation_to_release, source.name },
+                        .{ self.name(), allocation_to_release, source.name },
                     );
 
                     return;
                 }
             }
 
-            arena.pushToFreelist(tag);
+            self.pushToFreelist(tag);
         }
 
         /// Attempts to ensure that there are at least `min_unused_tags_count` unused tags.
         ///
         /// Upon non-error return, the mutex is locked.
-        fn ensureBoundaryTags(arena: *@This()) EnsureBoundaryTagsError!void {
-            arena.mutex.lock();
-            errdefer arena.mutex.unlock();
+        fn ensureBoundaryTags(self: *@This()) innigkeit.mem.arena.EnsureBoundaryTagsError!void {
+            self.mutex.lock();
+            errdefer self.mutex.unlock();
 
-            if (arena.unused_tags_count >= MAX_TAGS_PER_ALLOCATION) return;
+            if (self.unused_tags_count >= globals.MAX_TAGS_PER_ALLOCATION) return;
 
             var tags = core.containers.BoundedArray(
                 *BoundaryTag,
-                MAX_TAGS_PER_ALLOCATION,
-            ).init(MAX_TAGS_PER_ALLOCATION - arena.unused_tags_count) catch unreachable;
+                globals.MAX_TAGS_PER_ALLOCATION,
+            ).init(globals.MAX_TAGS_PER_ALLOCATION - self.unused_tags_count) catch unreachable;
 
             globals.tag_cache.allocateMany(tags.slice()) catch
-                return EnsureBoundaryTagsError.OutOfBoundaryTags;
+                return innigkeit.mem.arena.EnsureBoundaryTagsError.OutOfBoundaryTags;
 
             for (tags.slice()) |tag| {
                 tag.* = .empty(.free);
 
-                arena.pushUnusedTag(tag);
+                self.pushUnusedTag(tag);
             }
         }
 
-        fn insertIntoAllocationTable(arena: *@This(), tag: *BoundaryTag) void {
+        fn insertIntoAllocationTable(self: *@This(), tag: *BoundaryTag) void {
             if (core.is_debug) std.debug.assert(tag.kind == .allocated);
 
-            const index: HashIndex = @truncate(Wyhash.hash(0, std.mem.asBytes(&tag.base)));
-            arena.allocation_table[index].push(&tag.kind_node);
+            const index: globals.HashIndex = @truncate(std.hash.Wyhash.hash(0, std.mem.asBytes(&tag.base)));
+            self.allocation_table[index].push(&tag.kind_node);
         }
 
-        fn removeFromAllocationTable(arena: *@This(), base: usize) ?*BoundaryTag {
-            const index: HashIndex = @truncate(Wyhash.hash(0, std.mem.asBytes(&base)));
-            const bucket = &arena.allocation_table[index];
+        fn removeFromAllocationTable(self: *@This(), base: usize) ?*BoundaryTag {
+            const index: globals.HashIndex = @truncate(std.hash.Wyhash.hash(0, std.mem.asBytes(&base)));
+            const bucket = &self.allocation_table[index];
 
             var opt_node = bucket.first;
             while (opt_node) |node| : (opt_node = node.next) {
@@ -793,55 +791,55 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
             return null;
         }
 
-        fn pushToFreelist(arena: *@This(), tag: *BoundaryTag) void {
+        fn pushToFreelist(self: *@This(), tag: *BoundaryTag) void {
             if (core.is_debug) std.debug.assert(tag.kind == .free);
 
             const index = indexOfFreelistContainingLen(tag.len);
 
-            arena.freelists[index].push(&tag.kind_node);
-            arena.freelist_bitmap.set(index);
+            self.freelists[index].push(&tag.kind_node);
+            self.freelist_bitmap.set(index);
         }
 
-        fn popFromFreelist(arena: *@This(), index: UsizeShiftInt) ?*BoundaryTag {
-            const freelist = &arena.freelists[index];
+        fn popFromFreelist(self: *@This(), index: globals.UsizeShiftInt) ?*BoundaryTag {
+            const freelist = &self.freelists[index];
 
             const node = freelist.pop() orelse return null;
 
-            if (freelist.isEmpty()) arena.freelist_bitmap.unset(index);
+            if (freelist.isEmpty()) self.freelist_bitmap.unset(index);
 
             const tag = node.toTag();
             if (core.is_debug) std.debug.assert(tag.kind == .free);
             return tag;
         }
 
-        fn removeFromFreelist(arena: *@This(), tag: *BoundaryTag) void {
+        fn removeFromFreelist(self: *@This(), tag: *BoundaryTag) void {
             if (core.is_debug) std.debug.assert(tag.kind == .free);
 
             const index = indexOfFreelistContainingLen(tag.len);
-            const freelist = &arena.freelists[index];
+            const freelist = &self.freelists[index];
 
             freelist.remove(&tag.kind_node);
-            if (freelist.isEmpty()) arena.freelist_bitmap.unset(index);
+            if (freelist.isEmpty()) self.freelist_bitmap.unset(index);
         }
 
-        fn popUnusedTag(arena: *@This()) *BoundaryTag {
-            if (core.is_debug) std.debug.assert(arena.unused_tags_count > 0);
-            arena.unused_tags_count -= 1;
-            const tag = arena.unused_tags.pop().?.toTag();
+        fn popUnusedTag(self: *@This()) *BoundaryTag {
+            if (core.is_debug) std.debug.assert(self.unused_tags_count > 0);
+            self.unused_tags_count -= 1;
+            const tag = self.unused_tags.pop().?.toTag();
             if (core.is_debug) std.debug.assert(tag.kind == .free);
             return tag;
         }
 
-        fn pushUnusedTag(arena: *@This(), tag: *BoundaryTag) void {
+        fn pushUnusedTag(self: *@This(), tag: *BoundaryTag) void {
             if (core.is_debug) std.debug.assert(tag.kind == .free);
-            arena.unused_tags.push(&tag.all_tag_node);
-            arena.unused_tags_count += 1;
+            self.unused_tags.push(&tag.all_tag_node);
+            self.unused_tags_count += 1;
         }
 
-        fn indexOfNonEmptyFreelistInstantFit(arena: *const @This(), len: usize) ?UsizeShiftInt {
+        fn indexOfNonEmptyFreelistInstantFit(self: *const @This(), len: usize) ?globals.UsizeShiftInt {
             const pow2_len = std.math.ceilPowerOfTwoAssert(usize, len);
-            const index = @ctz(arena.freelist_bitmap.value & ~(pow2_len - 1));
-            if (index == NUMBER_OF_FREELISTS) {
+            const index = @ctz(self.freelist_bitmap.value & ~(pow2_len - 1));
+            if (index == globals.NUMBER_OF_FREELISTS) {
                 @branchHint(.unlikely);
                 return null;
             }
@@ -852,20 +850,20 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
             custom_import: ?fn (
                 arena_ptr: *anyopaque,
                 len: usize,
-                policy: Policy,
-            ) AllocateError!Allocation = null,
+                policy: innigkeit.mem.arena.Policy,
+            ) innigkeit.mem.arena.AllocateError!innigkeit.mem.arena.Allocation = null,
 
             custom_release: ?fn (
                 arena_ptr: *anyopaque,
-                allocation: Allocation,
+                allocation: innigkeit.mem.arena.Allocation,
             ) void = null,
         };
 
-        pub fn createSource(arena: *@This(), comptime options: CreateSourceOptions) Source {
+        pub fn createSource(self: *@This(), comptime options: CreateSourceOptions) innigkeit.mem.arena.Source {
             const ArenaT = @This();
             return .{
-                .name = arena.name(),
-                .arena_ptr = arena,
+                .name = self.name(),
+                .arena_ptr = self,
                 .import = if (options.custom_import) |custom_import|
                     custom_import
                 else
@@ -873,8 +871,8 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
                         fn importWrapper(
                             arena_ptr: *anyopaque,
                             len: usize,
-                            policy: Policy,
-                        ) AllocateError!Allocation {
+                            policy: innigkeit.mem.arena.Policy,
+                        ) innigkeit.mem.arena.AllocateError!innigkeit.mem.arena.Allocation {
                             const a: *ArenaT = @ptrCast(@alignCast(arena_ptr));
                             return a.allocate(len, policy);
                         }
@@ -885,7 +883,7 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
                     struct {
                         fn releaseWrapper(
                             arena_ptr: *anyopaque,
-                            allocation: Allocation,
+                            allocation: innigkeit.mem.arena.Allocation,
                         ) void {
                             const a: *ArenaT = @ptrCast(@alignCast(arena_ptr));
                             a.deallocate(allocation);
@@ -896,7 +894,10 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
 
         const QuantumCaches = struct {
             caches: if (quantum_caching != .none)
-                core.containers.BoundedArray(*RawCache, MAX_NUMBER_OF_QUANTUM_CACHES)
+                core.containers.BoundedArray(
+                    *RawCache,
+                    globals.MAX_NUMBER_OF_QUANTUM_CACHES,
+                )
             else
                 void = if (quantum_caching != .none) .{} else {},
 
@@ -914,129 +915,17 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
     };
 }
 
-pub const QuantumCaching = union(enum) {
-    none,
+inline fn indexOfFreelistContainingLen(len: usize) globals.UsizeShiftInt {
+    return @intCast(globals.NUMBER_OF_FREELISTS - 1 - @clz(len));
+}
 
-    /// The number of multiples of the quantum to cache.
-    ///
-    /// Uses the heap resource arena to allocate the caches.
-    ///
-    /// Must be non-zero.
-    normal: u8,
+inline fn smallestPossibleLenInFreelist(index: usize) usize {
+    const truncated_len: globals.UsizeShiftInt = @truncate(index);
+    const one: usize = 1;
+    return one << @truncate(truncated_len);
+}
 
-    /// The number of multiples of the quantum to cache.
-    ///
-    /// This should only be used by the heap resource arena itself.
-    ///
-    /// Uses the physical memory allocator and the hhdm to allocate the caches.
-    ///
-    /// Must be non-zero.
-    heap: u8,
-
-    inline fn haveQuantumCache(comptime quantum_caching: QuantumCaching) bool {
-        return switch (quantum_caching) {
-            .none => false,
-            .normal, .heap => true,
-        };
-    }
-};
-
-pub const InitOptions = struct {
-    name: Name,
-
-    quantum: usize,
-
-    source: ?Source = null,
-};
-
-pub const Policy = enum {
-    instant_fit,
-    first_fit,
-    best_fit,
-};
-
-pub const Allocation = struct {
-    base: usize,
-    len: usize,
-
-    pub inline fn toVirtualRange(self: Allocation) innigkeit.KernelVirtualRange {
-        return .{
-            .address = .{ .value = self.base },
-            .size = .from(self.len, .byte),
-        };
-    }
-
-    pub inline fn fromVirtualRange(range: innigkeit.KernelVirtualRange) Allocation {
-        return .{
-            .base = range.address.value,
-            .len = range.size.value,
-        };
-    }
-
-    pub inline fn format(
-        allocation: Allocation,
-        writer: *std.Io.Writer,
-    ) !void {
-        try writer.print("Allocation{{ base: 0x{x}, len: 0x{x} }}", .{ allocation.base, allocation.len });
-    }
-};
-
-pub const Source = struct {
-    name: []const u8,
-
-    arena_ptr: *anyopaque,
-
-    import: *const fn (
-        arena_ptr: *anyopaque,
-        len: usize,
-        policy: Policy,
-    ) AllocateError!Allocation,
-
-    release: *const fn (
-        arena_ptr: *anyopaque,
-        allocation: Allocation,
-    ) void,
-
-    fn callImport(
-        source: *const Source,
-        len: usize,
-        policy: Policy,
-    ) callconv(core.inline_in_non_debug) AllocateError!Allocation {
-        return source.import(source.arena_ptr, len, policy);
-    }
-
-    fn callRelease(
-        source: *const Source,
-        allocation: Allocation,
-    ) callconv(core.inline_in_non_debug) void {
-        source.release(source.arena_ptr, allocation);
-    }
-};
-
-pub const InitError = error{
-    /// The `quantum` is not a power of two.
-    InvalidQuantum,
-};
-
-pub const AddSpanError = error{
-    ZeroLength,
-    WouldWrap,
-    Unaligned,
-    Overlap,
-} || EnsureBoundaryTagsError;
-
-pub const AllocateError = error{
-    ZeroLength,
-    RequestedLengthUnavailable,
-} || EnsureBoundaryTagsError;
-
-pub const EnsureBoundaryTagsError = error{
-    OutOfBoundaryTags,
-};
-
-pub const Name = core.containers.BoundedArray(u8, innigkeit.config.mem.resource_arena_name_length);
-
-const BoundaryTag = struct {
+pub const BoundaryTag = struct {
     base: usize,
     len: usize,
 
@@ -1077,36 +966,36 @@ const BoundaryTag = struct {
         };
     }
 
-    pub fn print(boundary_tag: BoundaryTag, writer: *std.Io.Writer, indent: usize) !void {
+    pub fn print(self: BoundaryTag, writer: *std.Io.Writer, indent: usize) !void {
         const new_indent = indent + 2;
 
         try writer.writeAll("BoundaryTag{\n");
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("base: 0x{x},\n", .{boundary_tag.base});
+        try writer.print("base: 0x{x},\n", .{self.base});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("len: 0x{x},\n", .{boundary_tag.len});
+        try writer.print("len: 0x{x},\n", .{self.len});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("kind: {t},\n", .{boundary_tag.kind});
+        try writer.print("kind: {t},\n", .{self.kind});
 
         try writer.splatByteAll(' ', new_indent);
         try writer.writeAll("all_tag_node: ");
-        try boundary_tag.all_tag_node.print(writer, new_indent);
+        try self.all_tag_node.print(writer, new_indent);
         try writer.writeAll(",\n");
 
         try writer.splatByteAll(' ', new_indent);
         try writer.writeAll("kind_node: ");
-        try boundary_tag.kind_node.print(writer, new_indent);
+        try self.kind_node.print(writer, new_indent);
         try writer.writeAll(",\n");
 
         try writer.splatByteAll(' ', indent);
         try writer.writeByte('}');
     }
 
-    pub inline fn format(boundary_tag: BoundaryTag, writer: *std.Io.Writer) !void {
-        return boundary_tag.print(writer, 0);
+    pub inline fn format(self: BoundaryTag, writer: *std.Io.Writer) !void {
+        return self.print(writer, 0);
     }
 };
 
@@ -1114,23 +1003,23 @@ const AllTagNode = struct {
     previous: ?*AllTagNode,
     next: ?*AllTagNode,
 
-    fn toTag(all_tag_node: *AllTagNode) *BoundaryTag {
-        return @fieldParentPtr("all_tag_node", all_tag_node);
+    fn toTag(self: *AllTagNode) *BoundaryTag {
+        return @fieldParentPtr("all_tag_node", self);
     }
 
     const empty: AllTagNode = .{ .previous = null, .next = null };
 
-    pub fn print(all_tag_node: AllTagNode, writer: *std.Io.Writer, indent: usize) !void {
+    pub fn print(self: AllTagNode, writer: *std.Io.Writer, indent: usize) !void {
         _ = indent;
 
         try writer.writeAll("AllTagNode{ previous: ");
-        if (all_tag_node.previous != null) {
+        if (self.previous != null) {
             try writer.writeAll("set");
         } else {
             try writer.writeAll("null");
         }
         try writer.writeAll(", next: ");
-        if (all_tag_node.next != null) {
+        if (self.next != null) {
             try writer.writeAll("set");
         } else {
             try writer.writeAll("null");
@@ -1138,8 +1027,8 @@ const AllTagNode = struct {
         try writer.writeAll(" }");
     }
 
-    pub inline fn format(all_tag_node: AllTagNode, writer: *std.Io.Writer) !void {
-        return all_tag_node.print(writer, 0);
+    pub inline fn format(self: AllTagNode, writer: *std.Io.Writer) !void {
+        return self.print(writer, 0);
     }
 };
 
@@ -1147,23 +1036,23 @@ const KindNode = struct {
     previous: ?*KindNode,
     next: ?*KindNode,
 
-    fn toTag(kind_node: *KindNode) *BoundaryTag {
-        return @fieldParentPtr("kind_node", kind_node);
+    fn toTag(self: *KindNode) *BoundaryTag {
+        return @fieldParentPtr("kind_node", self);
     }
 
     const empty: KindNode = .{ .previous = null, .next = null };
 
-    pub fn print(kind_node: KindNode, writer: *std.Io.Writer, indent: usize) !void {
+    pub fn print(self: KindNode, writer: *std.Io.Writer, indent: usize) !void {
         _ = indent;
 
         try writer.writeAll("KindNode{ previous: ");
-        if (kind_node.previous != null) {
+        if (self.previous != null) {
             try writer.writeAll("set");
         } else {
             try writer.writeAll("null");
         }
         try writer.writeAll(", next: ");
-        if (kind_node.next != null) {
+        if (self.next != null) {
             try writer.writeAll("set");
         } else {
             try writer.writeAll("null");
@@ -1171,8 +1060,8 @@ const KindNode = struct {
         try writer.writeAll(" }");
     }
 
-    pub inline fn format(kind_node: KindNode, writer: *std.Io.Writer) !void {
-        return kind_node.print(writer, 0);
+    pub inline fn format(self: KindNode, writer: *std.Io.Writer) !void {
+        return self.print(writer, 0);
     }
 };
 
@@ -1181,15 +1070,15 @@ const Bitmap = struct {
 
     const empty: Bitmap = .{ .value = 0 };
 
-    fn set(bitmap: *Bitmap, index: UsizeShiftInt) void {
-        bitmap.value |= maskBit(index);
+    fn set(self: *Bitmap, index: globals.UsizeShiftInt) void {
+        self.value |= maskBit(index);
     }
 
-    fn unset(bitmap: *Bitmap, index: UsizeShiftInt) void {
-        bitmap.value &= ~maskBit(index);
+    fn unset(self: *Bitmap, index: globals.UsizeShiftInt) void {
+        self.value &= ~maskBit(index);
     }
 
-    inline fn maskBit(index: UsizeShiftInt) usize {
+    inline fn maskBit(index: globals.UsizeShiftInt) usize {
         const one: usize = 1;
         return one << index;
     }
@@ -1201,19 +1090,19 @@ const SinglyLinkedList = struct {
 
     const empty: SinglyLinkedList = .{ .first = null };
 
-    fn push(singly_linked_list: *SinglyLinkedList, node: *AllTagNode) void {
+    fn push(self: *SinglyLinkedList, node: *AllTagNode) void {
         if (core.is_debug) std.debug.assert(node.previous == null and node.next == null);
 
-        node.* = .{ .next = singly_linked_list.first, .previous = null };
+        node.* = .{ .next = self.first, .previous = null };
 
-        singly_linked_list.first = node;
+        self.first = node;
     }
 
-    fn pop(singly_linked_list: *SinglyLinkedList) ?*AllTagNode {
-        const node = singly_linked_list.first orelse return null;
+    fn pop(self: *SinglyLinkedList) ?*AllTagNode {
+        const node = self.first orelse return null;
         if (core.is_debug) std.debug.assert(node.previous == null);
 
-        singly_linked_list.first = node.next;
+        self.first = node.next;
 
         node.* = .empty;
 
@@ -1231,10 +1120,10 @@ fn DoublyLinkedList(comptime Node: type) type {
         const empty: DoublyLinkedListT = .{ .first = null };
 
         /// Push a node to the front of the list.
-        fn push(doubly_linked_list: *DoublyLinkedListT, node: *Node) void {
+        fn push(self: *DoublyLinkedListT, node: *Node) void {
             if (core.is_debug) std.debug.assert(node.previous == null and node.next == null);
 
-            const opt_first = doubly_linked_list.first;
+            const opt_first = self.first;
 
             node.next = opt_first;
 
@@ -1244,12 +1133,12 @@ fn DoublyLinkedList(comptime Node: type) type {
             }
 
             node.previous = null;
-            doubly_linked_list.first = node;
+            self.first = node;
         }
 
         /// Pop a node from the front of the list.
-        fn pop(doubly_linked_list: *DoublyLinkedListT) ?*Node {
-            const first = doubly_linked_list.first orelse return null;
+        fn pop(self: *DoublyLinkedListT) ?*Node {
+            const first = self.first orelse return null;
             if (core.is_debug) std.debug.assert(first.previous == null);
 
             const opt_next = first.next;
@@ -1259,7 +1148,7 @@ fn DoublyLinkedList(comptime Node: type) type {
                 next.previous = null;
             }
 
-            doubly_linked_list.first = opt_next;
+            self.first = opt_next;
 
             first.* = .empty;
 
@@ -1267,12 +1156,12 @@ fn DoublyLinkedList(comptime Node: type) type {
         }
 
         /// Removes a node from the list.
-        fn remove(doubly_linked_list: *DoublyLinkedListT, node: *Node) void {
+        fn remove(self: *DoublyLinkedListT, node: *Node) void {
             if (node.previous) |previous| {
                 if (core.is_debug) std.debug.assert(previous.next == node);
                 previous.next = node.next;
             } else {
-                doubly_linked_list.first = node.next;
+                self.first = node.next;
             }
 
             if (node.next) |next| {
@@ -1283,7 +1172,7 @@ fn DoublyLinkedList(comptime Node: type) type {
             node.* = .empty;
         }
 
-        pub fn insertAfter(doubly_linked_list: *DoublyLinkedListT, node: *Node, opt_previous: ?*Node) void {
+        pub fn insertAfter(self: *DoublyLinkedListT, node: *Node, opt_previous: ?*Node) void {
             if (core.is_debug) std.debug.assert(node.previous == null and node.next == null);
 
             if (opt_previous) |previous| {
@@ -1296,56 +1185,45 @@ fn DoublyLinkedList(comptime Node: type) type {
                 previous.next = node;
                 node.previous = previous;
             } else {
-                if (doubly_linked_list.first) |first| {
+                if (self.first) |first| {
                     if (core.is_debug) std.debug.assert(first.previous == null);
                     first.previous = node;
                     node.next = first;
                 }
 
-                doubly_linked_list.first = node;
+                self.first = node;
             }
         }
 
-        inline fn isEmpty(doubly_linked_list: *const DoublyLinkedListT) bool {
-            return doubly_linked_list.first == null;
+        inline fn isEmpty(self: *const DoublyLinkedListT) bool {
+            return self.first == null;
         }
     };
 }
 
-inline fn indexOfFreelistContainingLen(len: usize) UsizeShiftInt {
-    return @intCast(NUMBER_OF_FREELISTS - 1 - @clz(len));
-}
+pub const QuantumCaching = union(enum) {
+    none,
 
-inline fn smallestPossibleLenInFreelist(index: usize) usize {
-    const truncated_len: UsizeShiftInt = @truncate(index);
-    const one: usize = 1;
-    return one << @truncate(truncated_len);
-}
+    /// The number of multiples of the quantum to cache.
+    ///
+    /// Uses the heap resource arena to allocate the caches.
+    ///
+    /// Must be non-zero.
+    normal: u8,
 
-const MAX_NUMBER_OF_QUANTUM_CACHES = 64;
-const QUANTUM_CACHES_PER_PAGE = architecture.paging.standard_page_size.divide(core.Size.of(RawCache));
+    /// The number of multiples of the quantum to cache.
+    ///
+    /// This should only be used by the heap resource arena itself.
+    ///
+    /// Uses the physical memory allocator and the hhdm to allocate the caches.
+    ///
+    /// Must be non-zero.
+    heap: u8,
 
-const NUMBER_OF_HASH_BUCKETS = 64;
-const HashIndex: type = std.math.Log2Int(std.meta.Int(.unsigned, NUMBER_OF_HASH_BUCKETS));
-
-const NUMBER_OF_FREELISTS = @bitSizeOf(usize);
-const UsizeShiftInt: type = std.math.Log2Int(usize);
-
-const TAGS_PER_SPAN_CREATE = 2;
-const TAGS_PER_PARTIAL_ALLOCATION = 1;
-const MAX_TAGS_PER_ALLOCATION = TAGS_PER_SPAN_CREATE + TAGS_PER_PARTIAL_ALLOCATION;
-
-const globals = struct {
-    /// Initialized during `init.initializeCaches`.
-    var tag_cache: innigkeit.mem.cache.Cache(BoundaryTag, null) = undefined;
-};
-
-pub const init = struct {
-    pub fn initializeCaches() !void {
-        log.debug("initializing boundary tag cache", .{});
-        globals.tag_cache.init(.{
-            .name = try .fromSlice("boundary tag"),
-            .slab_source = .pmm,
-        });
+    inline fn haveQuantumCache(comptime self: QuantumCaching) bool {
+        return switch (self) {
+            .none => false,
+            .normal, .heap => true,
+        };
     }
 };

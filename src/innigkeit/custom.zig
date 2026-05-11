@@ -2,6 +2,7 @@ const std = @import("std");
 
 const Bundle = @import("../../build/Bundle.zig");
 const Options = @import("../../build/Options.zig");
+const CInterop = @import("../../build.zig").CInterop;
 
 pub fn custom(
     b: *std.Build,
@@ -66,7 +67,7 @@ pub fn custom(
         });
         module.addIncludePath(uacpi_dep.path("include"));
 
-        const translator = @import("../../build.zig").c.createTranslator(.{
+        const translator = CInterop.createTranslator(.{
             .c_source_file = b.addWriteFiles().add("uacpi_api.h",
                 \\#include <uacpi/event.h>
                 \\#include <uacpi/io.h>
@@ -109,7 +110,7 @@ pub fn custom(
             .flags = &.{"-DFLANTERM_FB_DISABLE_BUMP_ALLOC=1"},
         });
 
-        const translator = @import("../../build.zig").c.createTranslator(.{
+        const translator = CInterop.createTranslator(.{
             .c_source_file = b.addWriteFiles().add("flanterm_api.h",
                 \\#include <flanterm.h>
                 \\#include <flanterm_backends/fb.h>

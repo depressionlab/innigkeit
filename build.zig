@@ -14,7 +14,7 @@ const QEMU = @import("build/QEMU.zig");
 pub fn build(b: *std.Build) !void {
     try disableUnsupportedSteps(b);
     b.enable_qemu = true;
-    c.init(b);
+    CInterop.init(b);
 
     const architectures: []const Bundle.Architecture = std.meta.tags(Bundle.Architecture);
     const wrapper = try Wrapper.create(b, architectures);
@@ -28,7 +28,7 @@ pub fn build(b: *std.Build) !void {
     try QEMU.registerQemuSteps(b, image_steps, options, architectures);
 }
 
-pub const c = struct {
+pub const CInterop = struct {
     pub const Translator = @import("translate_c").Translator;
 
     pub fn createTranslator(options: Translator.Options) Translator {

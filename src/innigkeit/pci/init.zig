@@ -1,6 +1,5 @@
 const std = @import("std");
 const innigkeit = @import("innigkeit");
-const core = @import("core");
 const ECAM = @import("ECAM.zig");
 const Function = @import("Function.zig").Function;
 const globals = @import("globals.zig");

@@ -3,6 +3,7 @@ const interrupt_handlers = @import("handlers.zig");
 const globals = @import("globals.zig");
 const Interrupt = @import("Interrupt.zig").Interrupt;
 const InterruptStackSelector = @import("InterruptStackSelector.zig").InterruptStackSelector;
+const Name = @import("innigkeit").mem.arena.Name;
 
 /// Ensure that any exceptions/faults that occur during early initialization are handled.
 ///
@@ -27,7 +28,7 @@ pub fn initializeEarlyInterrupts() void {
 pub fn initializeInterruptRouting() void {
     globals.interrupt_arena.init(
         .{
-            .name = @import("innigkeit").mem.resource_arena.Name.fromSlice("interrupts") catch unreachable,
+            .name = Name.fromSlice("interrupts") catch unreachable,
             .quantum = 1,
         },
     ) catch |err| {

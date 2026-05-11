@@ -1,14 +1,14 @@
-pub const acpi = @import("acpi/acpi.zig");
+pub const acpi = @import("acpi/root.zig");
 pub const config = @import("config.zig");
-pub const debug = @import("debug/debug.zig");
+pub const debug = @import("debug/root.zig");
 pub const Executor = @import("Executor.zig");
 pub const init = @import("init/root.zig");
-pub const mem = @import("mem/mem.zig");
-pub const pci = @import("pci/pci.zig");
-pub const sync = @import("sync/sync.zig");
+pub const mem = @import("mem/root.zig");
+pub const pci = @import("pci/root.zig");
+pub const sync = @import("sync/root.zig");
 pub const Task = @import("task/Task.zig");
-pub const time = @import("time/time.zig");
-pub const user = @import("user/user.zig");
+pub const time = @import("time/root.zig");
+pub const user = @import("user/root.zig");
 
 const address = @import("address/root.zig");
 pub const VirtualAddress = address.VirtualAddress;

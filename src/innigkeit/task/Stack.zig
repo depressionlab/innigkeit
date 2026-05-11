@@ -130,7 +130,7 @@ pub fn destroyStack(stack: Stack) void {
 const stack_size_including_guard_page = innigkeit.config.task.kernel_stack_size.add(architecture.paging.standard_page_size);
 
 const globals = struct {
-    var stack_arena: innigkeit.mem.resource_arena.Arena(.none) = undefined;
+    var stack_arena: innigkeit.mem.arena.Arena(.none) = undefined;
     var stack_page_table_mutex: innigkeit.sync.Mutex = .{};
 };
 

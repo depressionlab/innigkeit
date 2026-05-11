@@ -6,15 +6,12 @@ pub const Address = extern struct {
     device: u8,
     function: u8,
 
-    pub inline fn format(
-        id: Address,
-        writer: *std.Io.Writer,
-    ) !void {
+    pub inline fn format(self: Address, writer: *std.Io.Writer) !void {
         try writer.print("Address({x:0>4}:{x:0>2}:{x:0>2}:{x:0>1})", .{
-            id.segment,
-            id.bus,
-            id.device,
-            id.function,
+            self.segment,
+            self.bus,
+            self.device,
+            self.function,
         });
     }
 };

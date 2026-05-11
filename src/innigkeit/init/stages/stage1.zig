@@ -4,10 +4,6 @@ const boot = @import("boot");
 const innigkeit = @import("innigkeit");
 const builtin = @import("builtin");
 
-const stage2 = @import("stage2.zig");
-
-pub const Output = @import("output/Output.zig");
-
 const log = innigkeit.debug.log.scoped(.init);
 
 /// Stage 1 of kernel initialization, entry point from bootloader specific code.
@@ -29,7 +25,7 @@ pub fn bootstrap() !noreturn {
     // initialize ACPI tables early to allow discovery of debug output mechanisms
     const acpi_tables = try innigkeit.acpi.init.earlyInitialize();
 
-    Output.registerOutputs(.early);
+    innigkeit.init.Output.registerOutputs(.early);
 
     // no that we have basic output we can log the early memory layout and ACPI tables
     early_memory_layout.log();
@@ -52,7 +48,7 @@ pub fn bootstrap() !noreturn {
     try innigkeit.mem.init.initializeMemorySystem();
 
     // now the memory system is initialized we can attempt to register outputs again
-    Output.registerOutputs(.full);
+    innigkeit.init.Output.registerOutputs(.full);
 
     log.debug("capturing system information", .{});
     try architecture.init.captureSystemInformation(.full, capture_system_information_options);
@@ -86,7 +82,7 @@ pub fn bootstrap() !noreturn {
 
     log.info("zig version: {s}", .{builtin.zig_version_string});
 
-    try stage2.start(new_bootstrap_executor);
+    try @import("stage2.zig").start(new_bootstrap_executor);
     unreachable;
 }
 
@@ -120,7 +116,8 @@ fn loadBootstrapExecutorAndTask() !void {
 ///
 /// Returns the slice of executors and the bootstrap executor.
 fn createExecutors() !struct { []innigkeit.Executor, *innigkeit.Executor } {
-    var descriptors = boot.cpuDescriptors() orelse return error.NoSMPFromBootloader;
+    var descriptors = boot.cpuDescriptors() orelse
+        return error.NoSMPFromBootloader;
 
     if (descriptors.count() > innigkeit.config.executor.maximum_number_of_executors) {
         std.debug.panic(
@@ -167,7 +164,8 @@ fn createExecutors() !struct { []innigkeit.Executor, *innigkeit.Executor } {
 }
 
 fn bootNonBootstrapExecutors() !void {
-    var descriptors = boot.cpuDescriptors() orelse return error.NoSMPFromBootloader;
+    var descriptors = boot.cpuDescriptors() orelse
+        return error.NoSMPFromBootloader;
     var i: u32 = 0;
 
     const bootstrap_architecture_processor_id = boot.bootstrapArchitectureProcessorId();
@@ -179,7 +177,8 @@ fn bootNonBootstrapExecutors() !void {
             &innigkeit.Executor.executors()[i],
             struct {
                 fn bootFn(inner_executor: *anyopaque) !noreturn {
-                    try stage2.start(@ptrCast(@alignCast(inner_executor)));
+                    try @import("stage2.zig")
+                        .start(@ptrCast(@alignCast(inner_executor)));
                 }
             }.bootFn,
         );

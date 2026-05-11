@@ -8,7 +8,7 @@ pub const Function = extern struct {
 
     pub const enhanced_configuration_space_size: core.Size = .from(4096, .byte);
 
-    pub inline fn read(function: *const Function, comptime T: type, offset: usize) T {
+    pub inline fn read(self: *const Function, comptime T: type, offset: usize) T {
         const size_offset: core.Size = .from(offset, .byte);
 
         if (core.is_debug) {
@@ -18,11 +18,11 @@ pub const Function = extern struct {
 
         return architecture.io.readPci(
             T,
-            innigkeit.KernelVirtualAddress.fromPtr(function).moveForward(size_offset),
+            innigkeit.KernelVirtualAddress.fromPtr(self).moveForward(size_offset),
         );
     }
 
-    pub inline fn write(function: *Function, comptime T: type, offset: usize, value: T) void {
+    pub inline fn write(self: *Function, comptime T: type, offset: usize, value: T) void {
         const size_offset: core.Size = .from(offset, .byte);
 
         if (core.is_debug) {
@@ -32,7 +32,7 @@ pub const Function = extern struct {
 
         return architecture.io.writePci(
             T,
-            innigkeit.KernelVirtualAddress.fromPtr(function).moveForward(size_offset),
+            innigkeit.KernelVirtualAddress.fromPtr(self).moveForward(size_offset),
             value,
         );
     }
