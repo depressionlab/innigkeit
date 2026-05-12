@@ -27,17 +27,14 @@ per_executor_periodic: ?PerExecutorPeriodicOptions = null,
 
 initialized: bool = false,
 
-pub fn initialize(
-    candidate_time_source: *CandidateTimeSource,
-    reference_counter: ReferenceCounter,
-) void {
-    if (candidate_time_source.initialized) return;
-    switch (candidate_time_source.initialization) {
+pub fn initialize(self: *CandidateTimeSource, reference_counter: ReferenceCounter) void {
+    if (self.initialized) return;
+    switch (self.initialization) {
         .none => {},
         .simple => |simple| simple(),
         .calibration_required => |calibration_required| calibration_required(reference_counter),
     }
-    candidate_time_source.initialized = true;
+    self.initialized = true;
 }
 
 pub const Initialization = union(enum) {

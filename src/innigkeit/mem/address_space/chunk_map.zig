@@ -7,17 +7,17 @@ pub fn ChunkMap(comptime T: type) type {
 
         const Chunk = [slots_per_chunk]?*T;
 
-        pub fn get(chunk_map: *const @This(), index: u32) ?*T {
-            const chunk = chunk_map.getChunk(index) orelse return null;
+        pub fn get(self: *const @This(), index: u32) ?*T {
+            const chunk = self.getChunk(index) orelse return null;
             return chunk[chunkOffset(index)];
         }
 
-        pub fn getChunk(chunk_map: *const @This(), index: u32) ?*Chunk {
-            return chunk_map.chunks.getPtr(chunkIndex(index)) orelse null;
+        pub fn getChunk(self: *const @This(), index: u32) ?*Chunk {
+            return self.chunks.getPtr(chunkIndex(index)) orelse null;
         }
 
-        pub fn ensureChunk(chunk_map: *@This(), index: u32) !*Chunk {
-            const chunk = try chunk_map.chunks.getOrPut(innigkeit.mem.heap.allocator, chunkIndex(index));
+        pub fn ensureChunk(self: *@This(), index: u32) !*Chunk {
+            const chunk = try self.chunks.getOrPut(innigkeit.mem.heap.allocator, chunkIndex(index));
             if (!chunk.found_existing) {
                 chunk.value_ptr.* = @splat(null);
             }
@@ -25,8 +25,8 @@ pub fn ChunkMap(comptime T: type) type {
         }
 
         /// Deinitializes the chunk map.
-        pub fn deinit(chunk_map: *@This()) void {
-            chunk_map.chunks.deinit(innigkeit.mem.heap.allocator);
+        pub fn deinit(self: *@This()) void {
+            self.chunks.deinit(innigkeit.mem.heap.allocator);
         }
 
         pub inline fn chunkIndex(index: u32) u32 {

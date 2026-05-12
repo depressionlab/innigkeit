@@ -40,22 +40,22 @@ pub const aarch64 = extern struct {
     _cpu_count: u64,
     _cpus: [*]*MPInfo,
 
-    pub fn cpus(response: *const aarch64) []*MPInfo {
-        return response._cpus[0..response._cpu_count];
+    pub fn cpus(self: *const aarch64) []*MPInfo {
+        return self._cpus[0..self._cpu_count];
     }
 
-    pub fn print(response: *const aarch64, writer: *std.Io.Writer, indent: usize) !void {
+    pub fn print(self: *const aarch64, writer: *std.Io.Writer, indent: usize) !void {
         const new_indent = indent + 2;
 
         try writer.writeAll("MP{\n");
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("bsp_mpidr: {}\n", .{response.bsp_mpidr});
+        try writer.print("bsp_mpidr: {}\n", .{self.bsp_mpidr});
 
         try writer.splatByteAll(' ', new_indent);
         try writer.writeAll("cpus:\n");
 
-        for (response.cpus()) |cpu| {
+        for (self.cpus()) |cpu| {
             try writer.splatByteAll(' ', new_indent + 2);
             try cpu.print(writer, new_indent + 2);
             try writer.writeByte('\n');
@@ -65,8 +65,8 @@ pub const aarch64 = extern struct {
         try writer.writeByte('}');
     }
 
-    pub inline fn format(response: *const aarch64, writer: *std.Io.Writer) !void {
-        return response.print(writer.any(), 0);
+    pub inline fn format(self: *const aarch64, writer: *std.Io.Writer) !void {
+        return self.print(writer.any(), 0);
     }
 
     pub const MPInfo = extern struct {
@@ -95,23 +95,23 @@ pub const aarch64 = extern struct {
         /// A free for use field.
         extra_argument: u64,
 
-        pub fn print(mp_info: *const MPInfo, writer: *std.Io.Writer, indent: usize) !void {
+        pub fn print(self: *const MPInfo, writer: *std.Io.Writer, indent: usize) !void {
             const new_indent = indent + 2;
 
             try writer.writeAll("CPU{\n");
 
             try writer.splatByteAll(' ', new_indent);
-            try writer.print("processor_id: {}\n", .{mp_info.processor_id});
+            try writer.print("processor_id: {}\n", .{self.processor_id});
 
             try writer.splatByteAll(' ', new_indent);
-            try writer.print("mpidr: {}\n", .{mp_info.mpidr});
+            try writer.print("mpidr: {}\n", .{self.mpidr});
 
             try writer.splatByteAll(' ', indent);
             try writer.writeByte('}');
         }
 
-        pub inline fn format(mp_info: *const MPInfo, writer: *std.Io.Writer) !void {
-            return mp_info.print(writer, 0);
+        pub inline fn format(self: *const MPInfo, writer: *std.Io.Writer) !void {
+            return self.print(writer, 0);
         }
     };
 };
@@ -128,22 +128,22 @@ pub const loongarch64 = extern struct {
     _cpu_count: u64,
     _cpus: [*]*MPInfo,
 
-    pub fn cpus(response: *const loongarch64) []*MPInfo {
-        return response._cpus[0..response._cpu_count];
+    pub fn cpus(self: *const loongarch64) []*MPInfo {
+        return self._cpus[0..self._cpu_count];
     }
 
-    pub fn print(response: *const loongarch64, writer: *std.Io.Writer, indent: usize) !void {
+    pub fn print(self: *const loongarch64, writer: *std.Io.Writer, indent: usize) !void {
         const new_indent = indent + 2;
 
         try writer.writeAll("MP{\n");
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("bsp_phys_id: {}\n", .{response.bsp_phys_id});
+        try writer.print("bsp_phys_id: {}\n", .{self.bsp_phys_id});
 
         try writer.splatByteAll(' ', new_indent);
         try writer.writeAll("cpus:\n");
 
-        for (response.cpus()) |cpu| {
+        for (self.cpus()) |cpu| {
             try writer.splatByteAll(' ', new_indent + 2);
             try cpu.print(writer, new_indent + 2);
             try writer.writeByte('\n');
@@ -153,8 +153,8 @@ pub const loongarch64 = extern struct {
         try writer.writeByte('}');
     }
 
-    pub inline fn format(response: *const loongarch64, writer: *std.Io.Writer) !void {
-        return response.print(writer.any(), 0);
+    pub inline fn format(self: *const loongarch64, writer: *std.Io.Writer) !void {
+        return self.print(writer.any(), 0);
     }
 
     pub const MPInfo = extern struct {
@@ -181,23 +181,23 @@ pub const loongarch64 = extern struct {
         /// A free for use field.
         extra_argument: u64,
 
-        pub fn print(mp_info: *const MPInfo, writer: *std.Io.Writer, indent: usize) !void {
+        pub fn print(self: *const MPInfo, writer: *std.Io.Writer, indent: usize) !void {
             const new_indent = indent + 2;
 
             try writer.writeAll("CPU{\n");
 
             try writer.splatByteAll(' ', new_indent);
-            try writer.print("processor_id: {}\n", .{mp_info.processor_id});
+            try writer.print("processor_id: {}\n", .{self.processor_id});
 
             try writer.splatByteAll(' ', new_indent);
-            try writer.print("phys_id: {}\n", .{mp_info.phys_id});
+            try writer.print("phys_id: {}\n", .{self.phys_id});
 
             try writer.splatByteAll(' ', indent);
             try writer.writeByte('}');
         }
 
-        pub inline fn format(mp_info: *const MPInfo, writer: *std.Io.Writer) !void {
-            return mp_info.print(writer, 0);
+        pub inline fn format(self: *const MPInfo, writer: *std.Io.Writer) !void {
+            return self.print(writer, 0);
         }
     };
 };
@@ -214,18 +214,18 @@ pub const riscv64 = extern struct {
     _cpu_count: u64,
     _cpus: [*]*MPInfo,
 
-    pub fn print(response: *const riscv64, writer: *std.Io.Writer, indent: usize) !void {
+    pub fn print(self: *const riscv64, writer: *std.Io.Writer, indent: usize) !void {
         const new_indent = indent + 2;
 
         try writer.writeAll("MP{\n");
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("bsp_hartid: {}\n", .{response.bsp_hartid});
+        try writer.print("bsp_hartid: {}\n", .{self.bsp_hartid});
 
         try writer.splatByteAll(' ', new_indent);
         try writer.writeAll("cpus:\n");
 
-        for (response.cpus()) |cpu| {
+        for (self.cpus()) |cpu| {
             try writer.splatByteAll(' ', new_indent + 2);
             try cpu.print(writer, new_indent + 2);
             try writer.writeByte('\n');
@@ -235,12 +235,12 @@ pub const riscv64 = extern struct {
         try writer.writeByte('}');
     }
 
-    pub inline fn format(response: *const riscv64, writer: *std.Io.Writer) !void {
-        return response.print(writer, 0);
+    pub inline fn format(self: *const riscv64, writer: *std.Io.Writer) !void {
+        return self.print(writer, 0);
     }
 
-    pub fn cpus(response: *const riscv64) []*MPInfo {
-        return response._cpus[0..response._cpu_count];
+    pub fn cpus(self: *const riscv64) []*MPInfo {
+        return self._cpus[0..self._cpu_count];
     }
 
     pub const MPInfo = extern struct {
@@ -267,23 +267,23 @@ pub const riscv64 = extern struct {
         /// A free for use field.
         extra_argument: u64,
 
-        pub fn print(mp_info: *const MPInfo, writer: *std.Io.Writer, indent: usize) !void {
+        pub fn print(self: *const MPInfo, writer: *std.Io.Writer, indent: usize) !void {
             const new_indent = indent + 2;
 
             try writer.writeAll("CPU{\n");
 
             try writer.splatByteAll(' ', new_indent);
-            try writer.print("processor_id: {}\n", .{mp_info.processor_id});
+            try writer.print("processor_id: {}\n", .{self.processor_id});
 
             try writer.splatByteAll(' ', new_indent);
-            try writer.print("hartid: {}\n", .{mp_info.hartid});
+            try writer.print("hartid: {}\n", .{self.hartid});
 
             try writer.splatByteAll(' ', indent);
             try writer.writeByte('}');
         }
 
-        pub inline fn format(mp_info: *const MPInfo, writer: *std.Io.Writer) !void {
-            return mp_info.print(mp_info, writer, 0);
+        pub inline fn format(self: *const MPInfo, writer: *std.Io.Writer) !void {
+            return self.print(self, writer, 0);
         }
     };
 };
@@ -305,25 +305,25 @@ pub const x86_64 = extern struct {
         _: u31 = 0,
     };
 
-    pub fn cpus(response: *const x86_64) []*MPInfo {
-        return response._cpus[0..response._cpu_count];
+    pub fn cpus(self: *const x86_64) []*MPInfo {
+        return self._cpus[0..self._cpu_count];
     }
 
-    pub fn print(response: *const x86_64, writer: *std.Io.Writer, indent: usize) !void {
+    pub fn print(self: *const x86_64, writer: *std.Io.Writer, indent: usize) !void {
         const new_indent = indent + 2;
 
         try writer.writeAll("MP{\n");
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("bsp_lapic_id: {}\n", .{response.bsp_lapic_id});
+        try writer.print("bsp_lapic_id: {}\n", .{self.bsp_lapic_id});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("x2apic_enabled: {}\n", .{response.flags.x2apic_enabled});
+        try writer.print("x2apic_enabled: {}\n", .{self.flags.x2apic_enabled});
 
         try writer.splatByteAll(' ', new_indent);
         try writer.writeAll("cpus:\n");
 
-        for (response.cpus()) |cpu| {
+        for (self.cpus()) |cpu| {
             try writer.splatByteAll(' ', new_indent + 2);
             try cpu.print(writer, new_indent + 2);
             try writer.writeByte('\n');
@@ -333,8 +333,8 @@ pub const x86_64 = extern struct {
         try writer.writeByte('}');
     }
 
-    pub inline fn format(response: *const x86_64, writer: *std.Io.Writer) !void {
-        return response.print(writer, 0);
+    pub inline fn format(self: *const x86_64, writer: *std.Io.Writer) !void {
+        return self.print(writer, 0);
     }
 
     pub const MPInfo = extern struct {
@@ -361,23 +361,23 @@ pub const x86_64 = extern struct {
         /// A free for use field.
         extra_argument: u64,
 
-        pub fn print(mp_info: *const MPInfo, writer: *std.Io.Writer, indent: usize) !void {
+        pub fn print(self: *const MPInfo, writer: *std.Io.Writer, indent: usize) !void {
             const new_indent = indent + 2;
 
             try writer.writeAll("CPU{\n");
 
             try writer.splatByteAll(' ', new_indent);
-            try writer.print("processor_id: {}\n", .{mp_info.processor_id});
+            try writer.print("processor_id: {}\n", .{self.processor_id});
 
             try writer.splatByteAll(' ', new_indent);
-            try writer.print("lapic_id: {}\n", .{mp_info.lapic_id});
+            try writer.print("lapic_id: {}\n", .{self.lapic_id});
 
             try writer.splatByteAll(' ', indent);
             try writer.writeByte('}');
         }
 
-        pub inline fn format(mp_info: *const MPInfo, writer: *std.Io.Writer) !void {
-            return mp_info.print(writer, 0);
+        pub inline fn format(self: *const MPInfo, writer: *std.Io.Writer) !void {
+            return self.print(writer, 0);
         }
     };
 };

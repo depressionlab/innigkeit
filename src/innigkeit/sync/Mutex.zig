@@ -3,25 +3,22 @@
 //! Recursive locks are not supported.
 //!
 //! Preemption is disabled while locked.
+const Mutex = @This();
 
 const std = @import("std");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
 
-const Mutex = @This();
-
 locked_by: std.atomic.Value(?*innigkeit.Task) align(std.atomic.cache_line) = .init(null),
-
 unlock_type: UnlockType = .unlocked,
-
 spinlock: innigkeit.sync.TicketSpinLock = .{},
 wait_queue: innigkeit.sync.WaitQueue = .{},
 
-pub fn lock(mutex: *Mutex) void {
+pub fn lock(self: *Mutex) void {
     const current_task: innigkeit.Task.Current = .get();
 
     while (true) {
-        var locked_by = mutex.locked_by.cmpxchgWeak(
+        var locked_by = self.locked_by.cmpxchgWeak(
             null,
             current_task.task,
             .acquire,
@@ -32,7 +29,7 @@ pub fn lock(mutex: *Mutex) void {
         };
 
         if (locked_by == current_task.task) {
-            switch (mutex.unlock_type) {
+            switch (self.unlock_type) {
                 .passed_to_waiter => {
                     @branchHint(.likely);
                     // the mutex was passed directly to us
@@ -45,25 +42,25 @@ pub fn lock(mutex: *Mutex) void {
             }
         }
 
-        mutex.spinlock.lock();
+        self.spinlock.lock();
 
-        locked_by = mutex.locked_by.cmpxchgStrong(
+        locked_by = self.locked_by.cmpxchgStrong(
             null,
             current_task.task,
             .acquire,
             .monotonic,
         ) orelse {
             // we have the mutex
-            mutex.spinlock.unlock();
+            self.spinlock.unlock();
             return;
         };
 
         if (locked_by == current_task.task) {
-            switch (mutex.unlock_type) {
+            switch (self.unlock_type) {
                 .passed_to_waiter => {
                     @branchHint(.likely);
                     // the mutex was passed directly to us
-                    mutex.spinlock.unlock();
+                    self.spinlock.unlock();
                     return;
                 },
                 .unlocked => {
@@ -73,15 +70,15 @@ pub fn lock(mutex: *Mutex) void {
             }
         }
 
-        mutex.wait_queue.wait(&mutex.spinlock);
+        self.wait_queue.wait(&self.spinlock);
     }
 }
 
 /// Try to lock the mutex.
-pub fn tryLock(mutex: *Mutex) bool {
+pub fn tryLock(self: *Mutex) bool {
     const current_task: innigkeit.Task.Current = .get();
 
-    const locked_by = mutex.locked_by.cmpxchgStrong(
+    const locked_by = self.locked_by.cmpxchgStrong(
         null,
         current_task.task,
         .acquire,
@@ -92,7 +89,7 @@ pub fn tryLock(mutex: *Mutex) bool {
         @branchHint(.cold);
         if (core.is_debug) {
             // this could only happen if we were queued for the mutex but then how would we call tryLock?
-            std.debug.assert(mutex.unlock_type != .passed_to_waiter);
+            std.debug.assert(self.unlock_type != .passed_to_waiter);
         }
         @panic("recursive lock!");
     }
@@ -100,16 +97,16 @@ pub fn tryLock(mutex: *Mutex) bool {
     return false;
 }
 
-pub fn unlock(mutex: *Mutex) void {
-    mutex.spinlock.lock();
-    defer mutex.spinlock.unlock();
+pub fn unlock(self: *Mutex) void {
+    self.spinlock.lock();
+    defer self.spinlock.unlock();
 
     const current_task: innigkeit.Task.Current = .get();
 
-    const waiting_task = mutex.wait_queue.firstTask() orelse {
-        mutex.unlock_type = .unlocked;
+    const waiting_task = self.wait_queue.firstTask() orelse {
+        self.unlock_type = .unlocked;
 
-        if (mutex.locked_by.cmpxchgStrong(
+        if (self.locked_by.cmpxchgStrong(
             current_task.task,
             null,
             .release,
@@ -123,9 +120,9 @@ pub fn unlock(mutex: *Mutex) void {
     };
 
     // pass the mutex directly to the waiting task
-    mutex.unlock_type = .passed_to_waiter;
+    self.unlock_type = .passed_to_waiter;
 
-    if (mutex.locked_by.cmpxchgStrong(
+    if (self.locked_by.cmpxchgStrong(
         current_task.task,
         waiting_task,
         .release,
@@ -135,12 +132,12 @@ pub fn unlock(mutex: *Mutex) void {
         @panic("not locked by current task!");
     }
 
-    mutex.wait_queue.wakeOne(&mutex.spinlock);
+    self.wait_queue.wakeOne(&self.spinlock);
 }
 
 /// Returns `true` if the mutex is locked.
-pub fn isLocked(mutex: *Mutex) bool {
-    return mutex.locked_by.load(.monotonic) != null;
+pub fn isLocked(self: *Mutex) bool {
+    return self.locked_by.load(.monotonic) != null;
 }
 
 const UnlockType = enum {

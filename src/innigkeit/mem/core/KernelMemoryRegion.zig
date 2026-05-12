@@ -26,13 +26,10 @@ pub const Type = enum {
     kernel_address_space,
 };
 
-pub inline fn format(
-    region: KernelMemoryRegion,
-    writer: *std.Io.Writer,
-) !void {
+pub inline fn format(self: KernelMemoryRegion, writer: *std.Io.Writer) !void {
     try writer.print("Region{{ {f} - {t} }}", .{
-        region.range,
-        region.type,
+        self.range,
+        self.type,
     });
 }
 
@@ -43,31 +40,31 @@ pub const List = struct {
     ) = .{},
 
     /// Find the region of the given type.
-    pub fn find(list: *const List, region_type: Type) ?KernelMemoryRegion {
-        for (list.values.constSlice()) |region| {
+    pub fn find(self: *const List, region_type: Type) ?KernelMemoryRegion {
+        for (self.values.constSlice()) |region| {
             if (region.type == region_type) return region;
         }
         return null;
     }
 
     /// Find the region containing the given address.
-    pub fn containingAddress(list: *const List, address: innigkeit.KernelVirtualAddress) ?KernelMemoryRegion.Type {
-        for (list.values.constSlice()) |region| {
+    pub fn containingAddress(self: *const List, address: innigkeit.KernelVirtualAddress) ?KernelMemoryRegion.Type {
+        for (self.values.constSlice()) |region| {
             if (region.range.containsAddress(address)) return region.type;
         }
         return null;
     }
 
-    pub fn append(list: *List, region: KernelMemoryRegion) void {
-        list.values.appendAssumeCapacity(region);
+    pub fn append(self: *List, region: KernelMemoryRegion) void {
+        self.values.appendAssumeCapacity(region);
     }
 
-    pub fn constSlice(list: *const List) []const KernelMemoryRegion {
-        return list.values.constSlice();
+    pub fn constSlice(self: *const List) []const KernelMemoryRegion {
+        return self.values.constSlice();
     }
 
-    pub fn sort(list: *List) void {
-        std.mem.sortUnstable(innigkeit.mem.KernelMemoryRegion, list.values.slice(), {}, struct {
+    pub fn sort(self: *List) void {
+        std.mem.sortUnstable(innigkeit.mem.KernelMemoryRegion, self.values.slice(), {}, struct {
             fn lessThanFn(
                 context: void,
                 region: innigkeit.mem.KernelMemoryRegion,
@@ -79,15 +76,11 @@ pub const List = struct {
         }.lessThanFn);
     }
 
-    pub fn findFreeRange(
-        list: *List,
-        size: core.Size,
-        alignment: std.mem.Alignment,
-    ) ?innigkeit.KernelVirtualRange {
+    pub fn findFreeRange(self: *List, size: core.Size, alignment: std.mem.Alignment) ?innigkeit.KernelVirtualRange {
         // needs the regions to be sorted
-        list.sort();
+        self.sort();
 
-        const regions = list.constSlice();
+        const regions = self.constSlice();
 
         var current_address = architecture.paging.kernel_memory_range.address.toKernel();
         current_address.alignForwardInPlace(alignment);

@@ -21,16 +21,16 @@ pub const Response = extern struct {
     /// String containing the command line associated with the booted executable.
     ///
     /// This is a pointer to the same memory as the `string` member of the `executable_file` structure of the Executable File feature.
-    pub fn cmdline(response: *const Response) ?[:0]const u8 {
+    pub fn cmdline(self: *const Response) ?[:0]const u8 {
         const str = std.mem.sliceTo(
-            response._cmdline orelse return null,
+            self._cmdline orelse return null,
             0,
         );
         return if (str.len == 0) null else str;
     }
 
-    pub fn format(response: *const Response, writer: *std.Io.Writer) !void {
-        if (response.cmdline()) |c| {
+    pub fn format(self: *const Response, writer: *std.Io.Writer) !void {
+        if (self.cmdline()) |c| {
             try writer.print("ExecutableCommandLine(\"{s}\")", .{c});
         } else {
             try writer.writeAll("ExecutableCommandLine(null)");

@@ -1,5 +1,7 @@
 const std = @import("std");
 
+// TODO: make acpi less terrible
+
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 
@@ -146,14 +148,14 @@ pub const init = struct {
                 };
             }
 
-            pub fn deinit(acpi_table: AcpiTableT) void {
-                acpi_table.handle.unref() catch unreachable;
+            pub fn deinit(self: AcpiTableT) void {
+                self.handle.unref() catch unreachable;
             }
 
-            pub inline fn format(acpi_table: AcpiTableT, writer: *std.Io.Writer) !void {
+            pub inline fn format(self: AcpiTableT, writer: *std.Io.Writer) !void {
                 try writer.print(
                     "AcpiTable{{ signature: {s}, revision: {d} }}",
-                    .{ acpi_table.table.header.signatureAsString(), acpi_table.table.header.revision },
+                    .{ self.table.header.signatureAsString(), self.table.header.revision },
                 );
             }
         };
@@ -178,23 +180,23 @@ pub const init = struct {
 
         is_xsdt: bool,
 
-        pub fn next(table_iterator: *TableIterator) ?*const tables.SharedHeader {
-            const opt_phys_addr = if (table_iterator.is_xsdt)
-                table_iterator.nextTablePhysicalAddressImpl(u64)
+        pub fn next(self: *TableIterator) ?*const tables.SharedHeader {
+            const opt_phys_addr = if (self.is_xsdt)
+                self.nextTablePhysicalAddressImpl(u64)
             else
-                table_iterator.nextTablePhysicalAddressImpl(u32);
+                self.nextTablePhysicalAddressImpl(u32);
 
             const phys_addr = opt_phys_addr orelse return null;
 
             return phys_addr.toDirectMap().toPtr(*const tables.SharedHeader);
         }
 
-        fn nextTablePhysicalAddressImpl(table_iterator: *TableIterator, comptime T: type) ?innigkeit.PhysicalAddress {
-            if (@intFromPtr(table_iterator.ptr) + @sizeOf(T) >= @intFromPtr(table_iterator.end_ptr)) return null;
+        fn nextTablePhysicalAddressImpl(self: *TableIterator, comptime T: type) ?innigkeit.PhysicalAddress {
+            if (@intFromPtr(self.ptr) + @sizeOf(T) >= @intFromPtr(self.end_ptr)) return null;
 
-            const physical_address = std.mem.readInt(T, @ptrCast(table_iterator.ptr), .little);
+            const physical_address = std.mem.readInt(T, @ptrCast(self.ptr), .little);
 
-            table_iterator.ptr += @sizeOf(T);
+            self.ptr += @sizeOf(T);
 
             return .from(physical_address);
         }

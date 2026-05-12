@@ -22,16 +22,16 @@ ranges: core.containers.BoundedArray(
 /// - `range.address` must be greater than or equal to the end of the last range in the batch
 /// - `range.address` must be aligned to `arch.paging.standard_page_size`
 /// - `range.size` must be aligned to `arch.paging.standard_page_size`
-pub fn appendMergeIfFull(batch: *VirtualRangeBatch, range: innigkeit.VirtualRange) void {
+pub fn appendMergeIfFull(self: *VirtualRangeBatch, range: innigkeit.VirtualRange) void {
     if (core.is_debug) std.debug.assert(range.pageAligned());
 
-    switch (batch.ranges.len) {
-        0 => batch.ranges.appendAssumeCapacity(range),
+    switch (self.ranges.len) {
+        0 => self.ranges.appendAssumeCapacity(range),
         innigkeit.config.mem.virtual_ranges_to_batch => {
             @branchHint(.unlikely);
 
             // we have hit the limit of virtual ranges to batch together so we always merge with the last range
-            const last: *innigkeit.VirtualRange = &batch.ranges.slice()[innigkeit.config.mem.virtual_ranges_to_batch - 1];
+            const last: *innigkeit.VirtualRange = &self.ranges.slice()[innigkeit.config.mem.virtual_ranges_to_batch - 1];
 
             if (core.is_debug) std.debug.assert(range.address.greaterThanOrEqual(last.after()));
 
@@ -39,7 +39,7 @@ pub fn appendMergeIfFull(batch: *VirtualRangeBatch, range: innigkeit.VirtualRang
             last.size.addInPlace(range.size);
         },
         else => |len| {
-            const last: *innigkeit.VirtualRange = &batch.ranges.slice()[len - 1];
+            const last: *innigkeit.VirtualRange = &self.ranges.slice()[len - 1];
 
             if (core.is_debug) std.debug.assert(range.address.greaterThanOrEqual(last.after()));
 
@@ -49,7 +49,7 @@ pub fn appendMergeIfFull(batch: *VirtualRangeBatch, range: innigkeit.VirtualRang
                 last.size.addInPlace(seperation_size);
                 last.size.addInPlace(range.size);
             } else {
-                batch.ranges.appendAssumeCapacity(range);
+                self.ranges.appendAssumeCapacity(range);
             }
         },
     }
@@ -64,17 +64,17 @@ pub fn appendMergeIfFull(batch: *VirtualRangeBatch, range: innigkeit.VirtualRang
 /// - `range.address` must be greater than or equal to the end of the last range in the batch
 /// - `range.address` must be aligned to `arch.paging.standard_page_size`
 /// - `range.size` must be aligned to `arch.paging.standard_page_size`
-pub fn append(batch: *VirtualRangeBatch, range: innigkeit.VirtualRange) bool {
+pub fn append(self: *VirtualRangeBatch, range: innigkeit.VirtualRange) bool {
     if (core.is_debug) std.debug.assert(range.pageAligned());
 
-    const len = batch.ranges.len;
+    const len = self.ranges.len;
 
     if (len == 0) {
-        batch.ranges.appendAssumeCapacity(range);
+        self.ranges.appendAssumeCapacity(range);
         return true;
     }
 
-    const last: *innigkeit.VirtualRange = &batch.ranges.slice()[len - 1];
+    const last: *innigkeit.VirtualRange = &self.ranges.slice()[len - 1];
 
     if (core.is_debug) std.debug.assert(range.address.greaterThanOrEqual(last.after()));
 
@@ -86,19 +86,19 @@ pub fn append(batch: *VirtualRangeBatch, range: innigkeit.VirtualRange) bool {
         return true;
     }
 
-    if (batch.full()) {
+    if (self.full()) {
         @branchHint(.unlikely);
         return false;
     }
 
-    batch.ranges.appendAssumeCapacity(range);
+    self.ranges.appendAssumeCapacity(range);
     return true;
 }
 
-pub fn full(batch: *VirtualRangeBatch) bool {
-    return batch.ranges.len == innigkeit.config.mem.virtual_ranges_to_batch;
+pub fn full(self: *VirtualRangeBatch) bool {
+    return self.ranges.len == innigkeit.config.mem.virtual_ranges_to_batch;
 }
 
-pub fn clear(batch: *VirtualRangeBatch) void {
-    batch.ranges.clear();
+pub fn clear(self: *VirtualRangeBatch) void {
+    self.ranges.clear();
 }

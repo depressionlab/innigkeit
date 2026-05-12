@@ -88,78 +88,75 @@ pub const RFlags = packed struct(u64) {
     /// Writes the RFLAGS register.
     ///
     /// Note: does not protect reserved bits, that is left up to the caller
-    pub inline fn write(rflags: RFlags) void {
+    pub inline fn write(self: RFlags) void {
         asm volatile ("pushq %[val]; popfq"
             :
-            : [val] "r" (@as(u64, @bitCast(rflags))),
+            : [val] "r" (@as(u64, @bitCast(self))),
             : .{ .flags = true });
     }
 
-    pub fn print(rflags: RFlags, writer: *std.Io.Writer, indent: usize) !void {
+    pub fn print(self: RFlags, writer: *std.Io.Writer, indent: usize) !void {
         const new_indent = indent + 2;
 
         try writer.writeAll("RFlags{\n");
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("carry: {},\n", .{rflags.carry});
+        try writer.print("carry: {},\n", .{self.carry});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("parity: {},\n", .{rflags.parity});
+        try writer.print("parity: {},\n", .{self.parity});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("auxiliary_carry: {},\n", .{rflags.auxiliary_carry});
+        try writer.print("auxiliary_carry: {},\n", .{self.auxiliary_carry});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("zero: {},\n", .{rflags.zero});
+        try writer.print("zero: {},\n", .{self.zero});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("sign: {},\n", .{rflags.sign});
+        try writer.print("sign: {},\n", .{self.sign});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("trap: {},\n", .{rflags.trap});
+        try writer.print("trap: {},\n", .{self.trap});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("enable_interrupts: {},\n", .{rflags.enable_interrupts});
+        try writer.print("enable_interrupts: {},\n", .{self.enable_interrupts});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("direction: {},\n", .{rflags.direction});
+        try writer.print("direction: {},\n", .{self.direction});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("overflow: {},\n", .{rflags.overflow});
+        try writer.print("overflow: {},\n", .{self.overflow});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("iopl: {t},\n", .{rflags.iopl});
+        try writer.print("iopl: {t},\n", .{self.iopl});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("nested: {},\n", .{rflags.nested});
+        try writer.print("nested: {},\n", .{self.nested});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("resume: {},\n", .{rflags.@"resume"});
+        try writer.print("resume: {},\n", .{self.@"resume"});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("virtual_8086: {},\n", .{rflags.virtual_8086});
+        try writer.print("virtual_8086: {},\n", .{self.virtual_8086});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("alignment_check: {},\n", .{rflags.alignment_check});
+        try writer.print("alignment_check: {},\n", .{self.alignment_check});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("virtual_interrupt: {},\n", .{rflags.virtual_interrupt});
+        try writer.print("virtual_interrupt: {},\n", .{self.virtual_interrupt});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("virtual_interrupt_pending: {},\n", .{rflags.virtual_interrupt_pending});
+        try writer.print("virtual_interrupt_pending: {},\n", .{self.virtual_interrupt_pending});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("id: {},\n", .{rflags.id});
+        try writer.print("id: {},\n", .{self.id});
 
         try writer.splatByteAll(' ', indent);
         try writer.writeAll("}");
     }
 
-    pub inline fn format(
-        rflags: RFlags,
-        writer: *std.Io.Writer,
-    ) !void {
-        return print(rflags, writer, 0);
+    pub inline fn format(self: RFlags, writer: *std.Io.Writer) !void {
+        return print(self, writer, 0);
     }
 
     comptime {

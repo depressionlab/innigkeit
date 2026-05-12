@@ -38,37 +38,34 @@ pub fn create(physical_page: PhysicalPage.Index) !*AnonPage {
 /// Increment the reference count.
 ///
 /// When called the lock must be held.
-pub fn incrementReferenceCount(anonymous_page: *AnonPage) void {
+pub fn incrementReferenceCount(self: *AnonPage) void {
     if (core.is_debug) {
-        std.debug.assert(anonymous_page.reference_count != 0);
-        std.debug.assert(anonymous_page.lock.isLockedByCurrent());
+        std.debug.assert(self.reference_count != 0);
+        std.debug.assert(self.lock.isLockedByCurrent());
     }
 
-    anonymous_page.reference_count += 1;
+    self.reference_count += 1;
 }
 
 /// Decrement the reference count.
 ///
 /// When called the a write lock must be held, upon return the lock is unlocked.
-pub fn decrementReferenceCount(
-    anonymous_page: *AnonPage,
-    deallocate_page_list: *innigkeit.mem.PhysicalPage.List,
-) void {
+pub fn decrementReferenceCount(self: *AnonPage, deallocate_page_list: *innigkeit.mem.PhysicalPage.List) void {
     if (core.is_debug) {
-        std.debug.assert(anonymous_page.reference_count != 0);
-        std.debug.assert(anonymous_page.lock.isWriteLocked());
+        std.debug.assert(self.reference_count != 0);
+        std.debug.assert(self.lock.isWriteLocked());
     }
 
-    const reference_count = anonymous_page.reference_count;
-    anonymous_page.reference_count = reference_count - 1;
+    const reference_count = self.reference_count;
+    self.reference_count = reference_count - 1;
 
     if (reference_count == 1) {
         // reference count is now zero, destroy the anonymous page
-        anonymous_page.destroy(deallocate_page_list);
+        self.destroy(deallocate_page_list);
         return;
     }
 
-    anonymous_page.lock.writeUnlock();
+    self.lock.writeUnlock();
 }
 
 /// Destroy the anonymous page.
@@ -76,19 +73,16 @@ pub fn decrementReferenceCount(
 /// Only called by `decrementReferenceCount` when the reference count is zero.
 ///
 /// Called `uvm_anfree` in OpenBSD uvm.
-fn destroy(
-    anonymous_page: *AnonPage,
-    deallocate_page_list: *innigkeit.mem.PhysicalPage.List,
-) void {
+fn destroy(self: *AnonPage, deallocate_page_list: *innigkeit.mem.PhysicalPage.List) void {
     if (core.is_debug) {
-        std.debug.assert(anonymous_page.lock.isWriteLocked());
-        std.debug.assert(anonymous_page.reference_count == 0);
+        std.debug.assert(self.lock.isWriteLocked());
+        std.debug.assert(self.reference_count == 0);
     }
 
-    deallocate_page_list.prepend(anonymous_page.physical_page);
+    deallocate_page_list.prepend(self.physical_page);
 
-    anonymous_page.lock.writeUnlock();
-    globals.anonymous_page_cache.deallocate(anonymous_page);
+    self.lock.writeUnlock();
+    globals.anonymous_page_cache.deallocate(self);
 }
 
 const globals = struct {

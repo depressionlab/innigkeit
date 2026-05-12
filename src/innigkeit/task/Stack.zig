@@ -1,10 +1,9 @@
-const std = @import("std");
+const Stack = @This();
 
+const std = @import("std");
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
-
-const Stack = @This();
 
 /// The entire virtual range including the guard page.
 range: innigkeit.KernelVirtualRange,
@@ -49,31 +48,31 @@ pub fn fromRange(range: innigkeit.KernelVirtualRange, usable_range: innigkeit.Ke
 }
 
 /// Pushes a value onto the stack.
-pub fn push(stack: *Stack, value: usize) error{StackOverflow}!void {
-    const new_stack_pointer: innigkeit.KernelVirtualAddress = stack.stack_pointer.moveBackward(.of(usize));
-    if (new_stack_pointer.lessThan(stack.usable_range.address)) return error.StackOverflow;
+pub fn push(self: *Stack, value: usize) error{StackOverflow}!void {
+    const new_stack_pointer: innigkeit.KernelVirtualAddress = self.stack_pointer.moveBackward(.of(usize));
+    if (new_stack_pointer.lessThan(self.usable_range.address)) return error.StackOverflow;
 
     const ptr: *usize = new_stack_pointer.toPtr(*usize);
     ptr.* = value;
 
-    stack.stack_pointer = new_stack_pointer;
+    self.stack_pointer = new_stack_pointer;
 }
 
 /// Returns true if there is space for `number` of `usize` values on the stack.
-pub fn spaceFor(stack: *const Stack, number: usize) bool {
+pub fn spaceFor(self: *const Stack, number: usize) bool {
     const size = core.Size.of(usize).multiplyScalar(number);
-    const new_stack_pointer: innigkeit.KernelVirtualAddress = stack.stack_pointer.moveBackward(size);
-    if (new_stack_pointer.lessThan(stack.usable_range.address)) return false;
+    const new_stack_pointer: innigkeit.KernelVirtualAddress = self.stack_pointer.moveBackward(size);
+    if (new_stack_pointer.lessThan(self.usable_range.address)) return false;
     return true;
 }
 
-pub fn reset(stack: *Stack) void {
-    stack.stack_pointer = stack.usable_range.after();
+pub fn reset(self: *Stack) void {
+    self.stack_pointer = self.usable_range.after();
 
     // push a zero return address
-    stack.push(0) catch unreachable; // TODO: is this correct for non-x64?
+    self.push(0) catch unreachable; // TODO: is this correct for non-x64?
 
-    stack.top_stack_pointer = stack.stack_pointer;
+    self.top_stack_pointer = self.stack_pointer;
 }
 
 pub fn createStack() !Stack {
@@ -106,13 +105,13 @@ pub fn createStack() !Stack {
     return .fromRange(range, usable_range);
 }
 
-pub fn destroyStack(stack: Stack) void {
+pub fn destroyStack(self: Stack) void {
     {
         globals.stack_page_table_mutex.lock();
         defer globals.stack_page_table_mutex.unlock();
 
         var unmap_batch: innigkeit.mem.VirtualRangeBatch = .{};
-        unmap_batch.appendMergeIfFull(stack.usable_range.toVirtualRange());
+        unmap_batch.appendMergeIfFull(self.usable_range.toVirtualRange());
 
         innigkeit.mem.unmap(
             innigkeit.mem.kernelPageTable(),
@@ -124,7 +123,7 @@ pub fn destroyStack(stack: Stack) void {
         );
     }
 
-    globals.stack_arena.deallocate(.fromVirtualRange(stack.range));
+    globals.stack_arena.deallocate(.fromVirtualRange(self.range));
 }
 
 const stack_size_including_guard_page = innigkeit.config.task.kernel_stack_size.add(architecture.paging.standard_page_size);

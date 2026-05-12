@@ -8,6 +8,8 @@ const core = @import("core");
 
 const x64 = @import("../x64.zig");
 
+// TODO: make this less terrible
+
 /// A page table for x64.
 pub const PageTable = extern struct {
     _entries: [number_of_entries]Entry.Raw align(small_page_size.value),
@@ -1090,10 +1092,10 @@ pub const PageTable = extern struct {
     const BinaryWithUnderscores = struct {
         value: usize,
 
-        pub fn format(v: BinaryWithUnderscores, writer: *std.Io.Writer) !void {
+        pub fn format(self: BinaryWithUnderscores, writer: *std.Io.Writer) !void {
             comptime var i = @bitSizeOf(usize);
             inline while (i > 0) : (i -= 4) {
-                const value = bitjuggle.getBits(v.value, i - 4, 4);
+                const value = bitjuggle.getBits(self.value, i - 4, 4);
                 try writer.printInt(value, 2, .lower, .{ .fill = '0', .width = 4, .alignment = .right });
                 if (i > 4) try writer.writeByte('_');
             }

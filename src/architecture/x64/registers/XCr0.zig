@@ -72,8 +72,8 @@ pub const XCr0 = packed struct(u64) {
         );
     }
 
-    pub fn write(xcr0: XCr0) void {
-        const raw: u64 = @bitCast(xcr0);
+    pub fn write(self: XCr0) void {
+        const raw: u64 = @bitCast(self);
 
         asm volatile ("xsetbv"
             :
@@ -83,19 +83,16 @@ pub const XCr0 = packed struct(u64) {
         );
     }
 
-    pub fn format(
-        xcr0: XCr0,
-        writer: *std.Io.Writer,
-    ) !void {
-        try writer.writeAll(if (xcr0.x87) "XCr0{ x87: true, " else "XCr0{ x87: false, ");
-        try writer.writeAll(if (xcr0.sse) "sse: true, " else "sse: false, ");
-        try writer.writeAll(if (xcr0.avx) "avx: true, " else "avx: false, ");
-        try writer.writeAll(if (xcr0.mpx == .true) "mpx: true, " else "mpx: false, ");
-        try writer.writeAll(if (xcr0.avx512 == .true) "avx512: true, " else "avx512: false, ");
-        try writer.writeAll(if (xcr0.pt) "pt: true, " else "pt: false, ");
-        try writer.writeAll(if (xcr0.pkru) "pkru: true, " else "pkru: false, ");
-        try writer.writeAll(if (xcr0.amx == .true) "amx: true, " else "amx: false, ");
-        try writer.writeAll(if (xcr0.lwp) "lwp: true }" else "lwp: false }");
+    pub fn format(self: XCr0, writer: *std.Io.Writer) !void {
+        try writer.writeAll(if (self.x87) "XCr0{ x87: true, " else "XCr0{ x87: false, ");
+        try writer.writeAll(if (self.sse) "sse: true, " else "sse: false, ");
+        try writer.writeAll(if (self.avx) "avx: true, " else "avx: false, ");
+        try writer.writeAll(if (self.mpx == .true) "mpx: true, " else "mpx: false, ");
+        try writer.writeAll(if (self.avx512 == .true) "avx512: true, " else "avx512: false, ");
+        try writer.writeAll(if (self.pt) "pt: true, " else "pt: false, ");
+        try writer.writeAll(if (self.pkru) "pkru: true, " else "pkru: false, ");
+        try writer.writeAll(if (self.amx == .true) "amx: true, " else "amx: false, ");
+        try writer.writeAll(if (self.lwp) "lwp: true }" else "lwp: false }");
     }
 
     comptime {

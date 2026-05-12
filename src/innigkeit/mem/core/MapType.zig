@@ -65,26 +65,23 @@ pub const Cache = enum {
     uncached,
 };
 
-pub fn equal(map_type: MapType, other: MapType) bool {
-    return map_type.type == other.type and
-        map_type.protection.equal(other.protection) and
-        map_type.cache == other.cache;
+pub fn equal(self: MapType, other: MapType) bool {
+    return self.type == other.type and
+        self.protection.equal(other.protection) and
+        self.cache == other.cache;
 }
 
-pub fn format(
-    map_type: MapType,
-    writer: *std.Io.Writer,
-) !void {
+pub fn format(self: MapType, writer: *std.Io.Writer) !void {
     try writer.writeAll("MapType{ ");
 
-    try writer.writeAll(switch (map_type.type) {
+    try writer.writeAll(switch (self.type) {
         .user => "U-",
         .kernel => "K-",
     });
 
-    try map_type.protection.format(writer);
+    try self.protection.format(writer);
 
-    try writer.writeAll(switch (map_type.cache) {
+    try writer.writeAll(switch (self.cache) {
         .write_back => "-WB",
         .write_combining => "-WC",
         .uncached => "-UC",

@@ -31,25 +31,25 @@ pub const Response = extern struct {
     /// Time of executable handoff in microseconds relative to an arbitrary point in the past.
     exec_usec: u64,
 
-    pub fn print(response: *const Response, writer: *std.Io.Writer, indent: usize) !void {
+    pub fn print(self: *const Response, writer: *std.Io.Writer, indent: usize) !void {
         const new_indent = indent + 2;
 
         try writer.writeAll("BootloaderPerformance{\n");
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("reset_usec: {}\n", .{response.reset_usec});
+        try writer.print("reset_usec: {}\n", .{self.reset_usec});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("init_usec: {}\n", .{response.init_usec});
+        try writer.print("init_usec: {}\n", .{self.init_usec});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("exec_usec: {}\n", .{response.exec_usec});
+        try writer.print("exec_usec: {}\n", .{self.exec_usec});
 
         try writer.splatByteAll(' ', indent);
         try writer.writeByte('}');
     }
 
-    pub inline fn format(response: *const Response, writer: *std.Io.Writer) !void {
-        return response.print(writer, 0);
+    pub inline fn format(self: *const Response, writer: *std.Io.Writer) !void {
+        return self.print(writer, 0);
     }
 };

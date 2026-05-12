@@ -47,56 +47,56 @@ pub const PageFaultErrorCode = packed struct(u64) {
         return @bitCast(error_code);
     }
 
-    pub fn print(page_fault_error_code: PageFaultErrorCode, writer: *std.Io.Writer, indent: usize) !void {
+    pub fn print(self: PageFaultErrorCode, writer: *std.Io.Writer, indent: usize) !void {
         _ = indent;
 
         try writer.writeAll("PageFaultErrorCode{ ");
 
-        if (!page_fault_error_code.present) {
+        if (!self.present) {
             try writer.writeAll("Not Present }");
             return;
         }
 
-        if (page_fault_error_code.user) {
+        if (self.user) {
             try writer.writeAll("User - ");
         } else {
             try writer.writeAll("Kernel - ");
         }
 
-        if (page_fault_error_code.write) {
+        if (self.write) {
             try writer.writeAll("Write");
         } else {
             try writer.writeAll("Read");
         }
 
-        if (page_fault_error_code.reserved_write) {
+        if (self.reserved_write) {
             try writer.writeAll("- Reserved Bit Set");
         }
 
-        if (page_fault_error_code.instruction_fetch) {
+        if (self.instruction_fetch) {
             try writer.writeAll("- No Execute");
         }
 
-        if (page_fault_error_code.instruction_fetch) {
+        if (self.instruction_fetch) {
             try writer.writeAll("- Protection Key");
         }
 
-        if (page_fault_error_code.instruction_fetch) {
+        if (self.instruction_fetch) {
             try writer.writeAll("- Shadow Stack");
         }
 
-        if (page_fault_error_code.hlat) {
+        if (self.hlat) {
             try writer.writeAll("- Hypervisor Linear Address Translation");
         }
 
-        if (page_fault_error_code.instruction_fetch) {
+        if (self.instruction_fetch) {
             try writer.writeAll("- Software Guard Extension");
         }
 
         try writer.writeAll(" }");
     }
 
-    pub inline fn format(page_fault_error_code: PageFaultErrorCode, writer: *std.Io.Writer) !void {
-        return page_fault_error_code.print(writer, 0);
+    pub inline fn format(self: PageFaultErrorCode, writer: *std.Io.Writer) !void {
+        return self.print(writer, 0);
     }
 };

@@ -16,7 +16,7 @@ pub const Response = extern struct {
     /// The UNIX timestamp, in seconds, taken from the system RTC, representing the date and time of boot.
     timestamp: i64,
 
-    pub inline fn format(response: *const Response, writer: *std.Io.Writer) !void {
-        try writer.print("DateAtBoot({})", .{response.timestamp});
+    pub inline fn format(self: *const Response, writer: *std.Io.Writer) !void {
+        try writer.print("DateAtBoot({})", .{self.timestamp});
     }
 };

@@ -7,9 +7,9 @@ pub const MemoryMap = union {
     unknown: void,
     limine: limine.MemoryMapIterator,
 
-    pub fn next(memory_map: *MemoryMap) ?Entry {
+    pub fn next(self: *MemoryMap) ?Entry {
         return switch (boot.bootloader_api) {
-            .limine => memory_map.limine.next(),
+            .limine => self.limine.next(),
             .unknown => null,
         };
     }
@@ -32,16 +32,16 @@ pub const MemoryMap = union {
             unusable,
             unknown,
 
-            pub fn isUsableForAllocation(entry_type: Type) bool {
-                return switch (entry_type) {
+            pub fn isUsableForAllocation(self: MemoryMap.Entry.Type) bool {
+                return switch (self) {
                     .free, .in_use, .bootloader_reclaimable, .acpi_reclaimable => true,
                     .framebuffer, .acpi_nvs, .reserved, .unusable, .unknown, .reserved_mapped => false,
                 };
             }
         };
 
-        pub inline fn format(entry: Entry, writer: *std.Io.Writer) !void {
-            try writer.print("{t} - {f}", .{ entry.type, entry.range });
+        pub inline fn format(self: MemoryMap.Entry, writer: *std.Io.Writer) !void {
+            try writer.print("{t} - {f}", .{ self.type, self.range });
         }
     };
 };

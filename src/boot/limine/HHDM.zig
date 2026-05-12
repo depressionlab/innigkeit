@@ -17,7 +17,7 @@ pub const Response = extern struct {
     /// The virtual address of the beginning of the higher half direct map
     address: innigkeit.KernelVirtualAddress,
 
-    pub inline fn format(response: *const Response, writer: *std.Io.Writer) !void {
-        try writer.print("HHDM({f})", .{response.address});
+    pub inline fn format(self: *const Response, writer: *std.Io.Writer) !void {
+        try writer.print("HHDM({f})", .{self.address});
     }
 };

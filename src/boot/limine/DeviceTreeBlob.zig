@@ -23,7 +23,7 @@ pub const Response = extern struct {
     /// Virtual (HHDM) pointer to the device tree blob, in bootloader reclaimable memory.
     address: innigkeit.KernelVirtualAddress,
 
-    pub inline fn format(response: *const Response, writer: *std.Io.Writer) !void {
-        try writer.print("DeviceTreeBlob({f})", .{response.address});
+    pub inline fn format(self: *const Response, writer: *std.Io.Writer) !void {
+        try writer.print("DeviceTreeBlob({f})", .{self.address});
     }
 };

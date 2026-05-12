@@ -38,10 +38,10 @@ pub const KernelVirtualRange = struct {
         return .from(.{ .value = @intFromPtr(ptr) }, .of(T));
     }
 
-    pub inline fn toVirtualRange(range: KernelVirtualRange) root.VirtualRange {
+    pub inline fn toVirtualRange(self: KernelVirtualRange) root.VirtualRange {
         return .{
-            .address = .{ ._kernel = range.address },
-            .size = range.size,
+            .address = .{ ._kernel = self.address },
+            .size = self.size,
         };
     }
 
@@ -49,8 +49,8 @@ pub const KernelVirtualRange = struct {
     ///
     /// **REQUIREMENTS**:
     /// - The range must be fully contained in kernel memory.
-    pub inline fn byteSlice(range: KernelVirtualRange) []u8 {
-        return range.address.toPtr([*]u8)[0..range.size.value];
+    pub inline fn byteSlice(self: KernelVirtualRange) []u8 {
+        return self.address.toPtr([*]u8)[0..self.size.value];
     }
 
     pub const pageAligned: fn (range: @This()) callconv(.@"inline") bool = Mixin.pageAligned;

@@ -75,7 +75,7 @@ pub const InitOptions = struct {
 };
 
 /// Initialize the cache.
-pub fn init(self: *innigkeit.mem.cache.RawCache, options: InitOptions) void {
+pub fn init(self: *RawCache, options: InitOptions) void {
     const item_size: ItemSize = .determine(options.size, options.alignment);
 
     if (!item_size.is_small and options.slab_source == .pmm) {
@@ -134,7 +134,7 @@ pub fn init(self: *innigkeit.mem.cache.RawCache, options: InitOptions) void {
 /// Deinitialize the cache.
 ///
 /// All items must have been deallocated before calling this.
-pub fn deinit(self: *innigkeit.mem.cache.RawCache) void {
+pub fn deinit(self: *RawCache) void {
     log.debug("{s}: deinit", .{self.name()});
 
     if (self.full_slabs.first != null) @panic("full slabs not empty!");
@@ -156,7 +156,7 @@ pub fn deinit(self: *innigkeit.mem.cache.RawCache) void {
     self.* = undefined;
 }
 
-pub fn name(self: *const innigkeit.mem.cache.RawCache) []const u8 {
+pub fn name(self: *const RawCache) []const u8 {
     return self._name.constSlice();
 }
 

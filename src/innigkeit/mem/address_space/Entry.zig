@@ -60,12 +60,12 @@ pub fn createMany(items: []*Entry) !void {
     };
 }
 
-pub fn destroy(entry: *Entry) void {
-    globals.entry_cache.deallocate(entry);
+pub fn destroy(self: *Entry) void {
+    globals.entry_cache.deallocate(self);
 }
 
-pub fn anyOverlap(entry: *const Entry, other: *const Entry) bool {
-    return entry.range.anyOverlap(other.range);
+pub fn anyOverlap(self: *const Entry, other: *const Entry) bool {
+    return self.range.anyOverlap(other.range);
 }
 
 /// Determine if `second_entry` can be merged into `first_entry`.
@@ -272,65 +272,61 @@ const ShrinkDirection = enum {
 ///  - `new_size` is not `.zero`
 ///  - `new_size` is less than the entry's size
 ///  - `new_size` is a multiple of the standard page size
-pub fn shrink(
-    entry: *Entry,
-    direction: ShrinkDirection,
-    new_size: core.Size,
-) void {
+pub fn shrink(self: *Entry, direction: ShrinkDirection, new_size: core.Size) void {
     if (core.is_debug) {
         std.debug.assert(new_size.notEqual(.zero));
-        std.debug.assert(new_size.lessThan(entry.range.size));
+        std.debug.assert(new_size.lessThan(self.range.size));
         std.debug.assert(new_size.aligned(architecture.paging.standard_page_size_alignment));
     }
 
-    const size_change = entry.range.size.subtract(new_size);
+    const size_change = self.range.size.subtract(new_size);
 
     switch (direction) {
         .beginning => {
-            entry.range.address.moveForwardInPlace(size_change);
-            entry.range.size = new_size;
+            self.range.address.moveForwardInPlace(size_change);
+            self.range.size = new_size;
 
-            if (entry.anonymous_map_reference.anonymous_map) |_| {
-                entry.anonymous_map_reference.start_offset.addInPlace(size_change);
+            if (self.anonymous_map_reference.anonymous_map) |_| {
+                self.anonymous_map_reference.start_offset.addInPlace(size_change);
             }
-            if (entry.object_reference.object) |_| {
-                entry.object_reference.start_offset.addInPlace(size_change);
+            if (self.object_reference.object) |_| {
+                self.object_reference.start_offset.addInPlace(size_change);
             }
         },
         .end => {},
     }
 
-    entry.range.size = new_size;
+    self.range.size = new_size;
 }
 
 /// Prints the entry.
-pub fn print(entry: *const Entry, writer: *std.Io.Writer, indent: usize) !void {
+pub fn print(self: *const Entry, writer: *std.Io.Writer, indent: usize) !void {
     const new_indent = indent + 2;
 
     try writer.writeAll("Entry{\n");
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("range: {f},\n", .{entry.range});
+    try writer.print("range: {f},\n", .{self.range});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("protection: {f},\n", .{entry.protection});
+    try writer.print("protection: {f},\n", .{self.protection});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("max_protection: {f},\n", .{entry.max_protection});
+    try writer.print("max_protection: {f},\n", .{self.max_protection});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("copy_on_write: {},\n", .{entry.copy_on_write});
+    try writer.print("copy_on_write: {},\n", .{self.copy_on_write});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("needs_copy: {},\n", .{entry.needs_copy});
+    try writer.print("needs_copy: {},\n", .{self.needs_copy});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("wired_count: {},\n", .{entry.wired_count});
+    try writer.print("wired_count: {},\n", .{self.wired_count});
 
     try writer.splatByteAll(' ', new_indent);
-    if (entry.anonymous_map_reference.anonymous_map != null) {
+    if (self.anonymous_map_reference.anonymous_map != null) {
         try writer.writeAll("anonymous_map: ");
-        try entry.anonymous_map_reference.print(
+        try self.anonymous_map_reference.print(
             writer,
             new_indent,
         );
@@ -340,9 +336,9 @@ pub fn print(entry: *const Entry, writer: *std.Io.Writer, indent: usize) !void {
     }
 
     try writer.splatByteAll(' ', new_indent);
-    if (entry.object_reference.object != null) {
+    if (self.object_reference.object != null) {
         try writer.writeAll("object: ");
-        try entry.object_reference.print(
+        try self.object_reference.print(
             writer,
             new_indent,
         );
@@ -355,8 +351,8 @@ pub fn print(entry: *const Entry, writer: *std.Io.Writer, indent: usize) !void {
     try writer.writeAll("}");
 }
 
-pub inline fn format(entry: *const Entry, writer: *std.Io.Writer) !void {
-    return entry.print(.current(), writer, 0);
+pub inline fn format(self: *const Entry, writer: *std.Io.Writer) !void {
+    return self.print(.current(), writer, 0);
 }
 
 const globals = struct {

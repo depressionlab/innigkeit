@@ -28,11 +28,11 @@ pub const Response = extern struct {
     _entry_count: u64,
     _entries: [*]const *const Entry,
 
-    pub fn entries(response: *const Response) []const *const Entry {
-        return response._entries[0..response._entry_count];
+    pub fn entries(self: *const Response) []const *const Entry {
+        return self._entries[0..self._entry_count];
     }
 
-    pub fn print(response: *const Response, writer: *std.Io.Writer, indent: usize) !void {
+    pub fn print(self: *const Response, writer: *std.Io.Writer, indent: usize) !void {
         const new_indent = indent + 2;
 
         try writer.writeAll("Memmap{\n");
@@ -40,7 +40,7 @@ pub const Response = extern struct {
         try writer.splatByteAll(' ', new_indent);
         try writer.writeAll("entries:\n");
 
-        for (response.entries()) |entry| {
+        for (self.entries()) |entry| {
             try writer.splatByteAll(' ', new_indent + 2);
             try writer.print("{f}\n", .{entry});
         }
@@ -49,8 +49,8 @@ pub const Response = extern struct {
         try writer.writeByte('}');
     }
 
-    pub inline fn format(response: *const Response, writer: *std.Io.Writer) !void {
-        return response.print(writer, 0);
+    pub inline fn format(self: *const Response, writer: *std.Io.Writer) !void {
+        return self.print(writer, 0);
     }
 };
 
@@ -121,7 +121,7 @@ pub const Entry = extern struct {
         _,
     };
 
-    pub inline fn format(entry: *const Entry, writer: *std.Io.Writer) !void {
-        try writer.print("Entry({f} - {f} - {t})", .{ entry.base, entry.length, entry.type });
+    pub inline fn format(self: *const Entry, writer: *std.Io.Writer) !void {
+        try writer.print("Entry({f} - {f} - {t})", .{ self.base, self.length, self.type });
     }
 };

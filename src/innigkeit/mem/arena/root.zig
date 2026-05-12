@@ -42,11 +42,8 @@ pub const Allocation = struct {
         };
     }
 
-    pub inline fn format(
-        allocation: Allocation,
-        writer: *std.Io.Writer,
-    ) !void {
-        try writer.print("Allocation{{ base: 0x{x}, len: 0x{x} }}", .{ allocation.base, allocation.len });
+    pub inline fn format(self: Allocation, writer: *std.Io.Writer) !void {
+        try writer.print("Allocation{{ base: 0x{x}, len: 0x{x} }}", .{ self.base, self.len });
     }
 };
 
@@ -66,19 +63,12 @@ pub const Source = struct {
         allocation: Allocation,
     ) void,
 
-    pub fn callImport(
-        source: *const Source,
-        len: usize,
-        policy: Policy,
-    ) callconv(core.inline_in_non_debug) AllocateError!Allocation {
-        return source.import(source.arena_ptr, len, policy);
+    pub fn callImport(self: *const Source, len: usize, policy: Policy) callconv(core.inline_in_non_debug) AllocateError!Allocation {
+        return self.import(self.arena_ptr, len, policy);
     }
 
-    pub fn callRelease(
-        source: *const Source,
-        allocation: Allocation,
-    ) callconv(core.inline_in_non_debug) void {
-        source.release(source.arena_ptr, allocation);
+    pub fn callRelease(self: *const Source, allocation: Allocation) callconv(core.inline_in_non_debug) void {
+        self.release(self.arena_ptr, allocation);
     }
 };
 

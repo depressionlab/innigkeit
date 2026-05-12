@@ -47,48 +47,45 @@ pub const PAT = packed struct(u64) {
         return @bitCast(msr.read());
     }
 
-    pub inline fn write(value: PAT) void {
-        msr.write(@bitCast(value));
+    pub inline fn write(self: PAT) void {
+        msr.write(@bitCast(self));
     }
 
-    pub fn print(pat: PAT, writer: *std.Io.Writer, indent: usize) !void {
+    pub fn print(self: PAT, writer: *std.Io.Writer, indent: usize) !void {
         const new_indent = indent + 2;
 
         try writer.writeAll("PAT{\n");
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("entry0: {t},\n", .{pat.entry0});
+        try writer.print("entry0: {t},\n", .{self.entry0});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("entry1: {t},\n", .{pat.entry1});
+        try writer.print("entry1: {t},\n", .{self.entry1});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("entry2: {t},\n", .{pat.entry2});
+        try writer.print("entry2: {t},\n", .{self.entry2});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("entry3: {t},\n", .{pat.entry3});
+        try writer.print("entry3: {t},\n", .{self.entry3});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("entry4: {t},\n", .{pat.entry4});
+        try writer.print("entry4: {t},\n", .{self.entry4});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("entry5: {t},\n", .{pat.entry5});
+        try writer.print("entry5: {t},\n", .{self.entry5});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("entry6: {t},\n", .{pat.entry6});
+        try writer.print("entry6: {t},\n", .{self.entry6});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("entry7: {t},\n", .{pat.entry7});
+        try writer.print("entry7: {t},\n", .{self.entry7});
 
         try writer.splatByteAll(' ', indent);
         try writer.writeByte('}');
     }
 
-    pub inline fn format(
-        pat: PAT,
-        writer: *std.Io.Writer,
-    ) !void {
-        return pat.print(writer, 0);
+    pub inline fn format(self: PAT, writer: *std.Io.Writer) !void {
+        return self.print(writer, 0);
     }
 
     const msr = MSR(u64, 0x277);

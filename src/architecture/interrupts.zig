@@ -83,9 +83,7 @@ pub const Interrupt = struct {
 
     pub const AllocateError = error{InterruptAllocationFailed};
 
-    pub fn allocate(
-        handler: Handler,
-    ) callconv(core.inline_in_non_debug) AllocateError!Interrupt {
+    pub fn allocate(handler: Handler) callconv(core.inline_in_non_debug) AllocateError!Interrupt {
         return .{
             .arch_specific = try architecture.getFunction(
                 architecture.current_functions.interrupts,
@@ -103,15 +101,15 @@ pub const Interrupt = struct {
 
     pub const RouteError = error{UnableToRouteExternalInterrupt};
 
-    pub fn route(interrupt: Interrupt, external_interrupt: u32) callconv(core.inline_in_non_debug) RouteError!void {
+    pub fn route(self: Interrupt, external_interrupt: u32) callconv(core.inline_in_non_debug) RouteError!void {
         return architecture.getFunction(
             architecture.current_functions.interrupts,
             "routeInterrupt",
-        )(interrupt.arch_specific, external_interrupt);
+        )(self.arch_specific, external_interrupt);
     }
 
-    pub inline fn toUsize(interrupt: Interrupt) usize {
-        return @intFromEnum(interrupt.arch_specific);
+    pub inline fn toUsize(self: Interrupt) usize {
+        return @intFromEnum(self.arch_specific);
     }
 
     pub inline fn fromUsize(interrupt: usize) Interrupt {
@@ -139,11 +137,8 @@ pub const InterruptFrame = struct {
         )(self.arch_specific);
     }
 
-    pub inline fn format(
-        interrupt_frame: InterruptFrame,
-        writer: *std.Io.Writer,
-    ) !void {
-        return interrupt_frame.arch_specific.format(writer);
+    pub inline fn format(self: InterruptFrame, writer: *std.Io.Writer) !void {
+        return self.arch_specific.format(writer);
     }
 };
 

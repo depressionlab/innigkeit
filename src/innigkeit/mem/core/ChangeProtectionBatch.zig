@@ -26,17 +26,17 @@ pub const VirtualRangeWithMapType = struct {
 /// - `range.virtual_range.address` must be greater than or equal to the end of the last range in the batch
 /// - `range.virtual_range.address` must be aligned to `arch.paging.standard_page_size`
 /// - `range.virtual_range.size` must be aligned to `arch.paging.standard_page_size`
-pub fn append(batch: *ChangeProtectionBatch, range: VirtualRangeWithMapType) bool {
+pub fn append(self: *ChangeProtectionBatch, range: VirtualRangeWithMapType) bool {
     if (core.is_debug) std.debug.assert(range.virtual_range.pageAligned());
 
-    const len = batch.ranges.len;
+    const len = self.ranges.len;
 
     if (len == 0) {
-        batch.ranges.appendAssumeCapacity(range);
+        self.ranges.appendAssumeCapacity(range);
         return true;
     }
 
-    const last: *VirtualRangeWithMapType = &batch.ranges.slice()[len - 1];
+    const last: *VirtualRangeWithMapType = &self.ranges.slice()[len - 1];
 
     if (core.is_debug) std.debug.assert(range.virtual_range.address.greaterThanOrEqual(last.virtual_range.after()));
 
@@ -50,19 +50,19 @@ pub fn append(batch: *ChangeProtectionBatch, range: VirtualRangeWithMapType) boo
         return true;
     }
 
-    if (batch.full()) {
+    if (self.full()) {
         @branchHint(.unlikely);
         return false;
     }
 
-    batch.ranges.appendAssumeCapacity(range);
+    self.ranges.appendAssumeCapacity(range);
     return true;
 }
 
-pub fn full(batch: *ChangeProtectionBatch) bool {
-    return batch.ranges.len == innigkeit.config.mem.virtual_ranges_to_batch;
+pub fn full(self: *ChangeProtectionBatch) bool {
+    return self.ranges.len == innigkeit.config.mem.virtual_ranges_to_batch;
 }
 
-pub fn clear(batch: *ChangeProtectionBatch) void {
-    batch.ranges.clear();
+pub fn clear(self: *ChangeProtectionBatch) void {
+    self.ranges.clear();
 }

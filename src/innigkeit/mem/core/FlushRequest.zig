@@ -16,7 +16,7 @@ pub const Node = struct {
     node: std.SinglyLinkedList.Node,
 };
 
-pub fn submitAndWait(flush_request: *FlushRequest) void {
+pub fn submitAndWait(self: *FlushRequest) void {
     const current_task: innigkeit.Task.Current = .get();
 
     {
@@ -29,20 +29,20 @@ pub fn submitAndWait(flush_request: *FlushRequest) void {
         // TODO: is there a better way to determine which executors to target?
         for (innigkeit.Executor.executors()) |*executor| {
             if (executor == current_executor) continue; // skip ourselves
-            flush_request.requestExecutor(executor);
+            self.requestExecutor(executor);
         }
 
-        flush_request.flush();
+        self.flush();
     }
 
     if (current_task.task.interrupt_disable_count.load(.acquire) == 0) {
         // interrupts are enabled so flush requests from other cores will be serviced
-        while (flush_request.count.load(.monotonic) != 0) {
+        while (self.count.load(.monotonic) != 0) {
             architecture.spinLoopHint();
         }
     } else {
         // interrupts are disabled so service flush requests here
-        while (flush_request.count.load(.monotonic) != 0) {
+        while (self.count.load(.monotonic) != 0) {
             processFlushRequests();
         }
     }
@@ -58,11 +58,11 @@ pub fn processFlushRequests() void {
     }
 }
 
-fn flush(flush_request: *FlushRequest) void {
+fn flush(self: *FlushRequest) void {
     const current_task: innigkeit.Task.Current = .get();
-    defer _ = flush_request.count.fetchSub(1, .monotonic);
+    defer _ = self.count.fetchSub(1, .monotonic);
 
-    switch (flush_request.flush_target) {
+    switch (self.flush_target) {
         .kernel => {},
         .user => |target_process| switch (current_task.task.type) {
             .kernel => return,
@@ -73,18 +73,18 @@ fn flush(flush_request: *FlushRequest) void {
         },
     }
 
-    for (flush_request.batch.ranges.constSlice()) |range| {
+    for (self.batch.ranges.constSlice()) |range| {
         architecture.paging.flushCache(range);
     }
 }
 
-fn requestExecutor(flush_request: *FlushRequest, executor: *innigkeit.Executor) void {
-    _ = flush_request.count.fetchAdd(1, .monotonic);
+fn requestExecutor(self: *FlushRequest, executor: *innigkeit.Executor) void {
+    _ = self.count.fetchAdd(1, .monotonic);
 
-    const node = flush_request.nodes.addOne() catch
+    const node = self.nodes.addOne() catch
         @panic("exceeded maximum number of executors!");
     node.* = .{
-        .request = flush_request,
+        .request = self,
         .node = .{},
     };
     executor.flush_requests.prepend(&node.node);

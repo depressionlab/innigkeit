@@ -33,19 +33,19 @@ pub const KernelVirtualAddress = extern struct {
     ///
     /// **REQUIREMENTS**:
     /// - The pointer must be a valid kernel pointer.
-    pub inline fn toPtr(address: KernelVirtualAddress, comptime PtrT: type) PtrT {
-        return @ptrFromInt(address.value);
+    pub inline fn toPtr(self: KernelVirtualAddress, comptime PtrT: type) PtrT {
+        return @ptrFromInt(self.value);
     }
 
-    pub inline fn toVirtualAddress(address: KernelVirtualAddress) root.VirtualAddress {
-        return .{ ._kernel = address };
+    pub inline fn toVirtualAddress(self: KernelVirtualAddress) root.VirtualAddress {
+        return .{ ._kernel = self };
     }
 
     /// Shifts an address to account for any applied virtual offset applied to the kernel (KASLR).
     ///
     /// The resulting address might no longer be a vaild kernel address, use `VirtualAddress.getType` to check.
-    pub inline fn applyKernelOffset(address: KernelVirtualAddress) root.VirtualAddress {
-        return address.toVirtualAddress().moveBackward(innigkeit.mem.globals.kernel_virtual_offset);
+    pub inline fn applyKernelOffset(self: KernelVirtualAddress) root.VirtualAddress {
+        return self.toVirtualAddress().moveBackward(innigkeit.mem.globals.kernel_virtual_offset);
     }
 
     pub const aligned: fn (address: @This(), alignment: std.mem.Alignment) callconv(.@"inline") bool = Mixin.aligned;

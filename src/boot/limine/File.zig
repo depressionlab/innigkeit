@@ -48,75 +48,75 @@ pub const File = extern struct {
     part_uuid: UUID,
 
     /// The path of the file within the volume, with a leading slash
-    pub fn path(file: *const File) [:0]const u8 {
-        return std.mem.sliceTo(file._path, 0);
+    pub fn path(self: *const File) [:0]const u8 {
+        return std.mem.sliceTo(self._path, 0);
     }
 
     /// A string associated with the file
-    pub fn string(file: *const File) ?[:0]const u8 {
+    pub fn string(self: *const File) ?[:0]const u8 {
         const str = std.mem.sliceTo(
-            file._string orelse return null,
+            self._string orelse return null,
             0,
         );
         return if (str.len == 0) null else str;
     }
 
-    pub fn getContents(file: *const File) []const u8 {
-        return innigkeit.KernelVirtualRange.from(file.address, file.size).byteSlice();
+    pub fn getContents(self: *const File) []const u8 {
+        return innigkeit.KernelVirtualRange.from(self.address, self.size).byteSlice();
     }
 
-    pub fn print(file: *const File, writer: *std.Io.Writer, indent: usize) !void {
+    pub fn print(self: *const File, writer: *std.Io.Writer, indent: usize) !void {
         const new_indent = indent + 2;
 
         try writer.writeAll("File{\n");
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("path: \"{s}\"\n", .{file.path()});
+        try writer.print("path: \"{s}\"\n", .{self.path()});
 
-        if (file.string()) |s| {
+        if (self.string()) |s| {
             try writer.splatByteAll(' ', new_indent);
             try writer.print("string: \"{s}\"\n", .{s});
         }
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("address: {f}\n", .{file.address});
+        try writer.print("address: {f}\n", .{self.address});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("size: {f}\n", .{file.size});
+        try writer.print("size: {f}\n", .{self.size});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("media_type: {t}\n", .{file.media_type});
+        try writer.print("media_type: {t}\n", .{self.media_type});
 
-        if (file.tftp_ip != 0) {
+        if (self.tftp_ip != 0) {
             try writer.splatByteAll(' ', new_indent);
             try writer.writeAll("tftp: ");
-            try formatIP(file.tftp_ip, file.tftp_port, writer);
+            try formatIP(self.tftp_ip, self.tftp_port, writer);
             try writer.writeByte('\n');
         }
 
-        if (file.partition_index != 0) {
+        if (self.partition_index != 0) {
             try writer.splatByteAll(' ', new_indent);
-            try writer.print("partition_index: {}\n", .{file.partition_index});
+            try writer.print("partition_index: {}\n", .{self.partition_index});
         }
 
-        if (file.mbr_disk_id != 0) {
+        if (self.mbr_disk_id != 0) {
             try writer.splatByteAll(' ', new_indent);
-            try writer.print("mbr_disk_id: {}\n", .{file.mbr_disk_id});
+            try writer.print("mbr_disk_id: {}\n", .{self.mbr_disk_id});
         }
 
-        if (!file.gpt_disk_uuid.eql(.nil)) {
+        if (!self.gpt_disk_uuid.eql(.nil)) {
             try writer.splatByteAll(' ', new_indent);
-            try writer.print("gpt_disk_uuid: {f}\n", .{file.gpt_disk_uuid});
+            try writer.print("gpt_disk_uuid: {f}\n", .{self.gpt_disk_uuid});
         }
 
-        if (!file.gpt_part_uuid.eql(.nil)) {
+        if (!self.gpt_part_uuid.eql(.nil)) {
             try writer.splatByteAll(' ', new_indent);
-            try writer.print("gpt_part_uuid: {f}\n", .{file.gpt_part_uuid});
+            try writer.print("gpt_part_uuid: {f}\n", .{self.gpt_part_uuid});
         }
 
-        if (!file.part_uuid.eql(.nil)) {
+        if (!self.part_uuid.eql(.nil)) {
             try writer.splatByteAll(' ', new_indent);
-            try writer.print("part_uuid: {f}\n", .{file.part_uuid});
+            try writer.print("part_uuid: {f}\n", .{self.part_uuid});
         }
 
         try writer.splatByteAll(' ', indent);
@@ -134,8 +134,8 @@ pub const File = extern struct {
         });
     }
 
-    pub inline fn format(file: *const File, writer: *std.Io.Writer) !void {
-        return File.print(file, writer, 0);
+    pub inline fn format(self: *const File, writer: *std.Io.Writer) !void {
+        return File.print(self, writer, 0);
     }
 
     pub const MediaType = enum(u32) {

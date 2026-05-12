@@ -94,32 +94,32 @@ pub const Address = extern struct {
         _,
     };
 
-    pub fn print(address: Address, writer: *std.Io.Writer, indent: usize) !void {
+    pub fn print(self: Address, writer: *std.Io.Writer, indent: usize) !void {
         const new_indent = indent + 2;
 
         try writer.writeAll("Address{\n");
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("address_space: {t},\n", .{address.address_space});
+        try writer.print("address_space: {t},\n", .{self.address_space});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("bit_width: {d},\n", .{address.register_bit_width});
+        try writer.print("bit_width: {d},\n", .{self.register_bit_width});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("bit_offset: {d},\n", .{address.register_bit_offset});
+        try writer.print("bit_offset: {d},\n", .{self.register_bit_offset});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("access_size: {t},\n", .{address.access_size});
+        try writer.print("access_size: {t},\n", .{self.access_size});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("address: 0x{x},\n", .{address.address});
+        try writer.print("address: 0x{x},\n", .{self.address});
 
         try writer.splatByteAll(' ', indent);
         try writer.writeByte('}');
     }
 
-    pub inline fn format(address: Address, writer: *std.Io.Writer) !void {
-        return print(address, writer, 0);
+    pub inline fn format(self: Address, writer: *std.Io.Writer) !void {
+        return print(self, writer, 0);
     }
 
     comptime {

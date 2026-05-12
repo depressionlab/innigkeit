@@ -50,8 +50,8 @@ pub const Response = extern struct {
     /// Executables must be prepared to handle the case where the requested paging mode is not supported by the hardware.
     mode: Mode,
 
-    pub inline fn format(response: *const Response, writer: *std.Io.Writer) !void {
-        try writer.print("PagingMode({t})", .{response.mode});
+    pub inline fn format(self: *const Response, writer: *std.Io.Writer) !void {
+        try writer.print("PagingMode({t})", .{self.mode});
     }
 };
 

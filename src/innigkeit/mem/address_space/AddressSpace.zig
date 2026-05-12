@@ -63,11 +63,8 @@ pub const InitOptions = struct {
     context: innigkeit.Context,
 };
 
-pub fn init(
-    address_space: *AddressSpace,
-    options: InitOptions,
-) !void {
-    address_space.* = .{
+pub fn init(self: *AddressSpace, options: InitOptions) !void {
+    self.* = .{
         .range = options.range,
         ._name = options.name,
         .context = options.context,
@@ -82,40 +79,40 @@ pub fn init(
 /// Caller must ensure:
 ///  - the address space is not in use by any tasks
 ///  - the address space is empty
-pub fn retarget(address_space: *AddressSpace, new_process: *innigkeit.user.Process) void {
+pub fn retarget(self: *AddressSpace, new_process: *innigkeit.user.Process) void {
     if (core.is_debug) {
-        std.debug.assert(address_space.context == .user);
-        std.debug.assert(!address_space.page_table_lock.isLocked());
-        std.debug.assert(!address_space.entries_lock.isReadLocked() and !address_space.entries_lock.isWriteLocked());
-        std.debug.assert(address_space.entries.items.len == 0);
-        std.debug.assert(address_space.entries.capacity == 0);
-        std.debug.assert(address_space.entries_version == 0);
+        std.debug.assert(self.context == .user);
+        std.debug.assert(!self.page_table_lock.isLocked());
+        std.debug.assert(!self.entries_lock.isReadLocked() and !self.entries_lock.isWriteLocked());
+        std.debug.assert(self.entries.items.len == 0);
+        std.debug.assert(self.entries.capacity == 0);
+        std.debug.assert(self.entries_version == 0);
     }
 
-    address_space._name = innigkeit.mem.AddressSpace.Name.fromSlice(
+    self._name = innigkeit.mem.AddressSpace.Name.fromSlice(
         new_process.name.constSlice(),
     ) catch unreachable; // ensured in `innigkeit.config`
-    address_space.context = .{ .user = new_process };
+    self.context = .{ .user = new_process };
 }
 
 /// Reinitialize the address space back to its initial state including unmapping everything.
 ///
 /// Caller must ensure:
 ///  - the address space is not in use by any tasks
-pub fn reinitializeAndUnmapAll(address_space: *AddressSpace) void {
-    log.debug("{s}: reinitializeAndUnmapAll", .{address_space.name()});
+pub fn reinitializeAndUnmapAll(self: *AddressSpace) void {
+    log.debug("{s}: reinitializeAndUnmapAll", .{self.name()});
 
     if (core.is_debug) {
-        std.debug.assert(!address_space.page_table_lock.isLocked());
-        std.debug.assert(!address_space.entries_lock.isReadLocked() and !address_space.entries_lock.isWriteLocked());
+        std.debug.assert(!self.page_table_lock.isLocked());
+        std.debug.assert(!self.entries_lock.isReadLocked() and !self.entries_lock.isWriteLocked());
     }
 
-    address_space.unmap(address_space.range) catch |err| switch (err) {
+    self.unmap(self.range) catch |err| switch (err) {
         error.OutOfMemory => unreachable, // as we are freeing the entire address space we do not need to split any entries
         error.RangeNotPageAligned => unreachable, // the entire address space range is page aligned
     };
 
-    address_space.entries_version = 0;
+    self.entries_version = 0;
 }
 
 /// This leaves the address space in an invalid state, if it will be reused see `reinitializeAndUnmapAll`.
@@ -123,23 +120,23 @@ pub fn reinitializeAndUnmapAll(address_space: *AddressSpace) void {
 /// Caller must ensure:
 ///  - the address space is not in use by any tasks
 ///  - the address space is empty
-pub fn deinit(address_space: *AddressSpace) void {
+pub fn deinit(self: *AddressSpace) void {
     // cannot use the name as it will reference a defunct process that this address space is now unrelated to
     log.debug("deinit", .{});
 
     if (core.is_debug) {
-        std.debug.assert(!address_space.page_table_lock.isLocked());
-        std.debug.assert(!address_space.entries_lock.isReadLocked() and !address_space.entries_lock.isWriteLocked());
-        std.debug.assert(address_space.entries.items.len == 0);
-        std.debug.assert(address_space.entries.capacity == 0);
-        std.debug.assert(address_space.entries_version == 0);
+        std.debug.assert(!self.page_table_lock.isLocked());
+        std.debug.assert(!self.entries_lock.isReadLocked() and !self.entries_lock.isWriteLocked());
+        std.debug.assert(self.entries.items.len == 0);
+        std.debug.assert(self.entries.capacity == 0);
+        std.debug.assert(self.entries_version == 0);
     }
 
-    address_space.* = undefined;
+    self.* = undefined;
 }
 
-pub fn name(address_space: *const AddressSpace) []const u8 {
-    return address_space._name.constSlice();
+pub fn name(self: *const AddressSpace) []const u8 {
+    return self._name.constSlice();
 }
 
 pub const MapOptions = struct {
@@ -204,21 +201,18 @@ pub const MapError = error{
 };
 
 /// Map a range into the address space.
-pub fn map(
-    address_space: *AddressSpace,
-    options: MapOptions,
-) MapError!innigkeit.VirtualRange {
-    errdefer |err| log.debug("{s}: map failed {t}", .{ address_space.name(), err });
+pub fn map(self: *AddressSpace, options: MapOptions) MapError!innigkeit.VirtualRange {
+    errdefer |err| log.debug("{s}: map failed {t}", .{ self.name(), err });
 
     if (log.levelEnabled(.verbose)) {
         if (options.base) |base| log.verbose("{s}: map {f} @ {f} - protection: {f} - {t}", .{
-            address_space.name(),
+            self.name(),
             options.size,
             base,
             options.protection,
             options.type,
         }) else log.verbose("{s}: map {f} - protection: {f} - {t}", .{
-            address_space.name(),
+            self.name(),
             options.size,
             options.protection,
             options.type,
@@ -283,15 +277,15 @@ pub fn map(
     var merges: usize = 0;
 
     {
-        address_space.entries_lock.writeLock();
-        defer address_space.entries_lock.writeUnlock();
+        self.entries_lock.writeLock();
+        defer self.entries_lock.writeUnlock();
 
         // zig fmt: off
         const free_range: FreeRange = (
             if (options.base) |base|
-                address_space.findExactFreeRange(.from(base, options.size))
+                self.findExactFreeRange(.from(base, options.size))
             else
-                address_space.findFreeRange(options.size)
+                self.findFreeRange(options.size)
         ) orelse {
             @branchHint(.cold);
             return error.RequestedRangeUnavailable;
@@ -302,8 +296,8 @@ pub fn map(
         local_entry.range = free_range.range;
 
         // following entry
-        if (insertion_index != address_space.entries.items.len) {
-            const following_entry = address_space.entries.items[insertion_index];
+        if (insertion_index != self.entries.items.len) {
+            const following_entry = self.entries.items[insertion_index];
             if (core.is_debug) std.debug.assert(!local_entry.anyOverlap(following_entry)); // entry overlaps with the following entry
 
             if (local_entry.canMerge(following_entry)) {
@@ -315,7 +309,7 @@ pub fn map(
 
         // preceding entry
         if (insertion_index != 0) {
-            const preceding_entry = address_space.entries.items[insertion_index - 1];
+            const preceding_entry = self.entries.items[insertion_index - 1];
             if (core.is_debug) std.debug.assert(!local_entry.anyOverlap(preceding_entry)); // entry overlaps with the preceding entry
 
             if (preceding_entry.canMerge(&local_entry)) {
@@ -323,7 +317,7 @@ pub fn map(
 
                 if (merges != 0) {
                     // the local entry was merged into the following entry above, so we need to remove it
-                    const following_entry = address_space.entries.orderedRemove(insertion_index);
+                    const following_entry = self.entries.orderedRemove(insertion_index);
                     following_entry.destroy();
                 }
 
@@ -337,7 +331,7 @@ pub fn map(
 
             new_entry.* = local_entry;
 
-            address_space.entries.insert(
+            self.entries.insert(
                 innigkeit.mem.heap.allocator,
                 insertion_index,
                 new_entry,
@@ -353,18 +347,18 @@ pub fn map(
             .object => @panic("HANDLE OBJECT REFERENCE COUNT"), // TODO: is this only for new entries?
         }
 
-        address_space.entries_version +%= 1;
+        self.entries_version +%= 1;
     }
     errdefer comptime unreachable;
 
     switch (merges) {
-        0 => log.verbose("{s}: inserted new entry", .{address_space.name()}),
-        1 => log.verbose("{s}: merged with pre-existing entry", .{address_space.name()}),
-        2 => log.verbose("{s}: merged with 2 pre-existing entries", .{address_space.name()}),
+        0 => log.verbose("{s}: inserted new entry", .{self.name()}),
+        1 => log.verbose("{s}: merged with pre-existing entry", .{self.name()}),
+        2 => log.verbose("{s}: merged with 2 pre-existing entries", .{self.name()}),
         else => unreachable,
     }
 
-    log.verbose("{s}: mapped {f}", .{ address_space.name(), local_entry.range });
+    log.verbose("{s}: mapped {f}", .{ self.name(), local_entry.range });
 
     return local_entry.range;
 }
@@ -375,8 +369,8 @@ const FreeRange = struct {
 };
 
 /// If the given range is free, return the range.
-fn findExactFreeRange(address_space: *AddressSpace, range: innigkeit.VirtualRange) ?FreeRange {
-    const entries = address_space.entries.items;
+fn findExactFreeRange(self: *AddressSpace, range: innigkeit.VirtualRange) ?FreeRange {
+    const entries = self.entries.items;
 
     const index = std.sort.lowerBound(
         *const Entry,
@@ -387,7 +381,7 @@ fn findExactFreeRange(address_space: *AddressSpace, range: innigkeit.VirtualRang
     if (index == entries.len) {
         @branchHint(.unlikely);
 
-        if (range.after().lessThanOrEqual(address_space.range.after())) {
+        if (range.after().lessThanOrEqual(self.range.after())) {
             // the range does not extend past the end of the address space
             @branchHint(.likely);
             return .{
@@ -412,14 +406,14 @@ fn findExactFreeRange(address_space: *AddressSpace, range: innigkeit.VirtualRang
 }
 
 /// Find a free range in the address space of the given size.
-fn findFreeRange(address_space: *AddressSpace, size: core.Size) ?FreeRange {
+fn findFreeRange(self: *AddressSpace, size: core.Size) ?FreeRange {
     // TODO: we could seperately track the free ranges in the address space
 
     var candidate_insertion_index: usize = 0;
-    var candidate_range: innigkeit.VirtualRange = .from(address_space.range.address, size);
+    var candidate_range: innigkeit.VirtualRange = .from(self.range.address, size);
     var candidate_range_terminating_address = candidate_range.after();
 
-    for (address_space.entries.items) |entry| {
+    for (self.entries.items) |entry| {
         if (candidate_range_terminating_address.lessThanOrEqual(entry.range.address)) {
             // the candidate range is entirely before the entry
             break;
@@ -430,7 +424,7 @@ fn findFreeRange(address_space: *AddressSpace, size: core.Size) ?FreeRange {
         candidate_insertion_index += 1;
     }
 
-    if (candidate_range_terminating_address.lessThanOrEqual(address_space.range.after())) {
+    if (candidate_range_terminating_address.lessThanOrEqual(self.range.after())) {
         // the candidate range does not extend past the end of the address space
         @branchHint(.likely);
         return .{
@@ -493,15 +487,12 @@ pub const ChangeProtection = union(enum) {
         protection: ?Protection,
         max_protection: ?Protection,
 
-        pub fn format(
-            request: Request,
-            writer: *std.Io.Writer,
-        ) !void {
+        pub fn format(self: Request, writer: *std.Io.Writer) !void {
             try writer.print(
                 "protection: {?f} - max_protection: {?f}",
                 .{
-                    request.protection,
-                    request.max_protection,
+                    self.protection,
+                    self.max_protection,
                 },
             );
         }
@@ -526,16 +517,12 @@ pub const ChangeProtectionError = error{
 };
 
 /// Change the protection and/or maximum protection of a range in the address space.
-pub fn changeProtection(
-    address_space: *AddressSpace,
-    range: innigkeit.VirtualRange,
-    change: ChangeProtection,
-) ChangeProtectionError!void {
-    errdefer |err| log.debug("{s}: change protection failed {t}", .{ address_space.name(), err });
+pub fn changeProtection(self: *AddressSpace, range: innigkeit.VirtualRange, change: ChangeProtection) ChangeProtectionError!void {
+    errdefer |err| log.debug("{s}: change protection failed {t}", .{ self.name(), err });
 
     const request = change.toRequest();
 
-    log.verbose("{s}: change protection of {f} to {f}", .{ address_space.name(), range, request });
+    log.verbose("{s}: change protection of {f} to {f}", .{ self.name(), range, request });
 
     if (!range.pageAligned()) {
         @branchHint(.cold);
@@ -553,18 +540,18 @@ pub fn changeProtection(
             break :blk .none;
         }
 
-        address_space.entries_lock.writeLock();
-        defer address_space.entries_lock.writeUnlock();
-        if (core.is_debug) std.debug.assert(!address_space.page_table_lock.isLocked());
+        self.entries_lock.writeLock();
+        defer self.entries_lock.writeUnlock();
+        if (core.is_debug) std.debug.assert(!self.page_table_lock.isLocked());
 
-        const entry_range = address_space.entryRange(range) orelse {
+        const entry_range = self.entryRange(range) orelse {
             // no entries overlap the range
             @branchHint(.cold);
             break :blk .none;
         };
         if (core.is_debug) std.debug.assert(entry_range.length != 0);
 
-        const validate_change_protection = try address_space.validateChangeProtection(entry_range, request);
+        const validate_change_protection = try self.validateChangeProtection(entry_range, request);
         if (validate_change_protection.no_op) {
             // there is no work to do
             @branchHint(.cold);
@@ -573,12 +560,12 @@ pub fn changeProtection(
 
         var preallocated_entries: PreallocatedEntries = .empty;
         defer preallocated_entries.deinit();
-        try preallocated_entries.preallocateChangeProtection(address_space, entry_range);
+        try preallocated_entries.preallocateChangeProtection(self, entry_range);
         errdefer comptime unreachable;
 
         if (validate_change_protection.update_page_table) {
             const new_map_type: innigkeit.mem.MapType = .{
-                .type = address_space.context,
+                .type = self.context,
                 .protection = request.protection.?,
             };
 
@@ -586,14 +573,14 @@ pub fn changeProtection(
 
             var entry_range_iter = entry_range.rangeAndProtectionIterator(
                 range,
-                address_space.entries.items,
+                self.entries.items,
             );
 
             while (entry_range_iter.next()) |r| {
                 const range_with_map_type: innigkeit.mem.ChangeProtectionBatch.VirtualRangeWithMapType = .{
                     .virtual_range = r.virtual_range,
                     .previous_map_type = .{
-                        .type = address_space.context,
+                        .type = self.context,
                         .protection = r.protection,
                     },
                 };
@@ -602,9 +589,9 @@ pub fn changeProtection(
                     @branchHint(.unlikely);
 
                     innigkeit.mem.changeProtection(
-                        address_space.page_table,
+                        self.page_table,
                         &change_protection_batch,
-                        address_space.context,
+                        self.context,
                         new_map_type,
                     );
 
@@ -616,17 +603,17 @@ pub fn changeProtection(
 
             if (change_protection_batch.ranges.len != 0) {
                 innigkeit.mem.changeProtection(
-                    address_space.page_table,
+                    self.page_table,
                     &change_protection_batch,
-                    address_space.context,
+                    self.context,
                     new_map_type,
                 );
             }
         }
 
-        address_space.entries_version +%= 1;
+        self.entries_version +%= 1;
 
-        break :blk address_space.performChangeProtection(
+        break :blk self.performChangeProtection(
             entry_range,
             range,
             request,
@@ -637,7 +624,7 @@ pub fn changeProtection(
     log.verbose(
         "{s}: change protection of {f} resulted in {} split, {} modified and {} merged entries",
         .{
-            address_space.name(),
+            self.name(),
             range,
             result.entries_split,
             result.entries_modified,
@@ -654,14 +641,10 @@ const ValidateChangeProtection = struct {
     update_page_table: bool,
 };
 
-fn validateChangeProtection(
-    address_space: *AddressSpace,
-    entry_range: EntryRange,
-    request: ChangeProtection.Request,
-) !ValidateChangeProtection {
+fn validateChangeProtection(self: *AddressSpace, entry_range: EntryRange, request: ChangeProtection.Request) !ValidateChangeProtection {
     var result: ValidateChangeProtection = .{ .no_op = true, .update_page_table = false };
 
-    for (address_space.entries.items[entry_range.start..][0..entry_range.length]) |entry| {
+    for (self.entries.items[entry_range.start..][0..entry_range.length]) |entry| {
         const planned_max_protection = if (request.max_protection) |new_max_protection| blk: {
             const old_max_protection = entry.max_protection;
 
@@ -711,7 +694,7 @@ const ChangeProtectionResult = struct {
 };
 
 fn performChangeProtection(
-    address_space: *AddressSpace,
+    self: *AddressSpace,
     entry_range: EntryRange,
     range: innigkeit.VirtualRange,
     request: ChangeProtection.Request,
@@ -723,7 +706,7 @@ fn performChangeProtection(
 
     // split first entry if necessary
     if (entry_range.start_overlap) no_split_first_entry: {
-        const first_entry = address_space.entries.items[first_entry_index];
+        const first_entry = self.entries.items[first_entry_index];
 
         split_first_entry: {
             if (request.protection) |new_protection| {
@@ -739,7 +722,7 @@ fn performChangeProtection(
 
         const split_size = first_entry.range.address.difference(range.address);
         log.verbose("{s}: split first entry {f} at offset {f}", .{
-            address_space.name(),
+            self.name(),
             first_entry.range,
             split_size,
         });
@@ -752,7 +735,7 @@ fn performChangeProtection(
 
         // move first entry index forward to as the new entry is now the first entry of the entry range
         first_entry_index += 1;
-        address_space.entries.insertAssumeCapacity(first_entry_index, new_entry);
+        self.entries.insertAssumeCapacity(first_entry_index, new_entry);
 
         result.entries_split += 1;
     }
@@ -760,7 +743,7 @@ fn performChangeProtection(
     // split last entry if necessary
     if (entry_range.end_overlap) no_split_last_entry: {
         const last_entry_index = first_entry_index + entry_range.length - 1;
-        const last_entry = address_space.entries.items[last_entry_index];
+        const last_entry = self.entries.items[last_entry_index];
 
         split_last_entry: {
             if (request.protection) |new_protection| {
@@ -776,7 +759,7 @@ fn performChangeProtection(
 
         const split_size = last_entry.range.address.difference(range.after());
         log.verbose("{s}: split last entry {f} at offset {f}", .{
-            address_space.name(),
+            self.name(),
             last_entry.range,
             split_size,
         });
@@ -788,7 +771,7 @@ fn performChangeProtection(
         last_entry.split(new_entry, split_size);
 
         // `last_entry_index + 1` as the new entry is after the last entry of the entry range
-        address_space.entries.insertAssumeCapacity(last_entry_index + 1, new_entry);
+        self.entries.insertAssumeCapacity(last_entry_index + 1, new_entry);
 
         result.entries_split += 1;
     }
@@ -800,7 +783,7 @@ fn performChangeProtection(
 
         var modified = false;
 
-        const entry = address_space.entries.items[index];
+        const entry = self.entries.items[index];
         if (request.protection) |new_protection| {
             if (!entry.protection.equal(new_protection)) {
                 entry.protection = new_protection;
@@ -820,15 +803,15 @@ fn performChangeProtection(
         var merged: bool = false;
 
         const following_index = index + 1;
-        if (following_index < address_space.entries.items.len) {
+        if (following_index < self.entries.items.len) {
             @branchHint(.likely);
 
-            const following_entry = address_space.entries.items[following_index];
+            const following_entry = self.entries.items[following_index];
 
             if (entry.canMerge(following_entry)) {
                 entry.merge(following_entry);
 
-                _ = address_space.entries.orderedRemove(following_index);
+                _ = self.entries.orderedRemove(following_index);
                 following_entry.destroy();
 
                 merged = true;
@@ -844,13 +827,13 @@ fn performChangeProtection(
     // handle merging with an entry preceeding the range, if we spilt the first entry (`entry_range.start_overlap == true`)
     // then if cannot be merged with the preceeding entry
     if (!entry_range.start_overlap and index != 0) {
-        const first_entry = address_space.entries.items[index];
-        const preceeding_entry = address_space.entries.items[index - 1];
+        const first_entry = self.entries.items[index];
+        const preceeding_entry = self.entries.items[index - 1];
 
         if (preceeding_entry.canMerge(first_entry)) {
             preceeding_entry.merge(first_entry);
 
-            _ = address_space.entries.orderedRemove(index);
+            _ = self.entries.orderedRemove(index);
             first_entry.destroy();
 
             // the first entry must have be modified in the above loop, as otherwise it would already be merged with the
@@ -876,10 +859,10 @@ pub const UnmapError = error{
 };
 
 /// Unmap a range from the address space.
-pub fn unmap(address_space: *AddressSpace, range: innigkeit.VirtualRange) UnmapError!void {
-    errdefer |err| log.debug("{s}: unmap failed {t}", .{ address_space.name(), err });
+pub fn unmap(self: *AddressSpace, range: innigkeit.VirtualRange) UnmapError!void {
+    errdefer |err| log.debug("{s}: unmap failed {t}", .{ self.name(), err });
 
-    log.verbose("{s}: unmap {f}", .{ address_space.name(), range });
+    log.verbose("{s}: unmap {f}", .{ self.name(), range });
 
     if (!range.pageAligned()) {
         @branchHint(.cold);
@@ -892,11 +875,11 @@ pub fn unmap(address_space: *AddressSpace, range: innigkeit.VirtualRange) UnmapE
             break :blk .none;
         }
 
-        address_space.entries_lock.writeLock();
-        defer address_space.entries_lock.writeUnlock();
-        if (core.is_debug) std.debug.assert(!address_space.page_table_lock.isLocked());
+        self.entries_lock.writeLock();
+        defer self.entries_lock.writeUnlock();
+        if (core.is_debug) std.debug.assert(!self.page_table_lock.isLocked());
 
-        const entry_range = address_space.entryRange(range) orelse {
+        const entry_range = self.entryRange(range) orelse {
             @branchHint(.cold);
             // no entries overlap the range
             break :blk .none;
@@ -905,22 +888,22 @@ pub fn unmap(address_space: *AddressSpace, range: innigkeit.VirtualRange) UnmapE
 
         var preallocated_entries: PreallocatedEntries = .empty;
         defer preallocated_entries.deinit();
-        try preallocated_entries.preallocateUnmap(address_space, entry_range);
+        try preallocated_entries.preallocateUnmap(self, entry_range);
         errdefer comptime unreachable;
 
         var unmap_batch: innigkeit.mem.VirtualRangeBatch = .{};
 
-        var entry_range_iter = entry_range.rangeIterator(range, address_space.entries.items);
+        var entry_range_iter = entry_range.rangeIterator(range, self.entries.items);
         while (entry_range_iter.next()) |r| {
             if (!unmap_batch.append(r)) {
                 @branchHint(.unlikely);
 
                 innigkeit.mem.unmap(
-                    address_space.page_table,
+                    self.page_table,
                     &unmap_batch,
-                    address_space.context,
+                    self.context,
                     .keep, // backing pages are managed by anonymous maps
-                    switch (address_space.context) {
+                    switch (self.context) {
                         .kernel => .keep,
                         .user => .free,
                     },
@@ -935,11 +918,11 @@ pub fn unmap(address_space: *AddressSpace, range: innigkeit.VirtualRange) UnmapE
 
         if (unmap_batch.ranges.len != 0) {
             innigkeit.mem.unmap(
-                address_space.page_table,
+                self.page_table,
                 &unmap_batch,
-                address_space.context,
+                self.context,
                 .keep, // backing pages are managed by anonymous maps
-                switch (address_space.context) {
+                switch (self.context) {
                     .kernel => .keep,
                     .user => .free,
                 },
@@ -947,9 +930,9 @@ pub fn unmap(address_space: *AddressSpace, range: innigkeit.VirtualRange) UnmapE
             );
         }
 
-        address_space.entries_version +%= 1;
+        self.entries_version +%= 1;
 
-        break :blk address_space.performUnmap(
+        break :blk self.performUnmap(
             entry_range,
             range,
             &preallocated_entries,
@@ -959,7 +942,7 @@ pub fn unmap(address_space: *AddressSpace, range: innigkeit.VirtualRange) UnmapE
     log.verbose(
         "{s}: unmap of {f} resulted in {} split, {} shrunk and {} removed entries",
         .{
-            address_space.name(),
+            self.name(),
             range,
             result.entries_split,
             result.entries_shrunk,
@@ -981,7 +964,7 @@ const UnmapResult = struct {
 };
 
 fn performUnmap(
-    address_space: *AddressSpace,
+    self: *AddressSpace,
     entry_range: EntryRange,
     range: innigkeit.VirtualRange,
     preallocated_entries: *PreallocatedEntries,
@@ -991,7 +974,7 @@ fn performUnmap(
     var first_entry_index = entry_range.start;
 
     if (entry_range.isWithinSingleEntry()) {
-        const first = address_space.entries.items[first_entry_index];
+        const first = self.entries.items[first_entry_index];
         const split_size = first.range.address.difference(range.address);
 
         // split the first entry, the two entries together still cover the entire range of the first entry
@@ -1006,7 +989,7 @@ fn performUnmap(
             range.after().difference(second_entry.range.after()),
         );
 
-        address_space.entries.insertAssumeCapacity(first_entry_index + 1, second_entry);
+        self.entries.insertAssumeCapacity(first_entry_index + 1, second_entry);
 
         result.entries_split += 1;
         return result;
@@ -1016,7 +999,7 @@ fn performUnmap(
 
     // shrink the first entry if needed
     if (entry_range.start_overlap) {
-        const first_entry = address_space.entries.items[first_entry_index];
+        const first_entry = self.entries.items[first_entry_index];
 
         first_entry.shrink(
             .end,
@@ -1030,7 +1013,7 @@ fn performUnmap(
 
     // shrink the last entry if needed
     if (entry_range.end_overlap) {
-        const last_entry = address_space.entries.items[first_entry_index + length - 1];
+        const last_entry = self.entries.items[first_entry_index + length - 1];
 
         last_entry.shrink(
             .beginning,
@@ -1048,7 +1031,7 @@ fn performUnmap(
     while (index > first_entry_index) {
         index -= 1;
 
-        const entry = address_space.entries.orderedRemove(index);
+        const entry = self.entries.orderedRemove(index);
 
         if (entry.anonymous_map_reference.anonymous_map) |anonymous_map| {
             anonymous_map.lock.writeLock();
@@ -1083,19 +1066,16 @@ pub const HandlePageFaultError = error{
 /// Handle a page fault.
 ///
 /// Called `uvm_fault` in OpenBSD uvm.
-pub fn handlePageFault(
-    address_space: *AddressSpace,
-    page_fault_details: innigkeit.mem.PageFaultDetails,
-) HandlePageFaultError!void {
-    errdefer |err| log.debug("{s}: page fault failed {t}", .{ address_space.name(), err });
+pub fn handlePageFault(self: *AddressSpace, page_fault_details: innigkeit.mem.PageFaultDetails) HandlePageFaultError!void {
+    errdefer |err| log.debug("{s}: page fault failed {t}", .{ self.name(), err });
 
     log.verbose("{s}: page fault {f}", .{
-        address_space.name(),
+        self.name(),
         page_fault_details,
     });
 
     var fault_info: FaultInfo = .{
-        .address_space = address_space,
+        .address_space = self,
         .faulting_address = page_fault_details.faulting_address.pageAlignBackward(),
         .access_type = page_fault_details.access_type,
     };
@@ -1143,19 +1123,15 @@ const PreallocatedEntries = struct {
     /// Also ensures sufficent capacity in the entries array.
     ///
     /// Only entries that straddle the start or end of the range might require a new entry, so we will need at most 2.
-    pub fn preallocateChangeProtection(
-        preallocated_entries: *PreallocatedEntries,
-        address_space: *AddressSpace,
-        entry_range: EntryRange,
-    ) !void {
+    pub fn preallocateChangeProtection(self: *PreallocatedEntries, address_space: *AddressSpace, entry_range: EntryRange) !void {
         var worse_case_new_entries: usize = 0;
 
         if (entry_range.start_overlap) worse_case_new_entries += 1;
         if (entry_range.end_overlap) worse_case_new_entries += 1;
         if (worse_case_new_entries == 0) return;
 
-        try Entry.createMany(preallocated_entries.entries.unusedCapacitySlice()[0..worse_case_new_entries]);
-        preallocated_entries.entries.resize(worse_case_new_entries) catch unreachable;
+        try Entry.createMany(self.entries.unusedCapacitySlice()[0..worse_case_new_entries]);
+        self.entries.resize(worse_case_new_entries) catch unreachable;
 
         try address_space.entries.ensureUnusedCapacity(
             innigkeit.mem.heap.allocator,
@@ -1168,19 +1144,15 @@ const PreallocatedEntries = struct {
     /// Also ensures sufficent capacity in the entries array.
     ///
     /// Only an entry that completely contains the range requires a new entry after spliting, so we will need at most 1.
-    pub fn preallocateUnmap(
-        preallocated_entries: *PreallocatedEntries,
-        address_space: *AddressSpace,
-        entry_range: EntryRange,
-    ) !void {
+    pub fn preallocateUnmap(self: *PreallocatedEntries, address_space: *AddressSpace, entry_range: EntryRange) !void {
         if (!entry_range.isWithinSingleEntry()) return;
 
-        preallocated_entries.entries.append(try Entry.create()) catch unreachable;
+        self.entries.append(try Entry.create()) catch unreachable;
         try address_space.entries.ensureUnusedCapacity(innigkeit.mem.heap.allocator, 1);
     }
 
-    fn deinit(preallocated_entries: *PreallocatedEntries) void {
-        for (preallocated_entries.entries.constSlice()) |entry| {
+    fn deinit(self: *PreallocatedEntries) void {
+        for (self.entries.constSlice()) |entry| {
             entry.destroy(); // free any preallocated entries that we didn't use
         }
     }
@@ -1194,9 +1166,9 @@ pub const Name = core.containers.BoundedArray(u8, innigkeit.config.user.address_
 ///
 /// Caller must ensure:
 ///  - the address space entries are atleast read locked
-pub fn entryIndexByAddress(address_space: *const AddressSpace, address: innigkeit.VirtualAddress) ?usize {
-    if (core.is_debug) std.debug.assert(address_space.entries_lock.isReadLocked() or address_space.entries_lock.isWriteLocked());
-    return innerEntryIndexByAddress(address_space.entries.items, address);
+pub fn entryIndexByAddress(self: *const AddressSpace, address: innigkeit.VirtualAddress) ?usize {
+    if (core.is_debug) std.debug.assert(self.entries_lock.isReadLocked() or self.entries_lock.isWriteLocked());
+    return innerEntryIndexByAddress(self.entries.items, address);
 }
 
 // Exists so that a subslice of entries can be searched unlike with `entryIndexByAddress` which searches the entire slice.
@@ -1223,18 +1195,18 @@ const EntryRange = struct {
     /// If `true` the last entry in the range overlaps the end of the range.
     end_overlap: bool = false,
 
-    pub fn isWithinSingleEntry(entry_range: EntryRange) bool {
-        return entry_range.length == 1 and
-            entry_range.start_overlap and
-            entry_range.end_overlap;
+    pub fn isWithinSingleEntry(self: EntryRange) bool {
+        return self.length == 1 and
+            self.start_overlap and
+            self.end_overlap;
     }
 
-    pub fn rangeIterator(entry_range: EntryRange, range: innigkeit.VirtualRange, entries: []const *const Entry) RangeIterator {
+    pub fn rangeIterator(self: EntryRange, range: innigkeit.VirtualRange, entries: []const *const Entry) RangeIterator {
         return .{
-            .entry_range = entry_range,
+            .entry_range = self,
             .range = range,
             .entries = entries,
-            .index = entry_range.start,
+            .index = self.start,
         };
     }
 
@@ -1245,17 +1217,17 @@ const EntryRange = struct {
 
         index: usize,
 
-        pub fn next(iter: *RangeIterator) ?innigkeit.VirtualRange {
-            const entry_range = &iter.entry_range;
+        pub fn next(self: *RangeIterator) ?innigkeit.VirtualRange {
+            const entry_range = &self.entry_range;
             const end_index = entry_range.start + entry_range.length;
 
-            const index = iter.index;
+            const index = self.index;
             if (index >= end_index) return null;
 
-            const entry = iter.entries[index];
-            iter.index += 1;
+            const entry = self.entries[index];
+            self.index += 1;
 
-            const range = iter.range;
+            const range = self.range;
 
             if (index == entry_range.start and entry_range.start_overlap) {
                 @branchHint(.unlikely);
@@ -1287,15 +1259,15 @@ const EntryRange = struct {
     };
 
     pub fn rangeAndProtectionIterator(
-        entry_range: EntryRange,
+        self: EntryRange,
         range: innigkeit.VirtualRange,
         entries: []const *const Entry,
     ) RangeAndProtectionIterator {
         return .{
-            .entry_range = entry_range,
+            .entry_range = self,
             .range = range,
             .entries = entries,
-            .index = entry_range.start,
+            .index = self.start,
         };
     }
 
@@ -1311,17 +1283,17 @@ const EntryRange = struct {
             protection: innigkeit.mem.MapType.Protection,
         };
 
-        pub fn next(iter: *RangeAndProtectionIterator) ?VirtualRangeWithProtection {
-            const entry_range = &iter.entry_range;
+        pub fn next(self: *RangeAndProtectionIterator) ?VirtualRangeWithProtection {
+            const entry_range = &self.entry_range;
             const end_index = entry_range.start + entry_range.length;
 
-            const index = iter.index;
+            const index = self.index;
             if (index >= end_index) return null;
 
-            const entry = iter.entries[index];
-            iter.index += 1;
+            const entry = self.entries[index];
+            self.index += 1;
 
-            const range = iter.range;
+            const range = self.range;
 
             if (index == entry_range.start and entry_range.start_overlap) {
                 @branchHint(.unlikely);
@@ -1368,8 +1340,8 @@ const EntryRange = struct {
 /// Return the start index and length of the entries that overlap the given range.
 ///
 /// Also determines if the first and last entries overlap the start and end of the range.
-fn entryRange(address_space: *const AddressSpace, range: innigkeit.VirtualRange) ?EntryRange {
-    const entries = address_space.entries.items;
+fn entryRange(self: *const AddressSpace, range: innigkeit.VirtualRange) ?EntryRange {
+    const entries = self.entries.items;
 
     var entry_range: EntryRange = blk: {
         const start_index = std.sort.lowerBound(
@@ -1396,13 +1368,13 @@ fn entryRange(address_space: *const AddressSpace, range: innigkeit.VirtualRange)
         };
     };
 
-    const first_entry = address_space.entries.items[entry_range.start];
+    const first_entry = self.entries.items[entry_range.start];
     if (first_entry.range.address.lessThan(range.address)) {
         if (core.is_debug) std.debug.assert(first_entry.range.after().greaterThanOrEqual(range.address));
         entry_range.start_overlap = true;
     }
 
-    const last_entry = address_space.entries.items[entry_range.start + entry_range.length - 1];
+    const last_entry = self.entries.items[entry_range.start + entry_range.length - 1];
     if (last_entry.range.after().greaterThan(range.after())) {
         if (core.is_debug) std.debug.assert(last_entry.range.address.lessThan(range.last()));
         entry_range.end_overlap = true;
@@ -1414,28 +1386,28 @@ fn entryRange(address_space: *const AddressSpace, range: innigkeit.VirtualRange)
 /// Prints the address space.
 ///
 /// Locks the entries lock.
-pub fn print(address_space: *AddressSpace, writer: *std.Io.Writer, indent: usize) !void {
-    address_space.entries_lock.readLock();
-    defer address_space.entries_lock.readUnlock();
+pub fn print(self: *AddressSpace, writer: *std.Io.Writer, indent: usize) !void {
+    self.entries_lock.readLock();
+    defer self.entries_lock.readUnlock();
 
     const new_indent = indent + 2;
 
     try writer.writeAll("AddressSpace{\n");
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("context: {t},\n", .{address_space.context});
+    try writer.print("context: {t},\n", .{self.context});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("range: {f},\n", .{address_space.range});
+    try writer.print("range: {f},\n", .{self.range});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("entries_version: {d},\n", .{address_space.entries_version});
+    try writer.print("entries_version: {d},\n", .{self.entries_version});
 
-    if (address_space.entries.items.len != 0) {
+    if (self.entries.items.len != 0) {
         try writer.splatByteAll(' ', new_indent);
         try writer.writeAll("entries: {\n");
 
-        for (address_space.entries.items) |entry| {
+        for (self.entries.items) |entry| {
             try writer.splatByteAll(' ', new_indent + 2);
             try entry.print(writer, new_indent + 2);
             try writer.writeAll(",\n");
@@ -1452,6 +1424,6 @@ pub fn print(address_space: *AddressSpace, writer: *std.Io.Writer, indent: usize
     try writer.writeAll("}");
 }
 
-pub inline fn format(address_space: *AddressSpace, writer: *std.Io.Writer) !void {
-    return address_space.print(writer, 0);
+pub inline fn format(self: *AddressSpace, writer: *std.Io.Writer) !void {
+    return self.print(writer, 0);
 }

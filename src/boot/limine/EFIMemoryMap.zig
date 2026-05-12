@@ -29,28 +29,28 @@ pub const Response = extern struct {
     /// Version of EFI memory map descriptors.
     desc_version: u64,
 
-    pub fn print(response: *const Response, writer: *std.Io.Writer, indent: usize) !void {
+    pub fn print(self: *const Response, writer: *std.Io.Writer, indent: usize) !void {
         const new_indent = indent + 2;
 
         try writer.writeAll("EFIMemoryMap{\n");
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("address: {f}\n", .{response.memmap});
+        try writer.print("address: {f}\n", .{self.memmap});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("size: {f}\n", .{response.memmap_size});
+        try writer.print("size: {f}\n", .{self.memmap_size});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("desc_size: {f}\n", .{response.desc_size});
+        try writer.print("desc_size: {f}\n", .{self.desc_size});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("desc_version: {}\n", .{response.desc_version});
+        try writer.print("desc_version: {}\n", .{self.desc_version});
 
         try writer.splatByteAll(' ', indent);
         try writer.writeByte('}');
     }
 
-    pub inline fn format(response: *const Response, writer: *std.Io.Writer) !void {
-        return response.print(response, writer, 0);
+    pub inline fn format(self: *const Response, writer: *std.Io.Writer) !void {
+        return self.print(self, writer, 0);
     }
 };

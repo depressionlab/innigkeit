@@ -18,7 +18,7 @@ pub const Response = extern struct {
     /// The Hart ID of the boot processor.
     bsp_hartid: u64,
 
-    pub inline fn format(response: *const Response, writer: *std.Io.Writer) !void {
-        try writer.print("BSPHartID({})", .{response.bsp_hartid});
+    pub inline fn format(self: *const Response, writer: *std.Io.Writer) !void {
+        try writer.print("BSPHartID({})", .{self.bsp_hartid});
     }
 };

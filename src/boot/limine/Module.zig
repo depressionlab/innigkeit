@@ -38,21 +38,21 @@ pub const Response = extern struct {
     _module_count: u64,
     _modules: [*]const *const root.File,
 
-    pub fn modules(response: *const Response) []const *const root.File {
-        return response._modules[0..response._module_count];
+    pub fn modules(self: *const Response) []const *const root.File {
+        return self._modules[0..self._module_count];
     }
 
-    pub fn print(response: *const Response, writer: *std.Io.Writer, indent: usize) !void {
+    pub fn print(self: *const Response, writer: *std.Io.Writer, indent: usize) !void {
         const new_indent = indent + 2;
 
-        if (response._module_count == 0) {
+        if (self._module_count == 0) {
             try writer.writeAll("Modules{}");
             return;
         }
 
         try writer.writeAll("Modules{\n");
 
-        for (response.modules()) |module| {
+        for (self.modules()) |module| {
             try writer.splatByteAll(' ', new_indent + 2);
             try module.print(writer, new_indent + 2);
             try writer.writeByte('\n');
@@ -62,8 +62,8 @@ pub const Response = extern struct {
         try writer.writeByte('}');
     }
 
-    pub inline fn format(response: *const Response, writer: *std.Io.Writer) !void {
-        return response.print(writer, 0);
+    pub inline fn format(self: *const Response, writer: *std.Io.Writer) !void {
+        return self.print(writer, 0);
     }
 };
 
@@ -86,8 +86,8 @@ pub const InternalModule = extern struct {
     flags: Flags,
 
     /// String associated with the given module.
-    pub fn string(internal_module: *const InternalModule) ?[:0]const u8 {
-        return if (internal_module._string) |s|
+    pub fn string(self: *const InternalModule) ?[:0]const u8 {
+        return if (self._string) |s|
             std.mem.sliceTo(s, 0)
         else
             null;

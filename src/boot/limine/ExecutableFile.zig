@@ -14,20 +14,20 @@ pub const Response = extern struct {
     revision: u64,
     executable_file: *const root.File,
 
-    pub fn print(response: *const Response, writer: *std.Io.Writer, indent: usize) !void {
+    pub fn print(self: *const Response, writer: *std.Io.Writer, indent: usize) !void {
         const new_indent = indent + 2;
 
         try writer.writeAll("ExecutableFile{\n");
 
         try writer.splatByteAll(' ', new_indent + 2);
-        try response.executable_file.print(writer, new_indent + 2);
+        try self.executable_file.print(writer, new_indent + 2);
         try writer.writeByte('\n');
 
         try writer.splatByteAll(' ', indent);
         try writer.writeByte('}');
     }
 
-    pub inline fn format(response: *const Response, writer: *std.Io.Writer) !void {
-        return response.print(writer, 0);
+    pub inline fn format(self: *const Response, writer: *std.Io.Writer) !void {
+        return self.print(writer, 0);
     }
 };

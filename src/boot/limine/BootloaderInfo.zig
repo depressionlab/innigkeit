@@ -15,18 +15,18 @@ pub const Response = extern struct {
     _name: [*:0]const u8,
     _version: [*:0]const u8,
 
-    pub fn name(response: *const Response) [:0]const u8 {
-        return std.mem.sliceTo(response._name, 0);
+    pub fn name(self: *const Response) [:0]const u8 {
+        return std.mem.sliceTo(self._name, 0);
     }
 
-    pub fn version(response: *const Response) [:0]const u8 {
-        return std.mem.sliceTo(response._version, 0);
+    pub fn version(self: *const Response) [:0]const u8 {
+        return std.mem.sliceTo(self._version, 0);
     }
 
-    pub inline fn format(response: *const Response, writer: *std.Io.Writer) !void {
+    pub inline fn format(self: *const Response, writer: *std.Io.Writer) !void {
         try writer.print("Bootloader({s} {s})", .{
-            response.name(),
-            response.version(),
+            self.name(),
+            self.version(),
         });
     }
 };

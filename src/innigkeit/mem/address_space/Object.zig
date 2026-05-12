@@ -29,27 +29,27 @@ physical_page_chunks: PhysicalPageChunkMap = .{},
 /// Increment the reference count.
 ///
 /// When called a write lock must be held.
-pub fn incrementReferenceCount(object: *Object) void {
+pub fn incrementReferenceCount(self: *Object) void {
     if (core.is_debug) {
-        std.debug.assert(object.reference_count != 0);
-        std.debug.assert(object.lock.isWriteLocked());
+        std.debug.assert(self.reference_count != 0);
+        std.debug.assert(self.lock.isWriteLocked());
     }
 
-    object.reference_count += 1;
+    self.reference_count += 1;
 }
 
 /// Decrement the reference count.
 ///
 /// When called a write lock must be held, upon return the lock is unlocked.
-pub fn decrementReferenceCount(object: *Object) void {
+pub fn decrementReferenceCount(self: *Object) void {
     if (core.is_debug) {
-        std.debug.assert(object.reference_count != 0);
-        std.debug.assert(object.lock.isWriteLocked());
+        std.debug.assert(self.reference_count != 0);
+        std.debug.assert(self.lock.isWriteLocked());
     }
 
-    const reference_count = object.reference_count;
-    object.reference_count = reference_count - 1;
-    object.lock.writeUnlock();
+    const reference_count = self.reference_count;
+    self.reference_count = reference_count - 1;
+    self.lock.writeUnlock();
 
     if (reference_count == 1) {
         // reference count is now zero, destroy the object
@@ -63,18 +63,14 @@ pub const Reference = struct {
     start_offset: core.Size,
 
     /// Prints the anonymous map reference.
-    pub fn print(
-        object_reference: Reference,
-        writer: *std.Io.Writer,
-        indent: usize,
-    ) !void {
+    pub fn print(self: Reference, writer: *std.Io.Writer, indent: usize) !void {
         const new_indent = indent + 2;
 
-        if (object_reference.object) |object| {
+        if (self.object) |object| {
             try writer.writeAll("Object.Reference{\n");
 
             try writer.splatByteAll(' ', new_indent);
-            try writer.print("start_offset: {f}\n", .{object_reference.start_offset});
+            try writer.print("start_offset: {f}\n", .{self.start_offset});
 
             try writer.splatByteAll(' ', new_indent);
             try object.print(
@@ -98,15 +94,11 @@ pub const Reference = struct {
 /// Prints the object.
 ///
 /// Locks the spinlock.
-pub fn print(
-    object: *Object,
-    writer: *std.Io.Writer,
-    indent: usize,
-) !void {
+pub fn print(self: *Object, writer: *std.Io.Writer, indent: usize) !void {
     const new_indent = indent + 2;
 
-    object.lock.readLock();
-    defer object.lock.readLock();
+    self.lock.readLock();
+    defer self.lock.readLock();
 
     try writer.writeAll("Object{\n");
 

@@ -1,14 +1,11 @@
 //! Represents a userspace process.
+const Process = @This();
 
 const std = @import("std");
-
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
-
 const log = innigkeit.debug.log.scoped(.user_process);
-
-const Process = @This();
 
 name: Name,
 
@@ -71,19 +68,19 @@ pub const CreateThreadOptions = struct {
 ///
 /// The thread is in the `ready` state and is not scheduled.
 pub fn createThread(
-    process: *Process,
+    self: *Process,
     options: CreateThreadOptions,
 ) !*innigkeit.user.Thread {
     const thread = blk: {
         const thread = try innigkeit.user.Thread.internal.create(
-            process,
+            self,
             .{
                 .name = if (options.name) |provided_name|
                     provided_name
                 else
                     try .initPrint(
                         "{d}",
-                        .{process.next_thread_id.fetchAdd(1, .monotonic)},
+                        .{self.next_thread_id.fetchAdd(1, .monotonic)},
                     ),
                 .type = .user,
                 .entry = options.entry,
@@ -95,13 +92,13 @@ pub fn createThread(
             innigkeit.user.Thread.internal.destroy(thread);
         }
 
-        process.threads_lock.writeLock();
-        defer process.threads_lock.writeUnlock();
+        self.threads_lock.writeLock();
+        defer self.threads_lock.writeUnlock();
 
-        const gop = try process.threads.getOrPut(innigkeit.mem.heap.allocator, thread);
+        const gop = try self.threads.getOrPut(innigkeit.mem.heap.allocator, thread);
         if (gop.found_existing) @panic("thread already in process threads list!");
 
-        process.incrementReferenceCount();
+        self.incrementReferenceCount();
 
         break :blk thread;
     };
@@ -111,16 +108,16 @@ pub fn createThread(
     return thread;
 }
 
-pub fn incrementReferenceCount(process: *Process) void {
-    _ = process.reference_count.fetchAdd(1, .acq_rel);
+pub fn incrementReferenceCount(self: *Process) void {
+    _ = self.reference_count.fetchAdd(1, .acq_rel);
 }
 
-pub fn decrementReferenceCount(process: *Process) void {
-    if (process.reference_count.fetchSub(1, .acq_rel) != 1) {
+pub fn decrementReferenceCount(self: *Process) void {
+    if (self.reference_count.fetchSub(1, .acq_rel) != 1) {
         @branchHint(.likely);
         return;
     }
-    globals.process_cleanup.queueProcessForCleanup(process);
+    globals.process_cleanup.queueProcessForCleanup(self);
 }
 
 /// Returns the process that the given task belongs to.
@@ -141,9 +138,9 @@ pub inline fn fromConst(task: *const innigkeit.Task) *const Process {
     return thread.process;
 }
 
-pub fn format(process: *const Process, writer: *std.Io.Writer) !void {
+pub fn format(self: *const Process, writer: *std.Io.Writer) !void {
     // TODO: this is a user controlled string
-    try writer.print("Process<{s}>", .{process.name.constSlice()});
+    try writer.print("Process<{s}>", .{self.name.constSlice()});
 }
 
 pub const Name = core.containers.BoundedArray(u8, innigkeit.config.user.process_name_length);
@@ -153,23 +150,20 @@ const ProcessCleanup = struct {
     parker: innigkeit.sync.Parker,
     incoming: core.containers.AtomicSinglyLinkedList,
 
-    pub fn init(process_cleanup: *ProcessCleanup) !void {
-        process_cleanup.* = .{
+    pub fn init(self: *ProcessCleanup) !void {
+        self.* = .{
             .task = try innigkeit.Task.createKernelTask(.{
                 .name = try .fromSlice("process cleanup"),
-                .entry = .prepare(ProcessCleanup.execute, .{process_cleanup}),
+                .entry = .prepare(ProcessCleanup.execute, .{self}),
             }),
             .parker = undefined, // set below
             .incoming = .{},
         };
 
-        process_cleanup.parker = .withParkedTask(process_cleanup.task);
+        self.parker = .withParkedTask(self.task);
     }
 
-    pub fn queueProcessForCleanup(
-        process_cleanup: *ProcessCleanup,
-        process: *Process,
-    ) void {
+    pub fn queueProcessForCleanup(self: *ProcessCleanup, process: *Process) void {
         if (process.queued_for_cleanup.cmpxchgStrong(
             false,
             true,
@@ -181,17 +175,17 @@ const ProcessCleanup = struct {
 
         log.verbose("queueing {f} for cleanup", .{process});
 
-        process_cleanup.incoming.prepend(&process.cleanup_node);
-        process_cleanup.parker.unpark();
+        self.incoming.prepend(&process.cleanup_node);
+        self.parker.unpark();
     }
 
-    fn execute(process_cleanup: *ProcessCleanup) noreturn {
+    fn execute(self: *ProcessCleanup) noreturn {
         while (true) {
-            while (process_cleanup.incoming.popFirst()) |node| {
+            while (self.incoming.popFirst()) |node| {
                 cleanupProcess(@alignCast(@fieldParentPtr("cleanup_node", node)));
             }
 
-            process_cleanup.parker.park();
+            self.parker.park();
         }
     }
 

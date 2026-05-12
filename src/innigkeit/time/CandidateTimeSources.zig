@@ -12,10 +12,7 @@ candidate_time_sources: core.containers.BoundedArray(
     innigkeit.config.time.maximum_number_of_time_sources,
 ) = .{},
 
-pub fn addTimeSource(
-    candidate_time_sources: *CandidateTimeSources,
-    time_source: CandidateTimeSource,
-) void {
+pub fn addTimeSource(self: *CandidateTimeSources, time_source: CandidateTimeSource) void {
     if (time_source.reference_counter != null) {
         if (time_source.initialization == .calibration_required) {
             std.debug.panic(
@@ -25,7 +22,7 @@ pub fn addTimeSource(
         }
     }
 
-    candidate_time_sources.candidate_time_sources.append(time_source) catch {
+    self.candidate_time_sources.append(time_source) catch {
         @panic("exceeded maximum number of time sources!");
     };
 

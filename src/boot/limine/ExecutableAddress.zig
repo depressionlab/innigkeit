@@ -20,22 +20,22 @@ pub const Response = extern struct {
     /// The virtual base address of the executable.
     virtual_base: innigkeit.KernelVirtualAddress,
 
-    pub fn print(response: *const Response, writer: *std.Io.Writer, indent: usize) !void {
+    pub fn print(self: *const Response, writer: *std.Io.Writer, indent: usize) !void {
         const new_indent = indent + 2;
 
         try writer.writeAll("ExecutableAddress{\n");
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("physical_base: {f}\n", .{response.physical_base});
+        try writer.print("physical_base: {f}\n", .{self.physical_base});
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("virtual_base: {f}\n", .{response.virtual_base});
+        try writer.print("virtual_base: {f}\n", .{self.virtual_base});
 
         try writer.splatByteAll(' ', indent);
         try writer.writeByte('}');
     }
 
-    pub inline fn format(response: *const Response, writer: *std.Io.Writer) !void {
-        return response.print(writer, 0);
+    pub inline fn format(self: *const Response, writer: *std.Io.Writer) !void {
+        return self.print(writer, 0);
     }
 };

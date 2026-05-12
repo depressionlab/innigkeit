@@ -3,18 +3,16 @@
 //! Recursive locks are not supported.
 //!
 //! Interrupts are disabled while locked.
+const SingleSpinLock = @This();
 
 const std = @import("std");
-
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
 
-const SingleSpinLock = @This();
-
 holding_executor: std.atomic.Value(?*const innigkeit.Executor) align(std.atomic.cache_line) = .init(null),
 
-pub fn lock(single_spin_lock: *SingleSpinLock) void {
+pub fn lock(self: *SingleSpinLock) void {
     const current_task: innigkeit.Task.Current = .get();
     current_task.incrementInterruptDisable();
 
@@ -22,7 +20,7 @@ pub fn lock(single_spin_lock: *SingleSpinLock) void {
 
     const current_executor = current_task.knownExecutor();
 
-    const locked_by = single_spin_lock.holding_executor.cmpxchgStrong(
+    const locked_by = self.holding_executor.cmpxchgStrong(
         null,
         current_executor,
         .acquire,
@@ -37,7 +35,7 @@ pub fn lock(single_spin_lock: *SingleSpinLock) void {
         @panic("recursive lock!");
     }
 
-    while (single_spin_lock.holding_executor.cmpxchgWeak(
+    while (self.holding_executor.cmpxchgWeak(
         null,
         current_executor,
         .acquire,
@@ -47,12 +45,12 @@ pub fn lock(single_spin_lock: *SingleSpinLock) void {
     }
 }
 
-pub fn tryLock(single_spin_lock: *SingleSpinLock) bool {
+pub fn tryLock(self: *SingleSpinLock) bool {
     const current_task: innigkeit.Task.Current = .get();
     current_task.incrementInterruptDisable();
     const current_executor = current_task.knownExecutor();
 
-    if (single_spin_lock.holding_executor.cmpxchgStrong(
+    if (self.holding_executor.cmpxchgStrong(
         null,
         current_executor,
         .acquire,
@@ -73,15 +71,15 @@ pub fn tryLock(single_spin_lock: *SingleSpinLock) bool {
     return true;
 }
 
-pub fn unlock(single_spin_lock: *SingleSpinLock) void {
+pub fn unlock(self: *SingleSpinLock) void {
     const current_task: innigkeit.Task.Current = .get();
 
     if (core.is_debug) {
         std.debug.assert(current_task.task.spinlocks_held != 0);
-        std.debug.assert(single_spin_lock.isLockedByCurrent());
+        std.debug.assert(self.isLockedByCurrent());
     }
 
-    single_spin_lock.unsafeUnlock();
+    self.unsafeUnlock();
 
     current_task.task.spinlocks_held -= 1;
     current_task.decrementInterruptDisable();
@@ -90,12 +88,12 @@ pub fn unlock(single_spin_lock: *SingleSpinLock) void {
 /// Unlocks the spinlock, without decrementing interrupt disable count or spinlock held count.
 ///
 /// Performs no checks, prefer `unlock` instead.
-pub inline fn unsafeUnlock(single_spin_lock: *SingleSpinLock) void {
-    single_spin_lock.holding_executor.store(null, .release);
+pub inline fn unsafeUnlock(self: *SingleSpinLock) void {
+    self.holding_executor.store(null, .release);
 }
 
 /// Returns true if the spinlock is locked by the current executor.
-pub fn isLockedByCurrent(single_spin_lock: *const SingleSpinLock) bool {
+pub fn isLockedByCurrent(self: *const SingleSpinLock) bool {
     const executor = innigkeit.Task.Current.get().task.known_executor orelse return false;
-    return single_spin_lock.holding_executor.load(.monotonic) == executor;
+    return self.holding_executor.load(.monotonic) == executor;
 }

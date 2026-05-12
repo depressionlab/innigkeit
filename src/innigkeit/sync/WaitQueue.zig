@@ -1,9 +1,8 @@
-const std = @import("std");
+const WaitQueue = @This();
 
+const std = @import("std");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
-
-const WaitQueue = @This();
 
 waiting_tasks: core.containers.FIFO = .{},
 
@@ -12,32 +11,29 @@ waiting_tasks: core.containers.FIFO = .{},
 /// Does not remove the task from the wait queue.
 ///
 /// Not thread-safe.
-pub fn firstTask(wait_queue: *WaitQueue) ?*innigkeit.Task {
-    const node = wait_queue.waiting_tasks.first_node orelse return null;
+pub fn firstTask(self: *WaitQueue) ?*innigkeit.Task {
+    const node = self.waiting_tasks.first_node orelse return null;
     return .fromNode(node);
 }
 
 /// Removes the first task from the wait queue.
 ///
 /// Not thread-safe.
-pub fn popFirst(wait_queue: *WaitQueue) ?*innigkeit.Task {
-    const node = wait_queue.waiting_tasks.pop() orelse return null;
+pub fn popFirst(self: *WaitQueue) ?*innigkeit.Task {
+    const node = self.waiting_tasks.pop() orelse return null;
     return .fromNode(node);
 }
 
 /// Wake one task from the wait queue.
 ///
 /// Asserts that the spinlock is locked by the current executor and interrupts are disabled.
-pub fn wakeOne(
-    wait_queue: *WaitQueue,
-    spinlock: *const innigkeit.sync.TicketSpinLock,
-) void {
+pub fn wakeOne(self: *WaitQueue, spinlock: *const innigkeit.sync.TicketSpinLock) void {
     if (core.is_debug) {
         std.debug.assert(innigkeit.Task.Current.get().task.interrupt_disable_count.load(.acquire) != 0);
         std.debug.assert(spinlock.isLockedByCurrent());
     }
 
-    const task_to_wake_node = wait_queue.waiting_tasks.pop() orelse return;
+    const task_to_wake_node = self.waiting_tasks.pop() orelse return;
     const task_to_wake: *innigkeit.Task = .fromNode(task_to_wake_node);
 
     task_to_wake.wakeFromBlocked();
@@ -48,10 +44,7 @@ pub fn wakeOne(
 /// The spinlock will be unlocked upon return.
 ///
 /// Asserts that the spinlock is locked by the current executor and interrupts are disabled.
-pub fn wait(
-    wait_queue: *WaitQueue,
-    spinlock: *innigkeit.sync.TicketSpinLock,
-) void {
+pub fn wait(self: *WaitQueue, spinlock: *innigkeit.sync.TicketSpinLock) void {
     const current_task: innigkeit.Task.Current = .get();
 
     if (core.is_debug) {
@@ -59,7 +52,7 @@ pub fn wait(
         std.debug.assert(spinlock.isLockedByCurrent());
     }
 
-    wait_queue.waiting_tasks.append(&current_task.task.next_task_node);
+    self.waiting_tasks.append(&current_task.task.next_task_node);
 
     var scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
     defer scheduler_handle.unlock();

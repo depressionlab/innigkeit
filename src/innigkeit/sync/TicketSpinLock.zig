@@ -3,41 +3,39 @@
 //! Recursive locks are not supported.
 //!
 //! Interrupts are disabled while locked.
+const TicketSpinLock = @This();
 
 const std = @import("std");
-
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
 
-const TicketSpinLock = @This();
-
 container: Container align(std.atomic.cache_line) = .{ .full = 0 },
 holding_executor: ?*const innigkeit.Executor = null,
 
-pub fn lock(ticket_spin_lock: *TicketSpinLock) void {
+pub fn lock(self: *TicketSpinLock) void {
     const current_task: innigkeit.Task.Current = .get();
 
     current_task.incrementInterruptDisable();
 
-    if (core.is_debug) std.debug.assert(!ticket_spin_lock.isLockedByCurrent()); // recursive locks are not supported
+    if (core.is_debug) std.debug.assert(!self.isLockedByCurrent()); // recursive locks are not supported
 
-    const ticket = @atomicRmw(u32, &ticket_spin_lock.container.contents.ticket, .Add, 1, .monotonic);
+    const ticket = @atomicRmw(u32, &self.container.contents.ticket, .Add, 1, .monotonic);
 
-    if (@atomicLoad(u32, &ticket_spin_lock.container.contents.current, .acquire) != ticket) {
+    if (@atomicLoad(u32, &self.container.contents.current, .acquire) != ticket) {
         while (true) {
             architecture.spinLoopHint();
-            if (@atomicLoad(u32, &ticket_spin_lock.container.contents.current, .monotonic) == ticket) break;
+            if (@atomicLoad(u32, &self.container.contents.current, .monotonic) == ticket) break;
         }
 
-        _ = @atomicLoad(u32, &ticket_spin_lock.container.contents.current, .acquire);
+        _ = @atomicLoad(u32, &self.container.contents.current, .acquire);
     }
 
-    ticket_spin_lock.holding_executor = current_task.knownExecutor();
+    self.holding_executor = current_task.knownExecutor();
     current_task.task.spinlocks_held += 1;
 }
 
-pub fn tryLock(ticket_spin_lock: *TicketSpinLock) bool {
+pub fn tryLock(self: *TicketSpinLock) bool {
     // no need to check if we already have the lock as the below logic will not allow us
     // to acquire it again
 
@@ -45,7 +43,7 @@ pub fn tryLock(ticket_spin_lock: *TicketSpinLock) bool {
 
     current_task.incrementInterruptDisable();
 
-    const old_container: Container = @bitCast(@atomicLoad(u64, &ticket_spin_lock.container.full, .monotonic));
+    const old_container: Container = @bitCast(@atomicLoad(u64, &self.container.full, .monotonic));
 
     if (old_container.contents.current != old_container.contents.ticket) {
         current_task.decrementInterruptDisable();
@@ -57,7 +55,7 @@ pub fn tryLock(ticket_spin_lock: *TicketSpinLock) bool {
 
     if (@cmpxchgStrong(
         u64,
-        &ticket_spin_lock.container.full,
+        &self.container.full,
         old_container.full,
         new_container.full,
         .acquire,
@@ -67,7 +65,7 @@ pub fn tryLock(ticket_spin_lock: *TicketSpinLock) bool {
         return false;
     }
 
-    ticket_spin_lock.holding_executor = current_task.knownExecutor();
+    self.holding_executor = current_task.knownExecutor();
     current_task.task.spinlocks_held += 1;
 
     return true;
@@ -76,15 +74,15 @@ pub fn tryLock(ticket_spin_lock: *TicketSpinLock) bool {
 /// Unlock the spinlock.
 ///
 /// Asserts that the current executor is the one that locked the spinlock.
-pub fn unlock(ticket_spin_lock: *TicketSpinLock) void {
+pub fn unlock(self: *TicketSpinLock) void {
     const current_task: innigkeit.Task.Current = .get();
 
     if (core.is_debug) {
         std.debug.assert(current_task.task.spinlocks_held != 0);
-        std.debug.assert(ticket_spin_lock.isLockedByCurrent());
+        std.debug.assert(self.isLockedByCurrent());
     }
 
-    ticket_spin_lock.unsafeUnlock();
+    self.unsafeUnlock();
 
     current_task.task.spinlocks_held -= 1;
     current_task.decrementInterruptDisable();
@@ -93,20 +91,20 @@ pub fn unlock(ticket_spin_lock: *TicketSpinLock) void {
 /// Unlocks the spinlock, without decrementing interrupt disable count or spinlock held count.
 ///
 /// Performs no checks, prefer `unlock` instead.
-pub inline fn unsafeUnlock(ticket_spin_lock: *TicketSpinLock) void {
-    ticket_spin_lock.holding_executor = null;
-    _ = @atomicRmw(u32, &ticket_spin_lock.container.contents.current, .Add, 1, .release);
+pub inline fn unsafeUnlock(self: *TicketSpinLock) void {
+    self.holding_executor = null;
+    _ = @atomicRmw(u32, &self.container.contents.current, .Add, 1, .release);
 }
 
 /// Poison the spinlock, this will cause any future attempts to lock the spinlock to deadlock.
-pub fn poison(ticket_spin_lock: *TicketSpinLock) void {
-    _ = @atomicRmw(u32, &ticket_spin_lock.container.contents.current, .Sub, 1, .release);
+pub fn poison(self: *TicketSpinLock) void {
+    _ = @atomicRmw(u32, &self.container.contents.current, .Sub, 1, .release);
 }
 
 /// Returns true if the spinlock is locked by the current executor.
-pub fn isLockedByCurrent(ticket_spin_lock: *const TicketSpinLock) bool {
+pub fn isLockedByCurrent(self: *const TicketSpinLock) bool {
     const executor = innigkeit.Task.Current.get().task.known_executor orelse return false;
-    return ticket_spin_lock.holding_executor == executor;
+    return self.holding_executor == executor;
 }
 
 const Container = extern union {

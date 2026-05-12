@@ -1,11 +1,9 @@
 //! A synchronization primitive that allows a single task to block (park) and any other task to wake it (unpark).
+const Parker = @This();
 
 const std = @import("std");
-
 const innigkeit = @import("innigkeit");
 const core = @import("core");
-
-const Parker = @This();
 
 lock: innigkeit.sync.TicketSpinLock = .{},
 parked_task: ?*innigkeit.Task,
@@ -28,10 +26,10 @@ pub fn withParkedTask(parked_task: *innigkeit.Task) Parker {
 /// Park (block) the current task.
 ///
 /// Spurious wakeups are possible.
-pub fn park(parker: *Parker) void {
+pub fn park(self: *Parker) void {
     if (core.is_debug) std.debug.assert(innigkeit.Task.Current.get().task.state == .running);
 
-    if (parker.unpark_attempts.swap(0, .acq_rel) != 0) {
+    if (self.unpark_attempts.swap(0, .acq_rel) != 0) {
         return; // there were some wakeups, they might be spurious
     }
 
@@ -39,18 +37,18 @@ pub fn park(parker: *Parker) void {
     defer scheduler_handle.unlock();
 
     // recheck for unpark attempts that happened while we were locking the scheduler
-    if (parker.unpark_attempts.swap(0, .acq_rel) != 0) {
+    if (self.unpark_attempts.swap(0, .acq_rel) != 0) {
         @branchHint(.unlikely);
         return;
     }
 
-    parker.lock.lock();
-    if (core.is_debug) std.debug.assert(parker.parked_task == null);
+    self.lock.lock();
+    if (core.is_debug) std.debug.assert(self.parked_task == null);
 
     // recheck for unpark attempts that happened while we were locking the parker lock
-    if (parker.unpark_attempts.swap(0, .acq_rel) != 0) {
+    if (self.unpark_attempts.swap(0, .acq_rel) != 0) {
         @branchHint(.unlikely);
-        parker.lock.unlock();
+        self.lock.unlock();
         return;
     }
 
@@ -68,26 +66,26 @@ pub fn park(parker: *Parker) void {
                     inner_parker.lock.unsafeUnlock();
                 }
             }.action,
-            .arg = @intFromPtr(parker),
+            .arg = @intFromPtr(self),
         },
     );
 
-    parker.unpark_attempts.store(0, .release);
+    self.unpark_attempts.store(0, .release);
 }
 
 /// Unpark (wake) the parked task if it is currently parked.
-pub fn unpark(parker: *Parker) void {
-    if (parker.unpark_attempts.fetchAdd(1, .acq_rel) != 0) {
+pub fn unpark(self: *Parker) void {
+    if (self.unpark_attempts.fetchAdd(1, .acq_rel) != 0) {
         // someone else was the first to attempt to unpark the task, so we can leave waking the task to them
         return;
     }
 
     const parked_task = blk: {
-        parker.lock.lock();
-        defer parker.lock.unlock();
+        self.lock.lock();
+        defer self.lock.unlock();
 
-        const parked_task = parker.parked_task orelse return;
-        parker.parked_task = null;
+        const parked_task = self.parked_task orelse return;
+        self.parked_task = null;
         break :blk parked_task;
     };
 

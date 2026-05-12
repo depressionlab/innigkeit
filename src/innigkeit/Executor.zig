@@ -26,22 +26,18 @@ interrupt_source_panic_buffer: [
 ]u8 = undefined,
 const interrupt_source_panic_truncated = " (msg truncated)";
 
-pub fn setCurrentTask(executor: *Executor, task: *innigkeit.Task) void {
-    executor._current_task = task;
+pub fn setCurrentTask(self: *Executor, task: *innigkeit.Task) void {
+    self._current_task = task;
     architecture.scheduling.setCurrentTask(task);
 }
 
 /// Renders the given message using this executor's interrupt source panic buffer.
 ///
 /// If the message is too large to fit in the buffer, the message is truncated.
-pub fn renderInterruptSourcePanicMessage(
-    current_executor: *Executor,
-    comptime fmt: []const u8,
-    args: anytype,
-) []const u8 {
+pub fn renderInterruptSourcePanicMessage(self: *Executor, comptime fmt: []const u8, args: anytype) []const u8 {
     // TODO: this treatment should be given to all panics, maybe we generalize this buffer with truncation message
 
-    const full_buffer = current_executor.interrupt_source_panic_buffer[0..];
+    const full_buffer = self.interrupt_source_panic_buffer[0..];
 
     var bw: std.Io.Writer = .fixed(full_buffer[0..innigkeit.config.executor.interrupt_source_panic_buffer_size.value]);
 
@@ -60,11 +56,8 @@ pub fn executors() []Executor {
     return globals.executors;
 }
 
-pub inline fn format(
-    executor: *const Executor,
-    writer: *std.Io.Writer,
-) !void {
-    return executor.id.format(writer);
+pub inline fn format(self: *const Executor, writer: *std.Io.Writer) !void {
+    return self.id.format(writer);
 }
 
 pub const Id = enum(u32) {
@@ -72,11 +65,8 @@ pub const Id = enum(u32) {
 
     pub const bootstrap: Id = @enumFromInt(0);
 
-    pub inline fn format(
-        id: Id,
-        writer: *std.Io.Writer,
-    ) !void {
-        try writer.print("Executor({d})", .{@intFromEnum(id)});
+    pub inline fn format(self: Id, writer: *std.Io.Writer) !void {
+        try writer.print("Executor({d})", .{@intFromEnum(self)});
     }
 };
 

@@ -61,11 +61,11 @@ pub const SyscallFrame = struct {
     arch_specific: *architecture.current_decls.user.SyscallFrame,
 
     /// Get the syscall this frame represents.
-    pub fn syscall(syscall_frame: SyscallFrame) callconv(core.inline_in_non_debug) ?@import("libinnigkeit").Syscall {
+    pub fn syscall(self: SyscallFrame) callconv(core.inline_in_non_debug) ?@import("libinnigkeit").Syscall {
         return architecture.getFunction(
             architecture.current_functions.user,
             "syscallFromSyscallFrame",
-        )(syscall_frame.arch_specific);
+        )(self.arch_specific);
     }
 
     pub const Arg = enum {
@@ -83,18 +83,15 @@ pub const SyscallFrame = struct {
         twelve,
     };
 
-    pub fn arg(syscall_frame: SyscallFrame, comptime argument: Arg) callconv(core.inline_in_non_debug) usize {
+    pub fn arg(self: SyscallFrame, comptime argument: Arg) callconv(core.inline_in_non_debug) usize {
         return architecture.getFunction(
             architecture.current_functions.user,
             "argFromSyscallFrame",
-        )(syscall_frame.arch_specific, argument);
+        )(self.arch_specific, argument);
     }
 
-    pub inline fn format(
-        syscall_frame: SyscallFrame,
-        writer: *std.Io.Writer,
-    ) !void {
-        return syscall_frame.arch_specific.format(writer);
+    pub inline fn format(self: SyscallFrame, writer: *std.Io.Writer) !void {
+        return self.arch_specific.format(writer);
     }
 };
 

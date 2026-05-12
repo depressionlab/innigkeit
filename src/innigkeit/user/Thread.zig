@@ -1,14 +1,11 @@
 //! Represents a userspace thread.
+const Thread = @This();
 
 const std = @import("std");
-
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
-
 const log = innigkeit.debug.log.scoped(.user);
-
-const Thread = @This();
 
 task: innigkeit.Task,
 
@@ -29,19 +26,19 @@ pub inline fn fromConst(task: *const innigkeit.Task) *const Thread {
 /// Enter userspace for the first time.
 ///
 /// Asserts that the current task is the same as the thread's task.
-pub fn start(thread: *Thread, entry_point: innigkeit.UserVirtualAddress) !noreturn {
+pub fn start(self: *Thread, entry_point: innigkeit.UserVirtualAddress) !noreturn {
     if (core.is_debug) {
         const current_task: innigkeit.Task.Current = .get();
-        std.debug.assert(current_task.task == &thread.task);
+        std.debug.assert(current_task.task == &self.task);
     }
 
-    const user_stack = try thread.process.address_space.map(.{
+    const user_stack = try self.process.address_space.map(.{
         .size = .from(64, .kib),
         .protection = .{ .read = true, .write = true },
         .type = .zero_fill,
     });
 
-    log.debug("starting userspace thread: {f}", .{thread});
+    log.debug("starting userspace thread: {f}", .{self});
 
     architecture.user.enterUserspace(.{
         .entry_point = entry_point,
@@ -49,12 +46,12 @@ pub fn start(thread: *Thread, entry_point: innigkeit.UserVirtualAddress) !noretu
     });
 }
 
-pub fn format(thread: *const Thread, writer: *std.Io.Writer) !void {
+pub fn format(self: *const Thread, writer: *std.Io.Writer) !void {
     // TODO: these are user controlled strings
 
     try writer.print(
         "U<{s} - {s}>",
-        .{ thread.process.name.constSlice(), thread.task.name.constSlice() },
+        .{ self.process.name.constSlice(), self.task.name.constSlice() },
     );
 }
 

@@ -5,17 +5,17 @@ pub const CpuDescriptors = union {
     unknown: void,
     limine: limine.CpuDescriptorIterator,
 
-    pub fn count(cpu_descriptors: *const CpuDescriptors) usize {
+    pub fn count(self: *const CpuDescriptors) usize {
         return switch (_boot.bootloader_api) {
-            .limine => cpu_descriptors.limine.count(),
+            .limine => self.limine.count(),
             .unknown => 0,
         };
     }
 
     /// Returns the next cpu descriptor from the iterator, if any remain.
-    pub fn next(cpu_descriptors: *CpuDescriptors) ?Descriptor {
+    pub fn next(self: *CpuDescriptors) ?Descriptor {
         return switch (_boot.bootloader_api) {
-            .limine => cpu_descriptors.limine.next(),
+            .limine => self.limine.next(),
             .unknown => null,
         };
     }
@@ -25,26 +25,26 @@ pub const CpuDescriptors = union {
         limine: limine.CpuDescriptorIterator.Descriptor,
 
         pub fn boot(
-            descriptor: *const Descriptor,
+            self: *const Descriptor,
             user_data: *anyopaque,
             target_fn: fn (user_data: *anyopaque) anyerror!noreturn,
         ) void {
             switch (_boot.bootloader_api) {
-                .limine => descriptor.limine.bootFn(user_data, target_fn),
+                .limine => self.limine.bootFn(user_data, target_fn),
                 .unknown => unreachable,
             }
         }
 
-        pub fn acpiProcessorId(descriptor: *const Descriptor) u32 {
+        pub fn acpiProcessorId(self: *const Descriptor) u32 {
             return switch (_boot.bootloader_api) {
-                .limine => descriptor.limine.acpiProcessorId(),
+                .limine => self.limine.acpiProcessorId(),
                 .unknown => unreachable,
             };
         }
 
-        pub fn architectureProcessorId(descriptor: *const Descriptor) u64 {
+        pub fn architectureProcessorId(self: *const Descriptor) u64 {
             return switch (_boot.bootloader_api) {
-                .limine => descriptor.limine.architectureProcessorId(),
+                .limine => self.limine.architectureProcessorId(),
                 .unknown => unreachable,
             };
         }

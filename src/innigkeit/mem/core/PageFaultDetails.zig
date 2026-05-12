@@ -34,30 +34,27 @@ pub const FaultType = enum {
     protection,
 };
 
-pub fn print(details: PageFaultDetails, writer: *std.Io.Writer, indent: usize) !void {
+pub fn print(self: PageFaultDetails, writer: *std.Io.Writer, indent: usize) !void {
     const new_indent = indent + 2;
 
     try writer.writeAll("PageFaultDetails{\n");
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("faulting_address: {f},\n", .{details.faulting_address});
+    try writer.print("faulting_address: {f},\n", .{self.faulting_address});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("access_type: {t},\n", .{details.access_type});
+    try writer.print("access_type: {t},\n", .{self.access_type});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("fault_type: {t},\n", .{details.fault_type});
+    try writer.print("fault_type: {t},\n", .{self.fault_type});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("faulting_context: {t},\n", .{details.faulting_context});
+    try writer.print("faulting_context: {t},\n", .{self.faulting_context});
 
     try writer.splatByteAll(' ', indent);
     try writer.writeByte('}');
 }
 
-pub inline fn format(
-    details: PageFaultDetails,
-    writer: *std.Io.Writer,
-) !void {
-    return details.print(writer, 0);
+pub inline fn format(self: PageFaultDetails, writer: *std.Io.Writer) !void {
+    return self.print(writer, 0);
 }

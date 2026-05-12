@@ -51,37 +51,37 @@ pub fn create(size: core.Size) error{OutOfMemory}!*AnonMap {
 /// Increment the reference count.
 ///
 /// When called a write lock must be held.
-pub fn incrementReferenceCount(anonymous_map: *AnonMap) void {
+pub fn incrementReferenceCount(self: *AnonMap) void {
     if (core.is_debug) {
-        std.debug.assert(anonymous_map.reference_count != 0);
-        std.debug.assert(anonymous_map.lock.isWriteLocked());
+        std.debug.assert(self.reference_count != 0);
+        std.debug.assert(self.lock.isWriteLocked());
     }
 
-    anonymous_map.reference_count += 1;
+    self.reference_count += 1;
 }
 
 /// Decrement the reference count.
 ///
 /// When called a write lock must be held, upon return the lock is unlocked.
-pub fn decrementReferenceCount(anonymous_map: *AnonMap, deallocate_page_list: *innigkeit.mem.PhysicalPage.List) void {
+pub fn decrementReferenceCount(self: *AnonMap, deallocate_page_list: *innigkeit.mem.PhysicalPage.List) void {
     if (core.is_debug) {
-        std.debug.assert(anonymous_map.reference_count != 0);
-        std.debug.assert(anonymous_map.lock.isWriteLocked());
+        std.debug.assert(self.reference_count != 0);
+        std.debug.assert(self.lock.isWriteLocked());
     }
 
-    const reference_count = anonymous_map.reference_count;
-    anonymous_map.reference_count = reference_count - 1;
+    const reference_count = self.reference_count;
+    self.reference_count = reference_count - 1;
 
     if (reference_count == 1) {
         // reference count is now zero, destroy the anonymous map
-        anonymous_map.destroy(deallocate_page_list);
+        self.destroy(deallocate_page_list);
         return;
     }
 
     // TODO: once `shared` is supported:
     // https://github.com/openbsd/src/blob/9222ee7ab44f0e3155b861a0c0a6dd8396d03df3/sys/uvm/uvm_amap.c#L1342-L1347
 
-    anonymous_map.lock.writeUnlock();
+    self.lock.writeUnlock();
 }
 
 /// Destroy the anonymous map.
@@ -89,16 +89,13 @@ pub fn decrementReferenceCount(anonymous_map: *AnonMap, deallocate_page_list: *i
 /// Only called by `decrementReferenceCount` when the reference count is zero.
 ///
 /// Called `amap_wipeout` in OpenBSD uvm.
-fn destroy(
-    anonymous_map: *AnonMap,
-    deallocate_page_list: *innigkeit.mem.PhysicalPage.List,
-) void {
+fn destroy(self: *AnonMap, deallocate_page_list: *innigkeit.mem.PhysicalPage.List) void {
     if (core.is_debug) {
-        std.debug.assert(anonymous_map.lock.isWriteLocked());
-        std.debug.assert(anonymous_map.reference_count == 0);
+        std.debug.assert(self.lock.isWriteLocked());
+        std.debug.assert(self.reference_count == 0);
     }
 
-    var iter = anonymous_map.anonymous_page_chunks.chunks.valueIterator();
+    var iter = self.anonymous_page_chunks.chunks.valueIterator();
 
     while (iter.next()) |chunk| {
         for (chunk) |opt_page| {
@@ -107,11 +104,11 @@ fn destroy(
             page.decrementReferenceCount(deallocate_page_list);
         }
     }
-    anonymous_map.anonymous_page_chunks.deinit();
-    anonymous_map.anonymous_page_chunks.chunks = .{};
+    self.anonymous_page_chunks.deinit();
+    self.anonymous_page_chunks.chunks = .{};
 
-    anonymous_map.lock.writeUnlock();
-    globals.anonymous_map_cache.deallocate(anonymous_map);
+    self.lock.writeUnlock();
+    globals.anonymous_map_cache.deallocate(self);
 }
 
 /// Ensure an entries `needs_copy` flag is false, by copying the anonymous map if needed.
@@ -122,14 +119,10 @@ fn destroy(
 /// - If the entry has an anonymous map it must be unlocked.
 ///
 /// Called `amap_copy` in OpenBSD uvm.
-pub fn copy(
-    address_space: *AddressSpace,
-    entry: *Entry,
-    faulting_address: innigkeit.VirtualAddress,
-) error{OutOfMemory}!void {
+pub fn copy(self: *AddressSpace, entry: *Entry, faulting_address: innigkeit.VirtualAddress) error{OutOfMemory}!void {
     _ = faulting_address;
 
-    if (core.is_debug) std.debug.assert(address_space.entries_lock.isWriteLocked());
+    if (core.is_debug) std.debug.assert(self.entries_lock.isWriteLocked());
 
     if (entry.anonymous_map_reference.anonymous_map == null) {
         // no anonymous map, create one
@@ -158,19 +151,19 @@ pub const Reference = struct {
     /// The anonymous map must be locked by the caller. (read or write)
     ///
     /// Called `amap_lookups` in OpenBSD uvm, but this implementation only returns a single page.
-    pub fn lookup(reference: Reference, entry: *const Entry, faulting_address: innigkeit.VirtualAddress) ?*AnonPage {
+    pub fn lookup(self: Reference, entry: *const Entry, faulting_address: innigkeit.VirtualAddress) ?*AnonPage {
         if (core.is_debug) {
-            std.debug.assert(reference.anonymous_map != null);
-            std.debug.assert(reference.start_offset.aligned(architecture.paging.standard_page_size_alignment));
-            std.debug.assert(entry.anonymous_map_reference.anonymous_map == reference.anonymous_map);
-            std.debug.assert(entry.anonymous_map_reference.start_offset.equal(reference.start_offset));
+            std.debug.assert(self.anonymous_map != null);
+            std.debug.assert(self.start_offset.aligned(architecture.paging.standard_page_size_alignment));
+            std.debug.assert(entry.anonymous_map_reference.anonymous_map == self.anonymous_map);
+            std.debug.assert(entry.anonymous_map_reference.start_offset.equal(self.start_offset));
             std.debug.assert(faulting_address.pageAligned());
             std.debug.assert(entry.range.containsAddress(faulting_address));
         }
 
-        const anonymous_map = reference.anonymous_map.?;
+        const anonymous_map = self.anonymous_map.?;
 
-        const target_index = targetIndex(entry, reference, faulting_address);
+        const target_index = targetIndex(entry, self, faulting_address);
         if (core.is_debug) std.debug.assert(target_index < anonymous_map.number_of_pages.count);
 
         return anonymous_map.anonymous_page_chunks.get(target_index);
@@ -187,25 +180,25 @@ pub const Reference = struct {
     ///
     /// Called `amap_add` in OpenBSD uvm.
     pub fn add(
-        reference: Reference,
+        self: Reference,
         entry: *const Entry,
         faulting_address: innigkeit.VirtualAddress,
         anonymous_page: *AnonPage,
         operation: AddOperation,
     ) error{OutOfMemory}!void {
         if (core.is_debug) {
-            std.debug.assert(reference.anonymous_map != null);
-            std.debug.assert(entry.anonymous_map_reference.anonymous_map == reference.anonymous_map);
-            std.debug.assert(entry.anonymous_map_reference.start_offset.equal(reference.start_offset));
+            std.debug.assert(self.anonymous_map != null);
+            std.debug.assert(entry.anonymous_map_reference.anonymous_map == self.anonymous_map);
+            std.debug.assert(entry.anonymous_map_reference.start_offset.equal(self.start_offset));
             std.debug.assert(faulting_address.pageAligned());
             std.debug.assert(entry.range.containsAddress(faulting_address));
         }
 
         log.verbose("adding anonymous page for {f} to anonymous map", .{faulting_address});
 
-        const anonymous_map = reference.anonymous_map.?;
+        const anonymous_map = self.anonymous_map.?;
 
-        const target_index = targetIndex(entry, reference, faulting_address);
+        const target_index = targetIndex(entry, self, faulting_address);
         if (core.is_debug) std.debug.assert(target_index < anonymous_map.number_of_pages.count);
 
         const chunk = anonymous_map.anonymous_page_chunks.ensureChunk(target_index) catch
@@ -236,18 +229,14 @@ pub const Reference = struct {
     }
 
     /// Prints the anonymous map reference.
-    pub fn print(
-        anonymous_map_reference: Reference,
-        writer: *std.Io.Writer,
-        indent: usize,
-    ) !void {
+    pub fn print(self: Reference, writer: *std.Io.Writer, indent: usize) !void {
         const new_indent = indent + 2;
 
-        if (anonymous_map_reference.anonymous_map) |anonymous_map| {
+        if (self.anonymous_map) |anonymous_map| {
             try writer.writeAll("AnonMap.Reference{\n");
 
             try writer.splatByteAll(' ', new_indent);
-            try writer.print("start_offset: {f}\n", .{anonymous_map_reference.start_offset});
+            try writer.print("start_offset: {f}\n", .{self.start_offset});
 
             try writer.splatByteAll(' ', new_indent);
             try anonymous_map.print(
@@ -273,16 +262,16 @@ pub const PageCount = extern struct {
 
     pub const zero: PageCount = .{ .count = 0 };
 
-    pub inline fn increment(page_count: *PageCount) void {
-        page_count.count += 1;
+    pub inline fn increment(self: *PageCount) void {
+        self.count += 1;
     }
 
-    pub fn increaseBySize(page_count: *PageCount, size: core.Size) void {
-        page_count.count += @intCast(size.divide(architecture.paging.standard_page_size));
+    pub fn increaseBySize(self: *PageCount, size: core.Size) void {
+        self.count += @intCast(size.divide(architecture.paging.standard_page_size));
     }
 
-    pub fn equal(page_count: PageCount, other: PageCount) bool {
-        return page_count.count == other.count;
+    pub fn equal(self: PageCount, other: PageCount) bool {
+        return self.count == other.count;
     }
 
     pub fn fromSize(size: core.Size) PageCount {
@@ -291,34 +280,30 @@ pub const PageCount = extern struct {
         };
     }
 
-    pub fn toSize(page_count: PageCount) core.Size {
-        return architecture.paging.standard_page_size.multiplyScalar(page_count.count);
+    pub fn toSize(self: PageCount) core.Size {
+        return architecture.paging.standard_page_size.multiplyScalar(self.count);
     }
 };
 
 /// Prints the anonymous map.
 ///
 /// Locks the spinlock.
-pub fn print(
-    anonymous_map: *AnonMap,
-    writer: *std.Io.Writer,
-    indent: usize,
-) !void {
+pub fn print(self: *AnonMap, writer: *std.Io.Writer, indent: usize) !void {
     const new_indent = indent + 2;
 
-    anonymous_map.lock.readLock();
-    defer anonymous_map.lock.readUnlock();
+    self.lock.readLock();
+    defer self.lock.readUnlock();
 
     try writer.writeAll("AnonMap{\n");
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("reference_count: {d}\n", .{anonymous_map.reference_count});
+    try writer.print("reference_count: {d}\n", .{self.reference_count});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("number_of_pages: {d}\n", .{anonymous_map.number_of_pages.count});
+    try writer.print("number_of_pages: {d}\n", .{self.number_of_pages.count});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("pages_in_use: {d}\n", .{anonymous_map.pages_in_use.count});
+    try writer.print("pages_in_use: {d}\n", .{self.pages_in_use.count});
 
     try writer.splatByteAll(' ', indent);
     try writer.writeAll("}");

@@ -175,8 +175,8 @@ pub const DBG2 = extern struct {
                 EHCI = 0x0001,
             };
 
-            pub fn format(port_type: PortType, writer: *std.Io.Writer) !void {
-                switch (port_type) {
+            pub fn format(self: PortType, writer: *std.Io.Writer) !void {
+                switch (self) {
                     .serial => |subtype| try writer.print(
                         "PortType{{ serial: {t} }}",
                         .{subtype},

@@ -36,13 +36,10 @@ pub fn fromMADT(source_override: innigkeit.acpi.tables.MADT.InterruptControllerE
     };
 }
 
-pub inline fn format(
-    id: SourceOverride,
-    writer: *std.Io.Writer,
-) !void {
+pub inline fn format(self: SourceOverride, writer: *std.Io.Writer) !void {
     try writer.print("SourceOverride{{ .gsi = {d}, .polarity = {t}, .trigger_mode = {t} }}", .{
-        id.gsi,
-        id.polarity,
-        id.trigger_mode,
+        self.gsi,
+        self.polarity,
+        self.trigger_mode,
     });
 }

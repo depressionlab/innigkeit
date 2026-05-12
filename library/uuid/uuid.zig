@@ -64,11 +64,11 @@ pub const UUID = extern struct {
 
     pub const uuid_buffer_length: usize = 36;
 
-    pub fn format(uuid: UUID, writer: *std.Io.Writer) !void {
+    pub fn format(self: UUID, writer: *std.Io.Writer) !void {
         inline for (uuid_sections) |section| {
             if (section.proceeded_by_hyphen) try writer.writeByte('-');
 
-            const ptr: *align(1) const section.field_type = @ptrCast(&uuid.bytes[section.start_index]);
+            const ptr: *align(1) const section.field_type = @ptrCast(&self.bytes[section.start_index]);
 
             try writer.printInt(
                 ptr.*,
@@ -84,12 +84,12 @@ pub const UUID = extern struct {
         start_index: usize,
         proceeded_by_hyphen: bool,
 
-        inline fn characterWidthOfField(comptime uuid_section: UUIDSection) usize {
-            return comptime switch (uuid_section.field_type) {
+        inline fn characterWidthOfField(comptime self: UUIDSection) usize {
+            return comptime switch (self.field_type) {
                 u32 => 8,
                 u16 => 4,
                 u8 => 2,
-                else => @compileError("Unsupported type '" ++ @typeName(uuid_section.field_type) ++ "'"),
+                else => @compileError("Unsupported type '" ++ @typeName(self.field_type) ++ "'"),
             };
         }
     };

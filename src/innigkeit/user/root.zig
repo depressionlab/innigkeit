@@ -4,7 +4,7 @@ const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
 
-pub const elf = @import("elf.zig");
+pub const elf = @import("elf/root.zig");
 pub const Process = @import("Process.zig");
 pub const Thread = @import("Thread.zig");
 
@@ -114,5 +114,5 @@ pub const init = struct {
 };
 
 const globals = struct {
-    pub var input_buffer: @import("innigkeit").init.SerialInputBuffer = .{};
+    pub var input_buffer: innigkeit.init.SerialInputBuffer = .{};
 };
