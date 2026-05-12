@@ -47,12 +47,14 @@ pub fn start(self: *Thread, entry_point: innigkeit.UserVirtualAddress) !noreturn
 }
 
 pub fn format(self: *const Thread, writer: *std.Io.Writer) !void {
-    // TODO: these are user controlled strings
+    // TODO: these are user controlled strings...
+    // should we make like, an app registry idk?
+    // on hold until the userspace api is better developed
 
-    try writer.print(
-        "U<{s} - {s}>",
-        .{ self.process.name.constSlice(), self.task.name.constSlice() },
-    );
+    try writer.print("U<{s} - {s}>", .{
+        self.process.name.constSlice(),
+        self.task.name.constSlice(),
+    });
 }
 
 pub const internal = struct {

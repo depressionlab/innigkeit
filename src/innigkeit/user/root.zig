@@ -24,7 +24,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
     architecture.interrupts.enable();
 
     const syscall = syscall_frame.syscall() orelse {
-        // TODO: return an error to userspace
+        // TODO: return an error to userspace, ideally to the process that did the oopsie
         std.debug.panic("invalid syscall!\n{f}", .{syscall_frame});
     };
 
