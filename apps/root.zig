@@ -1,3 +1,5 @@
+const AppDescription = @import("../build/AppDescription.zig");
+
 pub const apps: []const AppDescription = &.{
     .{
         .name = "hello_world",
@@ -10,5 +12,3 @@ pub const apps: []const AppDescription = &.{
         .configuration = .simple,
     },
 };
-
-const AppDescription = @import("../build/AppDescription.zig");

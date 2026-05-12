@@ -13,6 +13,10 @@
   - [ ] good cross-architecture abi
 - target bootloader
   - [x] limine
+    - [x] it boots!
+    - [ ] blake2b hash
+    - [ ] track `limine.conf` as a build input
+    - [ ] programmatic `limine.conf`
   - [ ] EFI stub?
   - [ ] multiboot for grub support, mayb (ew)
 - target bios

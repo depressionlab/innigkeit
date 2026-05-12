@@ -26,8 +26,14 @@ pub fn create(
     kaslr: bool,
 ) !*ImageManifestStep {
     const limine_conf = switch (arch) {
-        .arm => if (kaslr) b.pathJoin(&.{ "build", "limine_ramfb.conf" }) else b.pathJoin(&.{ "build", "limine_no_kaslr_ramfb.conf" }),
-        .riscv, .x64 => if (kaslr) b.pathJoin(&.{ "build", "limine.conf" }) else b.pathJoin(&.{ "build", "limine_no_kaslr.conf" }),
+        .arm => if (kaslr)
+            b.pathJoin(&.{ "build", "limine", "limine_ramfb.conf" })
+        else
+            b.pathJoin(&.{ "build", "limine", "limine_no_kaslr_ramfb.conf" }),
+        .riscv, .x64 => if (kaslr)
+            b.pathJoin(&.{ "build", "limine", "limine.conf" })
+        else
+            b.pathJoin(&.{ "build", "limine", "limine_no_kaslr.conf" }),
     };
 
     const self = try b.allocator.create(ImageManifestStep);
