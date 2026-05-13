@@ -5,8 +5,8 @@
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .limine_bin = .{
-            .url = "git+https://github.com/Limine-Bootloader/Limine.git?ref=v11.3.1-binary#3c16d4c3bb2bb54ecc8b37b71760fdb20a193caa",
-            .hash = "N-V-__8AAEgRTQD5aYigsigI4K1eUsxm1QWk9c_i0FGjMEr2",
+            .url = "https://github.com/Limine-Bootloader/Limine/releases/download/v12.2.0/limine-binary.tar.xz",
+            .hash = "N-V-__8AAH-7IwFfaBO-KkCtV9V_P9a46mRG9Bx6Dw7aYyKG",
         },
         .zuacpi = .{
             .url = "git+https://github.com/uACPI/zuacpi?ref=main#d3080d8e891bbaaddb163fa42b400e9e7b0f4b87",

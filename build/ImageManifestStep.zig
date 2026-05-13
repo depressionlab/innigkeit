@@ -116,7 +116,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     }
 }
 
-const ImageDescription = @import("../tools/image_builder/ImageDescription.zig");
+const ImageDescription = @import("../tools/image_builder/image/ImageDescription.zig");
 
 fn buildManifest(self: *ImageManifestStep) ![]const u8 {
     var builder = ImageDescription.Builder.create(self.b.allocator, 64 * 1024 * 1024); // 64 MiB

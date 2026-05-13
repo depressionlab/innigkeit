@@ -2,8 +2,6 @@ const ImageDescription = @This();
 
 const std = @import("std");
 
-// TODO: this is BAD
-
 /// Total size of the image.
 ///
 /// Must be a multiple of 512 bytes.
