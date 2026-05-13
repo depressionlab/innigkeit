@@ -47,9 +47,7 @@ pub const PageFaultErrorCode = packed struct(u64) {
         return @bitCast(error_code);
     }
 
-    pub fn print(self: PageFaultErrorCode, writer: *std.Io.Writer, indent: usize) !void {
-        _ = indent;
-
+    pub fn print(self: PageFaultErrorCode, writer: *std.Io.Writer, _: usize) !void {
         try writer.writeAll("PageFaultErrorCode{ ");
 
         if (!self.present) {

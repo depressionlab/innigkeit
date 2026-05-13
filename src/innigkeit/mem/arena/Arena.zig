@@ -1009,9 +1009,7 @@ const AllTagNode = struct {
 
     const empty: AllTagNode = .{ .previous = null, .next = null };
 
-    pub fn print(self: AllTagNode, writer: *std.Io.Writer, indent: usize) !void {
-        _ = indent;
-
+    pub fn print(self: AllTagNode, writer: *std.Io.Writer, _: usize) !void {
         try writer.writeAll("AllTagNode{ previous: ");
         if (self.previous != null) {
             try writer.writeAll("set");
@@ -1042,9 +1040,7 @@ const KindNode = struct {
 
     const empty: KindNode = .{ .previous = null, .next = null };
 
-    pub fn print(self: KindNode, writer: *std.Io.Writer, indent: usize) !void {
-        _ = indent;
-
+    pub fn print(self: KindNode, writer: *std.Io.Writer, _: usize) !void {
         try writer.writeAll("KindNode{ previous: ");
         if (self.previous != null) {
             try writer.writeAll("set");

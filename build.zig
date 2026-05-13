@@ -14,7 +14,6 @@ const QEMU = @import("build/QEMU.zig");
 pub fn build(b: *std.Build) !void {
     try disableUnsupportedSteps(b);
     b.enable_qemu = true;
-    CInterop.init(b);
 
     const architectures: []const Bundle.Architecture = std.meta.tags(Bundle.Architecture);
     const wrapper = try Wrapper.create(b, architectures);
@@ -28,26 +27,9 @@ pub fn build(b: *std.Build) !void {
     try QEMU.registerQemuSteps(b, image_steps, options, architectures);
 }
 
-pub const CInterop = struct {
-    pub const Translator = @import("translate_c").Translator;
-
-    pub fn createTranslator(options: Translator.Options) Translator {
-        return .init(translate_c_dep, options);
-    }
-
-    fn init(b: *std.Build) void {
-        translate_c_dep = b.dependency("translate_c", .{ .optimize = .Debug });
-    }
-
-    var translate_c_dep: *std.Build.Dependency = undefined;
-};
-
 fn disableUnsupportedSteps(b: *std.Build) !void {
     const installMakeFn = struct {
-        fn installMakeFn(step: *std.Build.Step, options: std.Build.Step.MakeOptions) anyerror!void {
-            _ = step;
-            _ = options;
-
+        fn installMakeFn(_: *std.Build.Step, _: std.Build.Step.MakeOptions) anyerror!void {
             std.debug.print("the 'install' step is unsupported! to list available build targets, run: 'zig build -l'\n", .{});
             std.process.exit(1);
         }
@@ -57,10 +39,7 @@ fn disableUnsupportedSteps(b: *std.Build) !void {
     b.install_tls.step.makeFn = &installMakeFn;
 
     const uninstallMakeFn = struct {
-        fn uninstallMakeFn(step: *std.Build.Step, options: std.Build.Step.MakeOptions) anyerror!void {
-            _ = step;
-            _ = options;
-
+        fn uninstallMakeFn(_: *std.Build.Step, _: std.Build.Step.MakeOptions) anyerror!void {
             std.debug.print("the 'uninstall' step is unsupported! to list available build targets, run: 'zig build -l'\n", .{});
             std.process.exit(1);
         }
@@ -70,10 +49,7 @@ fn disableUnsupportedSteps(b: *std.Build) !void {
     b.uninstall_tls.step.makeFn = &uninstallMakeFn;
 
     const defaultMakeFn = struct {
-        fn defaultMakeFn(step: *std.Build.Step, options: std.Build.Step.MakeOptions) anyerror!void {
-            _ = step;
-            _ = options;
-
+        fn defaultMakeFn(_: *std.Build.Step, _: std.Build.Step.MakeOptions) anyerror!void {
             std.debug.print("no build target provided! to list available build targets, run: 'zig build -l'\n", .{});
             std.process.exit(1);
         }

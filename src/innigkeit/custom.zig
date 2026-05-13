@@ -2,7 +2,6 @@ const std = @import("std");
 
 const Bundle = @import("../../build/Bundle.zig");
 const Options = @import("../../build/Options.zig");
-const CInterop = @import("../../build.zig").CInterop;
 
 pub fn custom(
     b: *std.Build,
@@ -67,8 +66,8 @@ pub fn custom(
         });
         module.addIncludePath(uacpi_dep.path("include"));
 
-        const translator = CInterop.createTranslator(.{
-            .c_source_file = b.addWriteFiles().add("uacpi_api.h",
+        const translator = b.addTranslateC(.{
+            .root_source_file = b.addWriteFiles().add("uacpi_api.h",
                 \\#include <uacpi/event.h>
                 \\#include <uacpi/io.h>
                 \\#include <uacpi/namespace.h>
@@ -89,7 +88,7 @@ pub fn custom(
             .link_libc = false,
         });
         translator.addIncludePath(uacpi_dep.path("include"));
-        module.addImport("uacpi", translator.mod);
+        module.addImport("uacpi", translator.createModule());
     }
 
     // devicetree
@@ -110,8 +109,8 @@ pub fn custom(
             .flags = &.{"-DFLANTERM_FB_DISABLE_BUMP_ALLOC=1"},
         });
 
-        const translator = CInterop.createTranslator(.{
-            .c_source_file = b.addWriteFiles().add("flanterm_api.h",
+        const translator = b.addTranslateC(.{
+            .root_source_file = b.addWriteFiles().add("flanterm_api.h",
                 \\#include <flanterm.h>
                 \\#include <flanterm_backends/fb.h>
             ),
@@ -120,6 +119,6 @@ pub fn custom(
             .link_libc = false,
         });
         translator.addIncludePath(flanterm_src);
-        module.addImport("flanterm", translator.mod);
+        module.addImport("flanterm", translator.createModule());
     }
 }

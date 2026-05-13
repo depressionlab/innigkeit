@@ -1,10 +1,10 @@
+const Executor = @This();
+
 const std = @import("std");
 
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
-
-const Executor = @This();
 
 /// Unique identifier per executor.
 ///

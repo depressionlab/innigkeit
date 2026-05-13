@@ -10,7 +10,6 @@
   - [x] x64
   - [ ] arm (next priority)
   - [ ] riscv
-  - [ ] good cross-architecture abi
 - target bootloader
   - [x] limine
     - [x] it boots!

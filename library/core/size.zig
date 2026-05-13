@@ -177,9 +177,7 @@ pub const Size = extern struct {
         .{ .value = @intFromEnum(Unit.byte), .name = "B" },
     };
 
-    pub fn print(self: Size, writer: *std.Io.Writer, indent: usize) !void {
-        _ = indent;
-
+    pub fn print(self: Size, writer: *std.Io.Writer, _: usize) !void {
         var value = self.value;
 
         if (value == 0) {

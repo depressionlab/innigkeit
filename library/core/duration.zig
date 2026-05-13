@@ -97,9 +97,7 @@ pub const Duration = extern struct {
         self.value /= value;
     }
 
-    pub fn print(self: Duration, writer: *std.Io.Writer, indent: usize) !void {
-        _ = indent;
-
+    pub fn print(self: Duration, writer: *std.Io.Writer, _: usize) !void {
         var any_output = false;
         var value = self.value;
 

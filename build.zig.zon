@@ -24,10 +24,6 @@
             .url = "git+https://github.com/uACPI/uACPI?ref=4.0.0#e05715b2e6a3ae913aecdb86f4fd2dba30304e45",
             .hash = "N-V-__8AACf_EwAqU0c833d6mIfScf7rsW0lDps-JYnPWiqY",
         },
-        .translate_c = .{
-            .url = "git+https://codeberg.org/ziglang/translate-c#7a1a9fdc4ab00835748a6657ecbb835e3d5d45f7",
-            .hash = "translate_c-0.0.0-Q_BUWvP1BgCjAk6PWv5286tOlvzD9-X-NkuTzh0KxY0Q",
-        },
         .devicetree = .{
             .url = "git+https://github.com/CascadeOS/zig-devicetree#53ec12cb0e724c16ee9cebb04ed3e97ff93ef82c",
             .hash = "devicetree-4.0.1-cZRcrCCRAQC_m06ln8G0jL9d53Qij11v5cJgJ7LJfB74",

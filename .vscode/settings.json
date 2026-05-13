@@ -1,4 +1,5 @@
 {
     "deno.enable": false,
     "zig.zls.enabled": "on",
+    "zig.path": "zig"
 }

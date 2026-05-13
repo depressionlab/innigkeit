@@ -1,7 +1,6 @@
 const boot = @import("boot");
 const c = @import("flanterm");
 const innigkeit = @import("innigkeit");
-
 const Output = @import("Output.zig");
 
 const init_log = innigkeit.debug.log.scoped(.output_init);
