@@ -81,3 +81,23 @@ build and run x64:
 ```sh
 zig build run_x64 -Dlog_level=debug
 ```
+
+Note: If you want to see display output (pretty colors, framebuffer, DOOM) on macOS, you need to use [UTM](#running-in-utm)!
+
+### running in [UTM](https://mac.getutm.app/)
+
+- download [UTM](https://mac.getutm.app/): `brew install --cask utm`
+- run `zig build image_x64`
+- create a new virtual machine -> emulate -> Other
+- Hardware: keep defaults
+- Boot Device: Drive Image -> Import Disk Image -> "Browse"
+  - find `zig-out/x64/innigkeit_x64.hdd` and import it
+- Shared Directory: keep defaults
+- Summary: Check "Open VM Settings" -> Click "Save"
+- QEMU -> QEMU Machine Properties: input `hpet=on`
+- Devices -> Display -> Emulated Display Card: `virtio-vga-gl`
+- Devices -> New... -> Serial
+- Innigkeit doesn't support Network or Sound right now, so you can safely remove those devices.
+- Click "Save"
+- Run the VM!
+- profit!
