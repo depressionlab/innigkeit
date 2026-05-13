@@ -27,6 +27,7 @@ pub fn start() !void {
     defer scheduler_handle.unlock();
     scheduler_handle.queueTask(&hello_world_main_thread.task);
 
+    // TODO: colors
     try innigkeit.init.Output.experimentalRegister(.full);
 }
 
