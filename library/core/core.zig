@@ -21,7 +21,8 @@ pub const is_debug = builtin.mode == .Debug;
 ///
 /// This allows the effect of inlining for release builds but prevents missing
 /// debug information during debug builds.
-pub const inline_in_non_debug: std.builtin.CallingConvention = if (is_debug) .auto else .@"inline";
+pub const inline_in_non_debug: std.builtin.CallingConvention =
+    if (is_debug) .auto else .@"inline";
 
 pub inline fn require(value: anytype, comptime message: []const u8) @TypeOf(value catch unreachable) {
     return value catch |err| {

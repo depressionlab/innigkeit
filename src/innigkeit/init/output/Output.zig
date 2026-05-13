@@ -93,6 +93,11 @@ pub fn registerOutputs(stage: RegisterOutputsStage) void {
     }
 }
 
+pub fn experimentalRegister(stage: RegisterOutputsStage) !void {
+    if (stage != .full) return;
+    _ = try framebuffer.tryGetExtendedFramebuffer(true);
+}
+
 fn getSerialOutput(memory_system_available: bool) ?Output {
     if (architecture.init.tryGetSerialOutput(memory_system_available)) |output| {
         return switch (output.preference) {

@@ -13,6 +13,36 @@ pub fn tryGetFramebufferOutput(memory_system_available: bool) ?Output {
     };
 }
 
+pub fn tryGetExtendedFramebuffer(memory_system_available: bool) !?boot.Framebuffer {
+    if (!memory_system_available) return null;
+    const framebuffer = boot.framebuffer() orelse return null;
+    const virtual_range = try innigkeit.mem.heap.allocateSpecial(
+        .{
+            .physical_range = .from(
+                .fromDirectMap(.fromPtr(framebuffer.ptr)),
+                .from(framebuffer.height * framebuffer.pitch, .byte),
+            ),
+            .protection = .{ .write = true },
+            .cache = .write_combining,
+        },
+    );
+    errdefer innigkeit.mem.heap.deallocateSpecial(virtual_range);
+
+    var y: usize = 0;
+
+    while (y < framebuffer.height) : (y += 1) {
+        var x: usize = 0;
+        while (x < framebuffer.width) : (x += 1) {
+            const nX: u32 = @intCast(x * 255 / framebuffer.width);
+            const nY: u32 = @intCast(y * 255 / framebuffer.height);
+            framebuffer.ptr[y * (framebuffer.pitch / 4) + x] = (nY << 8) | nX;
+        }
+        x += 1;
+    }
+
+    return framebuffer;
+}
+
 fn tryGetFramebufferOutputInner(memory_system_available: bool) !?Output {
     if (!memory_system_available) return null;
 
