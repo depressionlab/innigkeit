@@ -54,3 +54,13 @@ pub const user = struct {
     // the process name is also used as the name of its address space
     pub const address_space_name_length = process_name_length;
 };
+
+pub const caps = struct {
+    /// Number of capability slots per process.
+    pub const slots_per_process: u32 = 256;
+
+    /// Sentinel value meaning "no next free slot" in the free list.
+    pub const null_slot: u32 = std.math.maxInt(u32);
+};
+
+const std = @import("std");

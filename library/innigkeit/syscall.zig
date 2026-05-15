@@ -21,6 +21,14 @@ pub const Syscall = enum(usize) {
     exit_process = 3,
     yield = 4,
     spawn_thread = 5,
+    /// Invoke a capability operation: (handle: u32, op: u64, arg: usize) → usize|error
+    cap_invoke = 6,
+    /// Copy a capability with optional rights restriction: (handle: u32, rights: u16) → new_handle|error
+    cap_copy = 7,
+    /// Move a capability to a new slot (copy + delete original): (handle: u32) → new_handle|error
+    cap_move = 8,
+    /// Delete a capability: (handle: u32) → 0|error
+    cap_delete = 9,
 
     /// Decode a raw syscall return value into a success count or a `SyscallError`.
     ///

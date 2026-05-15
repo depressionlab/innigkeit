@@ -1,6 +1,7 @@
 pub const exportEntry = @import("entry.zig").exportEntry;
 pub const Syscall = @import("syscall.zig").Syscall;
 pub const SyscallError = @import("syscall.zig").SyscallError;
+pub const caps = @import("caps.zig");
 pub const io = @import("io.zig");
 
 pub const thread = struct {

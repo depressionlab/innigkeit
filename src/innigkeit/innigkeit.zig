@@ -1,4 +1,5 @@
 pub const acpi = @import("acpi/root.zig");
+pub const caps = @import("caps/root.zig");
 pub const config = @import("config.zig");
 pub const debug = @import("debug/root.zig");
 pub const Executor = @import("Executor.zig");

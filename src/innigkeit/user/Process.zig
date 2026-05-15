@@ -19,6 +19,10 @@ address_space: innigkeit.mem.AddressSpace,
 threads_lock: innigkeit.sync.RwLock = .{},
 threads: std.AutoArrayHashMapUnmanaged(*innigkeit.user.Thread, void) = .{},
 
+/// Capability table: maps handle indices to kernel objects.
+/// Heap-allocated so that it doesn't inflate the slab cache object size.
+cap_table: *innigkeit.caps.CapabilityTable,
+
 /// Tracks if this process has been queued for cleanup.
 queued_for_cleanup: std.atomic.Value(bool) = .init(false),
 
@@ -236,10 +240,18 @@ const globals = struct {
                 fn constructor(process: *Process) innigkeit.mem.cache.ConstructorError!void {
                     const temp_name = Process.Name.initPrint("temp {*}", .{process}) catch unreachable;
 
+                    const cap_table = innigkeit.mem.heap.allocator.create(innigkeit.caps.CapabilityTable) catch {
+                        log.warn("process constructor: cap_table allocation failed", .{});
+                        return error.ItemConstructionFailed;
+                    };
+                    errdefer innigkeit.mem.heap.allocator.destroy(cap_table);
+                    cap_table.init();
+
                     process.* = .{
                         .name = temp_name,
                         .reference_count = .init(0),
                         .address_space = undefined, // initialized below
+                        .cap_table = cap_table,
                     };
 
                     const page = innigkeit.mem.PhysicalPage.allocator.allocate() catch |err| {
@@ -267,12 +279,15 @@ const globals = struct {
                             "process constructor failed during address space initialization: {t}",
                             .{err},
                         );
-                        return error.ObjectConstructionFailed;
+                        return error.ItemConstructionFailed;
                     };
                 }
             }.constructor,
             .destructor = struct {
                 fn destructor(process: *Process) void {
+                    process.cap_table.deinitAll();
+                    innigkeit.mem.heap.allocator.destroy(process.cap_table);
+
                     const page_table = process.address_space.page_table;
 
                     process.address_space.deinit();

@@ -185,6 +185,228 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             log.warn("spawn_thread: not yet implemented (entry=0x{x})", .{entry_ptr});
             arch_frame.rax = errCode(-38); // ENOSYS
         },
+
+        // ------------------------------------------------------------------ //
+        // cap_invoke(handle: u32, op: u64, arg: usize) → usize|error         //
+        //   Invoke a capability-specific operation.                           //
+        // ------------------------------------------------------------------ //
+        .cap_invoke => {
+            const handle: u32 = @truncate(syscall_frame.arg(.one));
+            const op: u64 = @intCast(syscall_frame.arg(.two));
+            const arg3: usize = syscall_frame.arg(.three);
+
+            const current_task: innigkeit.Task.Current = .get();
+            const process = Process.from(current_task.task);
+            const cap_table = process.cap_table;
+
+            cap_table.lock.lock();
+            const slot_info = cap_table.getAndRefLocked(handle) orelse {
+                cap_table.lock.unlock();
+                arch_frame.rax = errCode(-9); // EBADF
+                return;
+            };
+            cap_table.lock.unlock();
+            defer innigkeit.caps.CapabilityTable.unrefObject(slot_info.cap_type, slot_info.ptr);
+
+            switch (slot_info.cap_type) {
+                .null => unreachable,
+
+                .notify => {
+                    const notify: *innigkeit.caps.Notify = @ptrCast(@alignCast(slot_info.ptr));
+                    const notify_op = std.enums.fromInt(innigkeit.caps.Notify.Op, op) orelse {
+                        arch_frame.rax = errCode(-22); // EINVAL
+                        return;
+                    };
+                    switch (notify_op) {
+                        .signal => {
+                            if (!slot_info.rights.write) {
+                                arch_frame.rax = errCode(-1); // EPERM
+                                return;
+                            }
+                            notify.signal(arg3);
+                            arch_frame.rax = 0;
+                        },
+                        .wait => {
+                            if (!slot_info.rights.read) {
+                                arch_frame.rax = errCode(-1); // EPERM
+                                return;
+                            }
+                            arch_frame.rax = notify.wait(arg3);
+                        },
+                        .poll => {
+                            if (!slot_info.rights.read) {
+                                arch_frame.rax = errCode(-1); // EPERM
+                                return;
+                            }
+                            arch_frame.rax = notify.poll(arg3);
+                        },
+                    }
+                },
+
+                .endpoint => {
+                    const endpoint: *innigkeit.caps.Endpoint = @ptrCast(@alignCast(slot_info.ptr));
+                    const ep_op = std.enums.fromInt(innigkeit.caps.Endpoint.Op, op) orelse {
+                        arch_frame.rax = errCode(-22); // EINVAL
+                        return;
+                    };
+                    switch (ep_op) {
+                        .send => {
+                            if (!slot_info.rights.write) {
+                                arch_frame.rax = errCode(-1); // EPERM
+                                return;
+                            }
+                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.caps.Message))) {
+                                arch_frame.rax = errCode(-14); // EFAULT
+                                return;
+                            }
+                            // Copy message out of user memory before blocking.
+                            const msg_uptr: *const innigkeit.caps.Message = @ptrFromInt(arg3);
+                            current_task.incrementEnableAccessToUserMemory();
+                            const msg = msg_uptr.*;
+                            current_task.decrementEnableAccessToUserMemory();
+                            endpoint.send(msg);
+                            arch_frame.rax = 0;
+                        },
+                        .recv => {
+                            if (!slot_info.rights.read) {
+                                arch_frame.rax = errCode(-1); // EPERM
+                                return;
+                            }
+                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.caps.Message))) {
+                                arch_frame.rax = errCode(-14); // EFAULT
+                                return;
+                            }
+                            // Block first, then copy into user memory.
+                            const msg = endpoint.recv();
+                            const msg_uptr: *innigkeit.caps.Message = @ptrFromInt(arg3);
+                            current_task.incrementEnableAccessToUserMemory();
+                            msg_uptr.* = msg;
+                            current_task.decrementEnableAccessToUserMemory();
+                            arch_frame.rax = 0;
+                        },
+                    }
+                },
+
+                .frame => {
+                    const frame: *innigkeit.caps.Frame = @ptrCast(@alignCast(slot_info.ptr));
+                    const frame_op = std.enums.fromInt(innigkeit.caps.Frame.Op, op) orelse {
+                        arch_frame.rax = errCode(-22); // EINVAL
+                        return;
+                    };
+                    switch (frame_op) {
+                        .clone => {
+                            if (!slot_info.rights.grant) {
+                                arch_frame.rax = errCode(-1); // EPERM
+                                return;
+                            }
+                            // Bump refcount before inserting the new slot.
+                            frame.ref();
+                            cap_table.lock.lock();
+                            const new_idx = cap_table.insertLocked(
+                                .frame,
+                                frame,
+                                slot_info.rights,
+                            ) catch {
+                                cap_table.lock.unlock();
+                                frame.unref();
+                                arch_frame.rax = errCode(-12); // ENOMEM (table full)
+                                return;
+                            };
+                            cap_table.lock.unlock();
+                            arch_frame.rax = @intCast(new_idx);
+                        },
+                        .phys_addr => {
+                            if (!slot_info.rights.read) {
+                                arch_frame.rax = errCode(-1); // EPERM
+                                return;
+                            }
+                            arch_frame.rax = frame.physicalAddress().value;
+                        },
+                    }
+                },
+            }
+        },
+
+        // ------------------------------------------------------------------ //
+        // cap_copy(handle: u32, rights: u16) → new_handle|error              //
+        // ------------------------------------------------------------------ //
+        .cap_copy => {
+            const handle: u32 = @truncate(syscall_frame.arg(.one));
+            const rights_raw: u16 = @truncate(syscall_frame.arg(.two));
+            const new_rights: innigkeit.caps.Rights = @bitCast(rights_raw);
+
+            const process = Process.from(innigkeit.Task.Current.get().task);
+            const cap_table = process.cap_table;
+
+            cap_table.lock.lock();
+            const new_idx = cap_table.copyLocked(handle, new_rights) catch |err| {
+                cap_table.lock.unlock();
+                arch_frame.rax = switch (err) {
+                    error.NotFound => errCode(-9),        // EBADF
+                    error.Full => errCode(-12),           // ENOMEM
+                    error.RightsEscalation => errCode(-1), // EPERM
+                };
+                return;
+            };
+            cap_table.lock.unlock();
+            arch_frame.rax = @intCast(new_idx);
+        },
+
+        // ------------------------------------------------------------------ //
+        // cap_move(handle: u32) → new_handle|error                           //
+        //   Moves the capability to a new slot and invalidates the old one.  //
+        // ------------------------------------------------------------------ //
+        .cap_move => {
+            const handle: u32 = @truncate(syscall_frame.arg(.one));
+
+            const process = Process.from(innigkeit.Task.Current.get().task);
+            const cap_table = process.cap_table;
+
+            cap_table.lock.lock();
+
+            const slot = cap_table.getLocked(handle) orelse {
+                cap_table.lock.unlock();
+                arch_frame.rax = errCode(-9); // EBADF
+                return;
+            };
+            const current_rights = slot.rights;
+
+            // Copy to a new slot (bumps refcount to 2).
+            const new_idx = cap_table.copyLocked(handle, current_rights) catch |err| {
+                cap_table.lock.unlock();
+                arch_frame.rax = switch (err) {
+                    error.NotFound => errCode(-9),
+                    error.Full => errCode(-12),
+                    error.RightsEscalation => unreachable, // same rights
+                };
+                return;
+            };
+
+            // Remove the original slot (decrements refcount back to 1).
+            cap_table.removeLocked(handle) catch unreachable;
+
+            cap_table.lock.unlock();
+            arch_frame.rax = @intCast(new_idx);
+        },
+
+        // ------------------------------------------------------------------ //
+        // cap_delete(handle: u32) → 0|error                                  //
+        // ------------------------------------------------------------------ //
+        .cap_delete => {
+            const handle: u32 = @truncate(syscall_frame.arg(.one));
+
+            const process = Process.from(innigkeit.Task.Current.get().task);
+            const cap_table = process.cap_table;
+
+            cap_table.lock.lock();
+            cap_table.removeLocked(handle) catch {
+                cap_table.lock.unlock();
+                arch_frame.rax = errCode(-9); // EBADF
+                return;
+            };
+            cap_table.lock.unlock();
+            arch_frame.rax = 0;
+        },
     }
 }
 
