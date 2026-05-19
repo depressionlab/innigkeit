@@ -32,7 +32,7 @@ pub fn start() !noreturn {
             const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
             defer scheduler_handle.unlock();
 
-            scheduler_handle.queueTask(init_stage4_task);
+            scheduler_handle.queueTask(init_stage4_task, .{ .initial = true });
         }
 
         static.stage3_barrier.complete();

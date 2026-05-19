@@ -1,6 +1,7 @@
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 const globals = @import("globals.zig");
+const SchedClass = @import("../SchedClass.zig");
 
 const init_log = innigkeit.debug.log.scoped(.task_init);
 
@@ -79,6 +80,9 @@ pub fn initializeSchedulerTask(
         .spinlocks_held = 1, // scheduler tasks start with the scheduler locked
         .scheduler_locked = true, // scheduler tasks start with the scheduler locked
         .is_scheduler_task = true,
+
+        // The idle task uses the idle class, so it must never be enqueued in fair/RT queues.
+        .sched_class = &SchedClass.idle_class,
 
         .arch_specific = undefined, // initialized by `initializeTaskArchSpecific` below
     };

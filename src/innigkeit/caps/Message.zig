@@ -6,6 +6,6 @@
 pub const Message = extern struct {
     /// Caller-defined operation tag (type of request).
     tag: u64 = 0,
-    /// Inline message payload — 6 × 8 bytes = 48 bytes.
+    /// Inline message payload: 6 × 8 bytes = 48 bytes.
     words: [6]u64 = [_]u64{0} ** 6,
 };

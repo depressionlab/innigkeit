@@ -36,7 +36,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
     switch (syscall) {
 
         // ------------------------------------------------------------------ //
-        // exit_thread — terminate the calling thread.                        //
+        // exit_thread: terminate the calling thread.                         //
         // ------------------------------------------------------------------ //
         .exit_thread => {
             const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
@@ -45,8 +45,8 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         },
 
         // ------------------------------------------------------------------ //
-        // write(fd: usize, buf: [*]const u8, len: usize) isize              //
-        //   arg1 = fd   (0=stdin, 1=stdout, 2=stderr)                       //
+        // write(fd: usize, buf: [*]const u8, len: usize) isize               //
+        //   arg1 = fd   (0=stdin, 1=stdout, 2=stderr)                        //
         //   arg2 = buf  (pointer into user address space)                    //
         //   arg3 = len  (byte count)                                         //
         //   return: bytes written, or negative error code                    //
@@ -94,7 +94,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         },
 
         // ------------------------------------------------------------------ //
-        // read(fd: usize, buf: [*]u8, len: usize) isize                     //
+        // read(fd: usize, buf: [*]u8, len: usize) isize                      //
         //   arg1 = fd   (0=stdin only)                                       //
         //   arg2 = buf  (pointer into user address space)                    //
         //   arg3 = len  (max bytes to read)                                  //
@@ -149,7 +149,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         },
 
         // ------------------------------------------------------------------ //
-        // yield() void                                                        //
+        // yield() void                                                       //
         // ------------------------------------------------------------------ //
         .yield => {
             // TODO: expose a scheduler.yield() API that moves the current task
@@ -188,7 +188,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
 
         // ------------------------------------------------------------------ //
         // cap_invoke(handle: u32, op: u64, arg: usize) → usize|error         //
-        //   Invoke a capability-specific operation.                           //
+        //   Invoke a capability-specific operation.                          //
         // ------------------------------------------------------------------ //
         .cap_invoke => {
             const handle: u32 = @truncate(syscall_frame.arg(.one));
@@ -342,8 +342,8 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const new_idx = cap_table.copyLocked(handle, new_rights) catch |err| {
                 cap_table.lock.unlock();
                 arch_frame.rax = switch (err) {
-                    error.NotFound => errCode(-9),        // EBADF
-                    error.Full => errCode(-12),           // ENOMEM
+                    error.NotFound => errCode(-9), // EBADF
+                    error.Full => errCode(-12), // ENOMEM
                     error.RightsEscalation => errCode(-1), // EPERM
                 };
                 return;

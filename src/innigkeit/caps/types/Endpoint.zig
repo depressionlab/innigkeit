@@ -2,9 +2,11 @@
 //!
 //! A rendezvous channel: the sender blocks until a receiver is ready, and the
 //! receiver blocks until a sender arrives. Messages are copied through a small
-//! kernel buffer — no shared memory is required.
+//! kernel buffer.
 //!
-//! Future work: seL4-style Reply token for zero-overhead call+replyRecv.
+//! No shared memory is required.
+//!
+//! TODO: seL4-style Reply token for zero-overhead call+replyRecv.
 const Endpoint = @This();
 
 const std = @import("std");
@@ -57,7 +59,7 @@ pub fn send(self: *Endpoint, msg: Message) void {
         return;
     }
 
-    // No receiver yet — park ourselves on the send queue.
+    // No receiver yet, so we park ourselves on the send queue.
     self.send_queue.wait(&self.lock);
     // When we wake up, the receiver has copied pending_msg.
 }
@@ -75,7 +77,7 @@ pub fn recv(self: *Endpoint) Message {
         return msg;
     }
 
-    // No sender yet — park on the recv queue.
+    // No sender yet, so we park on the recv queue.
     self.recv_queue.wait(&self.lock);
     // When we wake up, pending_msg was set by the sender.
     self.lock.lock();

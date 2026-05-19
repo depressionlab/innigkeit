@@ -50,11 +50,11 @@ pub const Syscall = enum(usize) {
     }
 
     /// Syscall ABI:
-    ///   x86_64  — number in rax, args in rdi/rsi/rdx/r10/r8/r9, return in rax.
+    ///   x86_64: number in rax, args in rdi/rsi/rdx/r10/r8/r9, return in rax.
     ///             SYSCALL clobbers rcx (saves rip) and r11 (saves rflags).
-    ///   aarch64 — number in x8,  args in x0–x5,               return in x0.
+    ///   aarch64: number in x8,  args in x0–x5,               return in x0.
     ///             SVC does not clobber any registers; the kernel saves the full frame.
-    ///   riscv64 — number in a7,  args in a0–a5,               return in a0.
+    ///   riscv64: number in a7,  args in a0–a5,               return in a0.
     ///             ECALL does not clobber any registers; the kernel saves the full frame.
     pub inline fn call0(syscall: Syscall) isize {
         return switch (builtin.cpu.arch) {

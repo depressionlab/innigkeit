@@ -25,7 +25,7 @@ pub fn start() !void {
 
     const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
     defer scheduler_handle.unlock();
-    scheduler_handle.queueTask(&hello_world_main_thread.task);
+    scheduler_handle.queueTask(&hello_world_main_thread.task, .{ .initial = true });
 
     // TODO: colors
     try innigkeit.init.Output.experimentalRegister(.full);

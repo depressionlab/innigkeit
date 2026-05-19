@@ -62,7 +62,8 @@ pub fn scoped(comptime scope: @EnumLiteral()) type {
         }
 
         comptime {
-            if (scope_name.len > innigkeit.config.debug.max_log_scope_len) @compileError("log scope '" ++ scope_name ++ "' to too long");
+            if (scope_name.len > innigkeit.config.debug.max_log_scope_len)
+                @compileError("log scope '" ++ scope_name ++ "' to too long");
         }
     };
 }
@@ -201,6 +202,7 @@ inline fn loggingEnabledFor(comptime scope: @EnumLiteral(), comptime message_lev
     comptime {
         if (@intFromEnum(message_level) <= @intFromEnum(log_level)) return true;
         if (scopeMatcherMatches(scope)) return true;
+        if (scope == .uacpi_api) return false;
         return false;
     }
 }

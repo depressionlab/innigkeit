@@ -4,6 +4,7 @@ const std = @import("std");
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
+const SchedClass = @import("SchedClass.zig");
 const log = innigkeit.debug.log.scoped(.scheduler);
 
 scheduler: *innigkeit.Task.Scheduler,
@@ -61,14 +62,17 @@ pub fn unlock(self: Handle) void {
     self.scheduler.unlock();
 }
 
-pub fn queueTask(self: Handle, task: *innigkeit.Task) void {
+/// Enqueue a task onto this executor's scheduler.
+/// Pass flags.initial=true for first-ever enqueue (fork/spawn).
+/// Pass flags.wakeup=true when waking from blocked.
+pub fn queueTask(self: Handle, task: *innigkeit.Task, flags: SchedClass.EnqueueFlags) void {
     if (core.is_debug) {
         std.debug.assert(!task.is_scheduler_task); // cannot queue a scheduler task
         self.scheduler.assertLocked();
         std.debug.assert(task.state == .ready);
     }
 
-    self.scheduler.queueTask(task);
+    self.scheduler.queueTask(task, flags);
 }
 
 pub fn isEmpty(self: Handle) bool {
@@ -77,6 +81,9 @@ pub fn isEmpty(self: Handle) bool {
 }
 
 /// Yields the current task.
+///
+/// For non-idle tasks: calls putPrev (updates vruntime, re-enqueues) then picks next.
+/// If no better task exists, keeps running the current task.
 pub fn yield(self: Handle) void {
     const current_task: innigkeit.Task.Current = .get();
     const old_task = current_task.task;
@@ -86,9 +93,28 @@ pub fn yield(self: Handle) void {
         std.debug.assert(old_task.spinlocks_held == 1); // only the scheduler lock is held
     }
 
-    const new_task = self.scheduler.getNextTask() orelse return; // no tasks to run
+    if (!old_task.is_scheduler_task) {
+        if (core.is_debug) std.debug.assert(old_task.state == .running);
 
-    if (core.is_debug) std.debug.assert(old_task.state == .running);
+        // Transition to ready so putPrev knows to re-enqueue.
+        old_task.state = .ready;
+        self.scheduler.putPrevTask(old_task);
+    }
+
+    const new_task = self.scheduler.getNextTask() orelse {
+        // Nothing queued.  If we're a real task that just put itself in the queue,
+        // it will be picked immediately below on a future wakeup.  For now just
+        // keep running.
+        if (!old_task.is_scheduler_task) {
+            // putPrev re-enqueued us undo the state change so the task stays
+            // consistent (it will be selected by pickNext above on re-entry).
+            old_task.state = .{ .running = old_task.known_executor.? };
+        }
+        return;
+    };
+
+    // Finalize the picked task (remove from tree, set exec_start, etc.).
+    self.scheduler.setNextRunning(new_task);
 
     if (old_task.is_scheduler_task) {
         log.verbose("switching from idle to {f}", .{new_task});
@@ -96,11 +122,14 @@ pub fn yield(self: Handle) void {
         unreachable;
     }
 
-    if (core.is_debug) std.debug.assert(old_task != new_task);
+    if (new_task == old_task) {
+        // EEVDF decided to keep running the current task.
+        old_task.state = .{ .running = old_task.known_executor.? };
+        return;
+    }
 
     log.verbose("switching from {f} to {f}", .{ old_task, new_task });
-
-    self.switchToTaskFromTaskYield(old_task, new_task);
+    switchToTaskFromTaskYield(self, old_task, new_task);
 }
 
 /// Terminates the current tasks execution, the task is left in an invalid state and must not be scheduled again.
@@ -168,11 +197,18 @@ fn dropWithDeferredAction( // used to implement both `block` and `terminate`
         std.debug.assert(old_task.state == .running);
     }
 
+    // Update vruntime accounting without re-enqueueing (state is .running, not .ready).
+    // The deferred action will set the final state (.blocked or .terminated).
+    self.scheduler.putPrevTask(old_task);
+
     const new_task = self.scheduler.getNextTask() orelse {
         log.verbose("switching from {f} to idle with a deferred action", .{old_task});
         switchToIdleDeferredAction(old_task, deferred_action, task_resume);
         return;
     };
+
+    self.scheduler.setNextRunning(new_task);
+
     if (core.is_debug) {
         std.debug.assert(!new_task.is_scheduler_task);
         std.debug.assert(old_task != new_task);
@@ -260,9 +296,9 @@ fn switchToTaskFromIdleYield(scheduler_task: *innigkeit.Task, new_task: *innigke
         },
     );
 
-    // we are abadoning the current scheduler tasks call stack, which means the interrupt increment that would have
+    // we are abandoning the current scheduler tasks call stack, which means the interrupt increment that would have
     // happened if we are here due to preemption by an interrupt will not be decremented normally, so we set it to 1
-    // which is the value is is expected to have upon entry to idle
+    // which is the value it is expected to have upon entry to idle
     scheduler_task.interrupt_disable_count.store(1, .release);
 
     architecture.scheduling.switchTaskNoSave(new_task);
@@ -274,6 +310,8 @@ fn switchToTaskFromTaskYield(
     old_task: *innigkeit.Task,
     new_task: *innigkeit.Task,
 ) void {
+    _ = scheduler_handle; // putPrev already re-enqueued old_task; no queueTask needed
+
     const executor = old_task.known_executor.?;
 
     beforeSwitchTask(old_task, new_task);
@@ -282,8 +320,7 @@ fn switchToTaskFromTaskYield(
     new_task.known_executor = executor;
     executor.setCurrentTask(new_task);
 
-    old_task.state = .ready;
-    scheduler_handle.scheduler.queueTask(old_task);
+    // old_task.state is already .ready (set in yield() before putPrev).
 
     architecture.scheduling.switchTask(old_task, new_task);
 

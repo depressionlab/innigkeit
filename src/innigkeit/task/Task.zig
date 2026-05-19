@@ -16,6 +16,10 @@ pub const init = @import("core/init.zig");
 pub const Transition = @import("core/Transition.zig");
 const globals = @import("core/globals.zig");
 
+const SchedClass = @import("SchedClass.zig");
+const Eevdf = @import("sched/Eevdf.zig");
+const Rt = @import("sched/Rt.zig");
+
 const log = innigkeit.debug.log.scoped(.task);
 
 /// The name of the task.
@@ -40,9 +44,9 @@ reference_count: std.atomic.Value(usize) = .init(1), // tasks start with a refer
 stack: Stack,
 
 /// Used for various linked lists including:
-/// - scheduler ready queue
 /// - wait queue
 /// - the kernel task cleanup service
+/// - RT scheduler queue (when sched_class == &SchedClass.rt_class)
 next_task_node: std.SinglyLinkedList.Node = .{},
 
 /// Set to the executor the current task is running on if the state of the task means that the executor cannot
@@ -66,6 +70,21 @@ spinlocks_held: u32,
 scheduler_locked: bool,
 
 arch_specific: architecture.scheduling.PerTask,
+
+/// EEVDF fair-class scheduling entity.  Populated for all tasks regardless of class,
+/// since tasks may migrate between classes at runtime (with a SchedCap capability).
+sched: Eevdf.SchedEntity = .{},
+
+/// Real-time scheduling entity.  Active when sched_class == &SchedClass.rt_class.
+rt_sched: Rt.RtSchedEntity = .{},
+
+/// The scheduling class this task currently belongs to.
+/// Default: fair class (EEVDF).  Requires SchedCap to change.
+sched_class: *const SchedClass = SchedClass.default_class,
+
+/// Set by the scheduler class tick() when the task should be preempted at the
+/// next safe point (scheduler lock not held, spinlocks_held == 0).
+needs_resched: bool = false,
 
 pub const State = union(enum) {
     ready,
@@ -108,17 +127,14 @@ pub fn wakeFromBlocked(task_to_wake: *innigkeit.Task) void {
         defer current_task.decrementMigrationDisable();
 
         if (current_task.task.known_executor == task_to_wake.known_executor) {
-            // queue on the current executors scheduler
-            // can't be merged with the identical code at the end of the function as we need to keep migration disabled
             const maybe_locked: innigkeit.Task.Scheduler.Handle.MaybeLocked = .get();
             defer maybe_locked.unlock();
 
-            maybe_locked.scheduler_handle.queueTask(task_to_wake);
+            maybe_locked.scheduler_handle.queueTask(task_to_wake, .{ .wakeup = true });
 
             return;
         }
 
-        // queue on the parked tasks known executor
         const executor = task_to_wake.known_executor orelse std.debug.panic(
             "{f} has non-zero migration disable but no known executor!",
             .{task_to_wake},
@@ -127,15 +143,14 @@ pub fn wakeFromBlocked(task_to_wake: *innigkeit.Task) void {
         executor.scheduler.lock();
         defer executor.scheduler.unlock();
 
-        executor.scheduler.queueTask(task_to_wake);
+        executor.scheduler.queueTask(task_to_wake, .{ .wakeup = true });
         return;
     }
 
-    // queue on the current executors scheduler
     const maybe_locked: innigkeit.Task.Scheduler.Handle.MaybeLocked = .get();
     defer maybe_locked.unlock();
 
-    maybe_locked.scheduler_handle.queueTask(task_to_wake);
+    maybe_locked.scheduler_handle.queueTask(task_to_wake, .{ .wakeup = true });
 }
 
 pub const CreateKernelTaskOptions = struct {
@@ -146,6 +161,7 @@ pub const CreateKernelTaskOptions = struct {
 /// Create a kernel task.
 ///
 /// The task is in the `ready` state and is not scheduled.
+/// Callers must use `Scheduler.Handle.queueTask(task, .{ .initial = true })` for the first enqueue.
 pub fn createKernelTask(options: CreateKernelTaskOptions) !*Task {
     const task = try globals.kernel_task_cache.allocate();
     errdefer globals.kernel_task_cache.deallocate(task);

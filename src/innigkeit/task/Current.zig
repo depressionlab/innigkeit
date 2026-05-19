@@ -4,6 +4,7 @@ const std = @import("std");
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
+const wallclock = innigkeit.time.wallclock;
 const log = innigkeit.debug.log.scoped(.task);
 
 task: *innigkeit.Task,
@@ -25,7 +26,12 @@ pub fn incrementInterruptDisable(self: Current) void {
     const previous = self.task.interrupt_disable_count.fetchAdd(1, .acq_rel);
     if (core.is_debug) std.debug.assert(previous < std.math.maxInt(u32));
 
-    self.task.known_executor = self.task.state.running;
+    // Only update known_executor from state when the task is running.
+    // If the task is transitioning (e.g. state == .ready inside yield()), known_executor
+    // was already pinned by a prior incrementInterruptDisable call; leave it as-is.
+    if (self.task.state == .running) {
+        self.task.known_executor = self.task.state.running;
+    }
 }
 
 pub fn decrementInterruptDisable(self: Current) void {
@@ -44,7 +50,9 @@ pub fn incrementMigrationDisable(self: Current) void {
     const previous = self.task.migration_disable_count.fetchAdd(1, .acq_rel);
     if (core.is_debug) std.debug.assert(previous < std.math.maxInt(u32));
 
-    self.task.known_executor = self.task.state.running;
+    if (self.task.state == .running) {
+        self.task.known_executor = self.task.state.running;
+    }
 }
 
 pub fn decrementMigrationDisable(self: Current) void {
@@ -74,10 +82,11 @@ pub fn decrementEnableAccessToUserMemory(self: Current) void {
 
 /// Maybe preempt the current task.
 ///
+/// Asks the active scheduling class whether preemption is warranted (via tick).
+/// Also honours the needs_resched flag set asynchronously by the scheduler.
+///
 /// The scheduler lock must *not* be held.
 pub fn maybePreempt(self: Current) void {
-    // TODO: do more than just preempt everytime
-
     if (core.is_debug) {
         std.debug.assert(self.task.spinlocks_held == 0);
         std.debug.assert(self.task.state == .running);
@@ -86,10 +95,17 @@ pub fn maybePreempt(self: Current) void {
     const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
     defer scheduler_handle.unlock();
 
-    if (scheduler_handle.isEmpty()) return;
+    const now = wallclock.read();
+
+    // Tick advances vruntime accounting and decides whether to preempt.
+    // needs_resched is a fast-path flag set by the scheduler class asynchronously.
+    const should_preempt = self.task.needs_resched or
+        scheduler_handle.scheduler.tick(self.task, now);
+    self.task.needs_resched = false;
+
+    if (!should_preempt) return;
 
     log.verbose("preempting {f}", .{self});
-
     scheduler_handle.yield();
 }
 
@@ -117,7 +133,7 @@ pub fn onInterruptEntry() StateBeforeInterrupt {
 
 /// Tracks the state of the task before an interrupt was triggered.
 ///
-/// Stored seperately from the task to allow nested interrupts.
+/// Stored separately from the task to allow nested interrupts.
 pub const StateBeforeInterrupt = struct {
     interrupt_disable_count: u32,
     enable_access_to_user_memory_count: u32,
@@ -170,7 +186,10 @@ fn setKnownExecutor(self: Current) void {
     if (self.task.interrupt_disable_count.load(.acquire) != 0 or
         self.task.migration_disable_count.load(.acquire) != 0)
     {
-        self.task.known_executor = self.task.state.running;
+        if (self.task.state == .running) {
+            self.task.known_executor = self.task.state.running;
+        }
+        // If not running, known_executor was already pinned; leave it as-is.
         return;
     }
 

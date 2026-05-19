@@ -2,7 +2,7 @@
 //!
 //! A 64-bit bitmask of pending signals. Any thread with write rights can signal
 //! one or more bits; any thread with read rights can wait for specific bits.
-//! This is the lowest-overhead IPC primitive — signalling never blocks.
+//! This is the lowest-overhead IPC primitive. Signalling never blocks.
 const Notify = @This();
 
 const std = @import("std");
@@ -45,7 +45,7 @@ pub fn wait(self: *Notify, clear_mask: u64) u64 {
     self.lock.lock();
     while (self.pending & clear_mask == 0) {
         // wait() unlocks the spinlock as a deferred action and blocks us.
-        // On wakeup, the spinlock is NOT held — we must re-acquire it.
+        // On wakeup, the spinlock is NOT held so we must re-acquire it.
         self.wait_queue.wait(&self.lock);
         self.lock.lock();
     }

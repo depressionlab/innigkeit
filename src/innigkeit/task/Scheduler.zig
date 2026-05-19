@@ -5,31 +5,53 @@ const innigkeit = @import("innigkeit");
 const core = @import("core");
 
 pub const Handle = @import("Handle.zig");
+pub const Runqueue = @import("Runqueue.zig");
+
+const SchedClass = @import("SchedClass.zig");
+const wallclock = innigkeit.time.wallclock;
 
 single_spin_lock: innigkeit.sync.SingleSpinLock = .{},
-ready_to_run: core.containers.FIFO = .{},
+runqueue: Runqueue = .{},
 
 /// Used as the current task during idle and also during the transition between tasks when executing a deferred action.
 task: innigkeit.Task,
 
-pub fn queueTask(self: *Scheduler, task: *innigkeit.Task) void {
-    self.ready_to_run.append(&task.next_task_node);
+/// Enqueue a task for the first time (after fork/spawn).
+/// Calls the class's task_new hook to place vruntime correctly.
+pub fn spawnTask(self: *Scheduler, task: *innigkeit.Task) void {
+    self.queueTask(task, .{ .initial = true });
+}
+
+/// Enqueue a task with explicit flags.
+/// Use .initial for first-ever enqueue; .wakeup for waking from blocked.
+pub fn queueTask(self: *Scheduler, task: *innigkeit.Task, flags: SchedClass.EnqueueFlags) void {
+    self.runqueue.enqueueTask(task, flags);
+}
+
+/// Update the current task's accounting and re-enqueue if still runnable.
+/// The caller must set task.state = .ready BEFORE calling if this is a voluntary yield.
+/// For block/terminate, leave state as .running: `putPrev` will skip re-enqueue.
+pub fn putPrevTask(self: *Scheduler, prev: *innigkeit.Task) void {
+    self.runqueue.putPrevTask(prev);
+}
+
+/// Finalize a picked task as the next to run.
+/// Removes it from the run queue and sets up class-specific running state.
+pub fn setNextRunning(self: *Scheduler, task: *innigkeit.Task) void {
+    self.runqueue.setNextRunning(task);
 }
 
 pub fn isEmpty(self: *const Scheduler) bool {
-    return self.ready_to_run.isEmpty();
+    return self.runqueue.isEmpty();
 }
 
 pub fn getNextTask(self: *Scheduler) ?*innigkeit.Task {
-    const task_node = self.ready_to_run.pop() orelse return null; // no tasks to run
-    const task: *innigkeit.Task = .fromNode(task_node);
+    return self.runqueue.pickNext(null);
+}
 
-    if (core.is_debug) {
-        std.debug.assert(!task.is_scheduler_task);
-        std.debug.assert(task.state == .ready);
-    }
-
-    return task;
+/// Run the per-tick accounting for `curr`.  Returns true if preemption is warranted.
+pub fn tick(self: *Scheduler, curr: *innigkeit.Task, now: wallclock.Tick) bool {
+    return self.runqueue.tick(curr, now);
 }
 
 pub fn lock(self: *Scheduler) void {

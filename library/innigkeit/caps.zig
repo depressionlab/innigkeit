@@ -56,8 +56,6 @@ pub fn delete(handle: Handle) SyscallError!void {
     _ = try Syscall.decode(result);
 }
 
-// ── Notify convenience wrappers ──────────────────────────────────────────── //
-
 pub const NotifyOp = enum(u64) {
     signal = 0,
     wait = 1,
@@ -80,8 +78,6 @@ pub fn notifyPoll(handle: Handle, clear_mask: u64) SyscallError!u64 {
     return try invoke(handle, @intFromEnum(NotifyOp.poll), @intCast(clear_mask));
 }
 
-// ── Endpoint convenience wrappers ────────────────────────────────────────── //
-
 pub const EndpointOp = enum(u64) {
     send = 0,
     recv = 1,
@@ -98,8 +94,6 @@ pub fn endpointSend(handle: Handle, msg: *const Message) SyscallError!void {
 pub fn endpointRecv(handle: Handle, msg: *Message) SyscallError!void {
     _ = try invoke(handle, @intFromEnum(EndpointOp.recv), @intFromPtr(msg));
 }
-
-// ── Frame convenience wrappers ───────────────────────────────────────────── //
 
 pub const FrameOp = enum(u64) {
     clone = 0,

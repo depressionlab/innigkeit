@@ -28,7 +28,8 @@ pub fn custom(
                 };
 
             for (options.log_scopes) |scope| {
-                if (std.mem.eql(u8, scope, "uacpi")) break :blk "-DUACPI_DEFAULT_LOG_LEVEL=UACPI_LOG_DEBUG";
+                if (std.mem.eql(u8, scope, "uacpi"))
+                    break :blk "-DUACPI_DEFAULT_LOG_LEVEL=UACPI_LOG_DEBUG";
             }
 
             break :blk "-DUACPI_DEFAULT_LOG_LEVEL=UACPI_LOG_WARN";
