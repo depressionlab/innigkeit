@@ -1,5 +1,5 @@
 const innigkeit = @import("innigkeit");
-const caps = innigkeit.caps;
+const capabilities = innigkeit.capabilities;
 
 pub fn main() void {
     innigkeit.io.stdout.print("Hello, World!\n", .{}) catch {};
@@ -11,7 +11,7 @@ pub fn main() void {
 }
 
 fn testIpc() void {
-    const ep: caps.Handle = caps.create(.endpoint) catch {
+    const ep: capabilities.Handle = capabilities.create(.endpoint) catch {
         innigkeit.io.stdout.print("cap_create failed \n", .{}) catch {};
         return;
     };
@@ -20,8 +20,8 @@ fn testIpc() void {
 
     var i: usize = 0;
     while (i < 3) : (i += 1) {
-        var msg: caps.Message = .{ .tag = i + 1 };
-        caps.endpointCall(ep, &msg) catch {};
+        var msg: capabilities.Message = .{ .tag = i + 1 };
+        capabilities.endpointCall(ep, &msg) catch {};
         innigkeit.io.stdout.print("client got reply tag={}\n", .{msg.tag}) catch {};
     }
 
@@ -48,21 +48,21 @@ fn testMmap() void {
 }
 
 fn serverEntry(ep_raw: usize) callconv(.c) noreturn {
-    const ep: caps.Handle = @truncate(ep_raw);
-    var msg: caps.Message = undefined;
+    const ep: capabilities.Handle = @truncate(ep_raw);
+    var msg: capabilities.Message = undefined;
 
-    caps.endpointRecv(ep, &msg) catch {};
+    capabilities.endpointRecv(ep, &msg) catch {};
     innigkeit.io.stdout.print("server got tag={}\n", .{msg.tag}) catch {};
 
     var remaining: usize = 2;
     while (remaining > 0) : (remaining -= 1) {
         msg.tag += 100;
-        caps.endpointReplyRecv(ep, &msg) catch {};
+        capabilities.endpointReplyRecv(ep, &msg) catch {};
         innigkeit.io.stdout.print("server got tag={}\n", .{msg.tag}) catch {};
     }
 
     msg.tag += 100;
-    caps.endpointReply(ep, &msg) catch {};
+    capabilities.endpointReply(ep, &msg) catch {};
 
     innigkeit.thread.exitCurrent();
 }

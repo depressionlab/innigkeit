@@ -19,7 +19,7 @@ pub const Rights = packed struct(u16) {
     pub const write_only: Rights = .{ .write = true };
 };
 
-/// ABI-stable IPC message. Layout must match the kernel's `caps.Message`.
+/// ABI-stable IPC message. Layout must match the kernel's `capabilities.Message`.
 pub const Message = extern struct {
     tag: u64 = 0,
     words: [6]u64 = [_]u64{0} ** 6,

@@ -7,7 +7,7 @@
 //! Rights are a bitmask so they can be narrowed when delegating:
 //! A process may hold change_class | change_nice but grant a child only change_nice.
 //!
-//! TODO: Wire into the capability table once innigkeit.caps infrastructure is ready.
+//! TODO: Wire into the capability table once innigkeit.capabilities infrastructure is ready.
 //!       For now this file defines the types; enforcement lives in the (future) syscall handlers.
 const SchedCap = @This();
 
@@ -42,30 +42,30 @@ pub const user_default: SchedCap = .{ .rights = .{
     .change_slice = true,
 } };
 
-pub fn canChangeClass(cap: SchedCap) bool {
-    return cap.rights.change_class;
+pub fn canChangeClass(self: SchedCap) bool {
+    return self.rights.change_class;
 }
 
-pub fn canChangeNice(cap: SchedCap) bool {
-    return cap.rights.change_nice;
+pub fn canChangeNice(self: SchedCap) bool {
+    return self.rights.change_nice;
 }
 
-pub fn canChangeSlice(cap: SchedCap) bool {
-    return cap.rights.change_slice;
+pub fn canChangeSlice(self: SchedCap) bool {
+    return self.rights.change_slice;
 }
 
-pub fn canSetDeadline(cap: SchedCap) bool {
-    return cap.rights.set_deadline;
+pub fn canSetDeadline(self: SchedCap) bool {
+    return self.rights.set_deadline;
 }
 
 /// Change the scheduling class of `task`.
 /// Returns error.PermissionDenied if the capability does not include change_class.
 pub fn setClass(
-    cap: SchedCap,
+    self: SchedCap,
     task: *innigkeit.Task,
     new_class: *const SchedClass,
 ) error{PermissionDenied}!void {
-    if (!cap.rights.change_class) return error.PermissionDenied;
+    if (!self.rights.change_class) return error.PermissionDenied;
     // TODO: dequeue from old class, re-enqueue in new class under scheduler lock.
     task.sched_class = new_class;
 }
@@ -73,11 +73,11 @@ pub fn setClass(
 /// Set the EEVDF nice level [-20, 19].
 /// Returns error.PermissionDenied if the capability does not include change_nice.
 pub fn setNice(
-    cap: SchedCap,
+    self: SchedCap,
     task: *innigkeit.Task,
     nice: i8,
 ) error{ PermissionDenied, InvalidNice }!void {
-    if (!cap.rights.change_nice) return error.PermissionDenied;
+    if (!self.rights.change_nice) return error.PermissionDenied;
     if (nice < -20 or nice > 19) return error.InvalidNice;
     const Eevdf = @import("sched/Eevdf.zig");
     // TODO: update weight under scheduler lock and re-place in tree.
@@ -87,11 +87,11 @@ pub fn setNice(
 /// Set a custom time slice in nanoseconds.
 /// Returns error.PermissionDenied if the capability does not include change_slice.
 pub fn setSlice(
-    cap: SchedCap,
+    self: SchedCap,
     task: *innigkeit.Task,
     slice_ns: u64,
 ) error{PermissionDenied}!void {
-    if (!cap.rights.change_slice) return error.PermissionDenied;
+    if (!self.rights.change_slice) return error.PermissionDenied;
     // TODO: update under scheduler lock.
     task.sched.slice = slice_ns;
     task.sched.custom_slice = true;

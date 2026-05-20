@@ -21,7 +21,7 @@ threads: std.AutoArrayHashMapUnmanaged(*innigkeit.user.Thread, void) = .{},
 
 /// Capability table: maps handle indices to kernel objects.
 /// Heap-allocated so that it doesn't inflate the slab cache object size.
-cap_table: *innigkeit.caps.CapabilityTable,
+cap_table: *innigkeit.capabilities.CapabilityTable,
 
 /// Tracks if this process has been queued for cleanup.
 queued_for_cleanup: std.atomic.Value(bool) = .init(false),
@@ -240,7 +240,7 @@ const globals = struct {
                 fn constructor(process: *Process) innigkeit.mem.cache.ConstructorError!void {
                     const temp_name = Process.Name.initPrint("temp {*}", .{process}) catch unreachable;
 
-                    const cap_table = innigkeit.mem.heap.allocator.create(innigkeit.caps.CapabilityTable) catch {
+                    const cap_table = innigkeit.mem.heap.allocator.create(innigkeit.capabilities.CapabilityTable) catch {
                         log.warn("process constructor: cap_table allocation failed", .{});
                         return error.ItemConstructionFailed;
                     };

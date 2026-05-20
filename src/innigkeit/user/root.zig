@@ -216,14 +216,14 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 return;
             };
             cap_table.lock.unlock();
-            defer innigkeit.caps.CapabilityTable.unrefObject(slot_info.cap_type, slot_info.ptr);
+            defer innigkeit.capabilities.CapabilityTable.unrefObject(slot_info.cap_type, slot_info.ptr);
 
             switch (slot_info.cap_type) {
                 .null => unreachable,
 
                 .notify => {
-                    const notify: *innigkeit.caps.Notify = @ptrCast(@alignCast(slot_info.ptr));
-                    const notify_op = std.enums.fromInt(innigkeit.caps.Notify.Op, op) orelse {
+                    const notify: *innigkeit.capabilities.Notify = @ptrCast(@alignCast(slot_info.ptr));
+                    const notify_op = std.enums.fromInt(innigkeit.capabilities.Notify.Op, op) orelse {
                         arch_frame.rax = errCode(-22); // EINVAL
                         return;
                     };
@@ -254,8 +254,8 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 },
 
                 .endpoint => {
-                    const endpoint: *innigkeit.caps.Endpoint = @ptrCast(@alignCast(slot_info.ptr));
-                    const ep_op = std.enums.fromInt(innigkeit.caps.Endpoint.Op, op) orelse {
+                    const endpoint: *innigkeit.capabilities.Endpoint = @ptrCast(@alignCast(slot_info.ptr));
+                    const ep_op = std.enums.fromInt(innigkeit.capabilities.Endpoint.Op, op) orelse {
                         arch_frame.rax = errCode(-22); // EINVAL
                         return;
                     };
@@ -265,12 +265,12 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                                 arch_frame.rax = errCode(-1); // EPERM
                                 return;
                             }
-                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.caps.Message))) {
+                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
                                 arch_frame.rax = errCode(-14); // EFAULT
                                 return;
                             }
                             // Copy message out of user memory before blocking.
-                            const msg_uptr: *const innigkeit.caps.Message = @ptrFromInt(arg3);
+                            const msg_uptr: *const innigkeit.capabilities.Message = @ptrFromInt(arg3);
                             current_task.incrementEnableAccessToUserMemory();
                             const msg = msg_uptr.*;
                             current_task.decrementEnableAccessToUserMemory();
@@ -282,13 +282,13 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                                 arch_frame.rax = errCode(-1); // EPERM
                                 return;
                             }
-                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.caps.Message))) {
+                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
                                 arch_frame.rax = errCode(-14); // EFAULT
                                 return;
                             }
                             // Block first, then copy into user memory.
                             const msg = endpoint.recv();
-                            const msg_uptr: *innigkeit.caps.Message = @ptrFromInt(arg3);
+                            const msg_uptr: *innigkeit.capabilities.Message = @ptrFromInt(arg3);
                             current_task.incrementEnableAccessToUserMemory();
                             msg_uptr.* = msg;
                             current_task.decrementEnableAccessToUserMemory();
@@ -300,11 +300,11 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                                 return;
                             }
                             // arg3 = pointer to Message (in: request, out: reply).
-                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.caps.Message))) {
+                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
                                 arch_frame.rax = errCode(-14); // EFAULT
                                 return;
                             }
-                            const msg_uptr: *innigkeit.caps.Message = @ptrFromInt(arg3);
+                            const msg_uptr: *innigkeit.capabilities.Message = @ptrFromInt(arg3);
                             current_task.incrementEnableAccessToUserMemory();
                             const request = msg_uptr.*;
                             current_task.decrementEnableAccessToUserMemory();
@@ -319,11 +319,11 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                                 arch_frame.rax = errCode(-1); // EPERM
                                 return;
                             }
-                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.caps.Message))) {
+                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
                                 arch_frame.rax = errCode(-14); // EFAULT
                                 return;
                             }
-                            const msg_uptr: *const innigkeit.caps.Message = @ptrFromInt(arg3);
+                            const msg_uptr: *const innigkeit.capabilities.Message = @ptrFromInt(arg3);
                             current_task.incrementEnableAccessToUserMemory();
                             const msg = msg_uptr.*;
                             current_task.decrementEnableAccessToUserMemory();
@@ -336,11 +336,11 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                                 return;
                             }
                             // arg3 = pointer to Message (in: reply to send, out: next request).
-                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.caps.Message))) {
+                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
                                 arch_frame.rax = errCode(-14); // EFAULT
                                 return;
                             }
-                            const msg_uptr: *innigkeit.caps.Message = @ptrFromInt(arg3);
+                            const msg_uptr: *innigkeit.capabilities.Message = @ptrFromInt(arg3);
                             current_task.incrementEnableAccessToUserMemory();
                             const reply_msg = msg_uptr.*;
                             current_task.decrementEnableAccessToUserMemory();
@@ -354,8 +354,8 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 },
 
                 .frame => {
-                    const frame: *innigkeit.caps.Frame = @ptrCast(@alignCast(slot_info.ptr));
-                    const frame_op = std.enums.fromInt(innigkeit.caps.Frame.Op, op) orelse {
+                    const frame: *innigkeit.capabilities.Frame = @ptrCast(@alignCast(slot_info.ptr));
+                    const frame_op = std.enums.fromInt(innigkeit.capabilities.Frame.Op, op) orelse {
                         arch_frame.rax = errCode(-22); // EINVAL
                         return;
                     };
@@ -399,7 +399,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .cap_copy => {
             const handle: u32 = @truncate(syscall_frame.arg(.one));
             const rights_raw: u16 = @truncate(syscall_frame.arg(.two));
-            const new_rights: innigkeit.caps.Rights = @bitCast(rights_raw);
+            const new_rights: innigkeit.capabilities.Rights = @bitCast(rights_raw);
 
             const process = Process.from(innigkeit.Task.Current.get().task);
             const cap_table = process.cap_table;
@@ -480,7 +480,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         // ------------------------------------------------------------------ //
         .cap_create => {
             const type_raw: u8 = @truncate(syscall_frame.arg(.one));
-            const cap_type = std.enums.fromInt(innigkeit.caps.ObjectType, type_raw) orelse {
+            const cap_type = std.enums.fromInt(innigkeit.capabilities.ObjectType, type_raw) orelse {
                 arch_frame.rax = errCode(-22); // EINVAL
                 return;
             };
@@ -494,7 +494,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                     arch_frame.rax = errCode(-22); // EINVAL
                 },
                 .notify => {
-                    const notify = innigkeit.caps.Notify.create() catch {
+                    const notify = innigkeit.capabilities.Notify.create() catch {
                         arch_frame.rax = errCode(-12); // ENOMEM
                         return;
                     };
@@ -509,7 +509,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                     arch_frame.rax = @intCast(idx);
                 },
                 .endpoint => {
-                    const endpoint = innigkeit.caps.Endpoint.create() catch {
+                    const endpoint = innigkeit.capabilities.Endpoint.create() catch {
                         arch_frame.rax = errCode(-12); // ENOMEM
                         return;
                     };
@@ -524,8 +524,8 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                     arch_frame.rax = @intCast(idx);
                 },
                 .frame => {
-                    // Physical frame allocation requires a size; use cap_invoke on a Vmem cap.
-                    const frame = innigkeit.caps.Frame.create() catch {
+                    // Physical frame allocation requires a size; use cap_invoke on a Vmem capability.
+                    const frame = innigkeit.capabilities.Frame.create() catch {
                         arch_frame.rax = errCode(-12); // ENOMEM
                         return;
                     };

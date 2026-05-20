@@ -95,7 +95,7 @@ needs_resched: bool = false,
 
 /// Per-task IPC scratch used by Endpoint.call() / Endpoint.reply():
 ///   - Caller writes message here before blocking; replier writes reply here before waking.
-ipc_message: innigkeit.caps.Message = .{},
+ipc_message: innigkeit.capabilities.Message = .{},
 
 pub const State = union(enum) {
     ready,

@@ -8,8 +8,8 @@ const ObjectType = @import("ObjectType.zig").ObjectType;
 const Rights = @import("Rights.zig").Rights;
 const Slot = @import("Slot.zig").Slot;
 
-const cap_count = innigkeit.config.caps.slots_per_process;
-const null_idx = innigkeit.config.caps.null_slot;
+const cap_count = innigkeit.config.capabilities.slots_per_process;
+const null_idx = innigkeit.config.capabilities.null_slot;
 
 lock: innigkeit.sync.TicketSpinLock = .{},
 slots: [cap_count]Slot = undefined,

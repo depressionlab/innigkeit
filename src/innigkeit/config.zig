@@ -69,7 +69,7 @@ pub const user = struct {
     pub const address_space_name_length = process_name_length;
 };
 
-pub const caps = struct {
+pub const capabilities = struct {
     /// Number of capability slots per process.
     pub const slots_per_process: u32 = 256;
 
