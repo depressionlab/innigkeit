@@ -93,6 +93,10 @@ sched_class: *const SchedClass = SchedClass.default_class,
 /// next safe point (scheduler lock not held, spinlocks_held == 0).
 needs_resched: bool = false,
 
+/// Per-task IPC scratch used by Endpoint.call() / Endpoint.reply():
+///   - Caller writes message here before blocking; replier writes reply here before waking.
+ipc_message: innigkeit.caps.Message = .{},
+
 pub const State = union(enum) {
     ready,
     /// Do not access the executor directly, use `known_executor` instead.

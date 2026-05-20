@@ -26,7 +26,9 @@ pub inline fn fromConst(task: *const innigkeit.Task) *const Thread {
 /// Enter userspace for the first time.
 ///
 /// Asserts that the current task is the same as the thread's task.
-pub fn start(self: *Thread, entry_point: innigkeit.UserVirtualAddress) !noreturn {
+/// `arg` is forwarded in the first argument register (rdi/x0/a0) so
+/// thread entry functions of type `fn(usize) callconv(.c) noreturn` receive it.
+pub fn start(self: *Thread, entry_point: innigkeit.UserVirtualAddress, arg: usize) !noreturn {
     if (core.is_debug) {
         const current_task: innigkeit.Task.Current = .get();
         std.debug.assert(current_task.task == &self.task);
@@ -43,6 +45,7 @@ pub fn start(self: *Thread, entry_point: innigkeit.UserVirtualAddress) !noreturn
     architecture.user.enterUserspace(.{
         .entry_point = entry_point,
         .stack_pointer = user_stack.toUser().after(),
+        .arg = arg,
     });
 }
 

@@ -4,6 +4,34 @@ pub const SyscallError = @import("syscall.zig").SyscallError;
 pub const caps = @import("caps.zig");
 pub const io = @import("io.zig");
 
+pub const mem = struct {
+    /// Protection flags for mmap.
+    pub const Prot = packed struct(u32) {
+        read: bool = false,
+        write: bool = false,
+        exec: bool = false,
+        _pad: u29 = 0,
+    };
+
+    /// Map `size` bytes of anonymous zero-fill memory with the given protection.
+    ///
+    /// Size is rounded up to the next page boundary by the kernel.
+    /// Returns a slice pointing to the mapped region.
+    pub fn mmap(size: usize, prot: Prot) SyscallError![]u8 {
+        const result = Syscall.call2(.mmap, size, @as(u32, @bitCast(prot)));
+        const addr = try Syscall.decode(result);
+        return @as([*]u8, @ptrFromInt(addr))[0..size];
+    }
+
+    /// Unmap a region previously returned by `mmap`.
+    ///
+    /// The slice must match the address and length of an active mapping.
+    pub fn munmap(region: []u8) SyscallError!void {
+        const result = Syscall.call2(.munmap, @intFromPtr(region.ptr), region.len);
+        _ = try Syscall.decode(result);
+    }
+};
+
 pub const thread = struct {
     /// The required signature for a spawned thread entry point.
     ///

@@ -1,7 +1,70 @@
 const innigkeit = @import("innigkeit");
+const caps = innigkeit.caps;
 
 pub fn main() void {
-    // TODO: do something
+    innigkeit.io.stdout.print("Hello, World!\n", .{}) catch {};
+
+    testIpc();
+    testMmap();
+
+    innigkeit.io.stdout.print("all tests passed\n", .{}) catch {};
+}
+
+fn testIpc() void {
+    const ep: caps.Handle = caps.create(.endpoint) catch {
+        innigkeit.io.stdout.print("cap_create failed \n", .{}) catch {};
+        return;
+    };
+
+    innigkeit.thread.spawn(&serverEntry, ep) catch {};
+
+    var i: usize = 0;
+    while (i < 3) : (i += 1) {
+        var msg: caps.Message = .{ .tag = i + 1 };
+        caps.endpointCall(ep, &msg) catch {};
+        innigkeit.io.stdout.print("client got reply tag={}\n", .{msg.tag}) catch {};
+    }
+
+    innigkeit.io.stdout.print("ipc test done\n", .{}) catch {};
+}
+
+fn testMmap() void {
+    const region = innigkeit.mem.mmap(4096, .{ .read = true, .write = true }) catch {
+        innigkeit.io.stdout.print("mmap failed\n", .{}) catch {};
+        return;
+    };
+
+    // Write a sentinel value and read it back to prove the page is accessible.
+    region[0] = 0xAB;
+    region[4095] = 0xCD;
+    const ok = region[0] == 0xAB and region[4095] == 0xCD;
+    innigkeit.io.stdout.print("mmap: write/read {s}\n", .{if (ok) "ok" else "FAIL"}) catch {};
+
+    innigkeit.mem.munmap(region) catch {
+        innigkeit.io.stdout.print("munmap failed\n", .{}) catch {};
+        return;
+    };
+    innigkeit.io.stdout.print("mmap test done\n", .{}) catch {};
+}
+
+fn serverEntry(ep_raw: usize) callconv(.c) noreturn {
+    const ep: caps.Handle = @truncate(ep_raw);
+    var msg: caps.Message = undefined;
+
+    caps.endpointRecv(ep, &msg) catch {};
+    innigkeit.io.stdout.print("server got tag={}\n", .{msg.tag}) catch {};
+
+    var remaining: usize = 2;
+    while (remaining > 0) : (remaining -= 1) {
+        msg.tag += 100;
+        caps.endpointReplyRecv(ep, &msg) catch {};
+        innigkeit.io.stdout.print("server got tag={}\n", .{msg.tag}) catch {};
+    }
+
+    msg.tag += 100;
+    caps.endpointReply(ep, &msg) catch {};
+
+    innigkeit.thread.exitCurrent();
 }
 
 // TODO: make this less terrible

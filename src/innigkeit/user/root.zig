@@ -152,12 +152,9 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         // yield() void                                                       //
         // ------------------------------------------------------------------ //
         .yield => {
-            // TODO: expose a scheduler.yield() API that moves the current task
-            //       to the back of the run queue. For now this is a no-op;
-            //       the next timer interrupt will preempt as usual.
             const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
             scheduler_handle.yield();
-            unreachable;
+            scheduler_handle.unlock();
         },
 
         // ------------------------------------------------------------------ //
@@ -175,15 +172,28 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 return;
             }
 
-            // TODO: Implement full thread spawning:
-            //   1. Call `current_process.createThread(.{ .entry = ... })` with a
-            //      kernel-side stub that sets `user_arg` in the ABI argument register
-            //      then calls `Thread.start(entry_ptr)`.
-            //   2. Enqueue the new thread on the run queue.
-            //   3. Return an opaque thread handle for future join/detach syscalls.
-            _ = user_arg;
-            log.warn("spawn_thread: not yet implemented (entry=0x{x})", .{entry_ptr});
-            arch_frame.rax = errCode(-38); // ENOSYS
+            const vaddr: innigkeit.VirtualAddress = .from(entry_ptr);
+            if (vaddr.getType() != .user) {
+                arch_frame.rax = errCode(-14); // EFAULT
+                return;
+            }
+            const entry_point = vaddr.toUser();
+
+            const current_task: innigkeit.Task.Current = .get();
+            const process = Process.from(current_task.task);
+
+            const new_thread = process.createThread(.{
+                .entry = .prepare(spawnThreadEntry, .{ entry_point, user_arg }),
+            }) catch {
+                arch_frame.rax = errCode(-12); // ENOMEM
+                return;
+            };
+
+            const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
+            defer scheduler_handle.unlock();
+            scheduler_handle.queueTask(&new_thread.task, .{ .initial = true });
+
+            arch_frame.rax = 0;
         },
 
         // ------------------------------------------------------------------ //
@@ -281,6 +291,62 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                             const msg_uptr: *innigkeit.caps.Message = @ptrFromInt(arg3);
                             current_task.incrementEnableAccessToUserMemory();
                             msg_uptr.* = msg;
+                            current_task.decrementEnableAccessToUserMemory();
+                            arch_frame.rax = 0;
+                        },
+                        .call => {
+                            if (!slot_info.rights.write) {
+                                arch_frame.rax = errCode(-1); // EPERM
+                                return;
+                            }
+                            // arg3 = pointer to Message (in: request, out: reply).
+                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.caps.Message))) {
+                                arch_frame.rax = errCode(-14); // EFAULT
+                                return;
+                            }
+                            const msg_uptr: *innigkeit.caps.Message = @ptrFromInt(arg3);
+                            current_task.incrementEnableAccessToUserMemory();
+                            const request = msg_uptr.*;
+                            current_task.decrementEnableAccessToUserMemory();
+                            const reply = endpoint.call(request);
+                            current_task.incrementEnableAccessToUserMemory();
+                            msg_uptr.* = reply;
+                            current_task.decrementEnableAccessToUserMemory();
+                            arch_frame.rax = 0;
+                        },
+                        .reply => {
+                            if (!slot_info.rights.write) {
+                                arch_frame.rax = errCode(-1); // EPERM
+                                return;
+                            }
+                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.caps.Message))) {
+                                arch_frame.rax = errCode(-14); // EFAULT
+                                return;
+                            }
+                            const msg_uptr: *const innigkeit.caps.Message = @ptrFromInt(arg3);
+                            current_task.incrementEnableAccessToUserMemory();
+                            const msg = msg_uptr.*;
+                            current_task.decrementEnableAccessToUserMemory();
+                            endpoint.reply(msg);
+                            arch_frame.rax = 0;
+                        },
+                        .reply_recv => {
+                            if (!slot_info.rights.read or !slot_info.rights.write) {
+                                arch_frame.rax = errCode(-1); // EPERM
+                                return;
+                            }
+                            // arg3 = pointer to Message (in: reply to send, out: next request).
+                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.caps.Message))) {
+                                arch_frame.rax = errCode(-14); // EFAULT
+                                return;
+                            }
+                            const msg_uptr: *innigkeit.caps.Message = @ptrFromInt(arg3);
+                            current_task.incrementEnableAccessToUserMemory();
+                            const reply_msg = msg_uptr.*;
+                            current_task.decrementEnableAccessToUserMemory();
+                            const next_request = endpoint.replyRecv(reply_msg);
+                            current_task.incrementEnableAccessToUserMemory();
+                            msg_uptr.* = next_request;
                             current_task.decrementEnableAccessToUserMemory();
                             arch_frame.rax = 0;
                         },
@@ -407,7 +473,177 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             cap_table.lock.unlock();
             arch_frame.rax = 0;
         },
+
+        // ------------------------------------------------------------------ //
+        // cap_create(type: u8) → handle|error                                //
+        //   type 2 = Notify, type 3 = Endpoint                               //
+        // ------------------------------------------------------------------ //
+        .cap_create => {
+            const type_raw: u8 = @truncate(syscall_frame.arg(.one));
+            const cap_type = std.enums.fromInt(innigkeit.caps.ObjectType, type_raw) orelse {
+                arch_frame.rax = errCode(-22); // EINVAL
+                return;
+            };
+
+            const current_task: innigkeit.Task.Current = .get();
+            const process = Process.from(current_task.task);
+            const cap_table = process.cap_table;
+
+            switch (cap_type) {
+                .null => {
+                    arch_frame.rax = errCode(-22); // EINVAL
+                },
+                .notify => {
+                    const notify = innigkeit.caps.Notify.create() catch {
+                        arch_frame.rax = errCode(-12); // ENOMEM
+                        return;
+                    };
+                    cap_table.lock.lock();
+                    const idx = cap_table.insertLocked(.notify, notify, .all) catch {
+                        cap_table.lock.unlock();
+                        notify.unref();
+                        arch_frame.rax = errCode(-12); // ENOMEM
+                        return;
+                    };
+                    cap_table.lock.unlock();
+                    arch_frame.rax = @intCast(idx);
+                },
+                .endpoint => {
+                    const endpoint = innigkeit.caps.Endpoint.create() catch {
+                        arch_frame.rax = errCode(-12); // ENOMEM
+                        return;
+                    };
+                    cap_table.lock.lock();
+                    const idx = cap_table.insertLocked(.endpoint, endpoint, .all) catch {
+                        cap_table.lock.unlock();
+                        endpoint.unref();
+                        arch_frame.rax = errCode(-12); // ENOMEM
+                        return;
+                    };
+                    cap_table.lock.unlock();
+                    arch_frame.rax = @intCast(idx);
+                },
+                .frame => {
+                    // Physical frame allocation requires a size; use cap_invoke on a Vmem cap.
+                    const frame = innigkeit.caps.Frame.create() catch {
+                        arch_frame.rax = errCode(-12); // ENOMEM
+                        return;
+                    };
+                    cap_table.lock.lock();
+                    const idx = cap_table.insertLocked(.frame, frame, .all) catch {
+                        cap_table.lock.unlock();
+                        frame.unref();
+                        arch_frame.rax = errCode(-12); // ENOMEM
+                        return;
+                    };
+                    cap_table.lock.unlock();
+                    arch_frame.rax = @intCast(idx);
+                },
+            }
+        },
+
+        // ------------------------------------------------------------------ //
+        // mmap(size: usize, prot: u32) → addr|error                         //
+        //   Maps `size` bytes of anonymous zero-fill memory.                 //
+        //   prot bits: 0=read, 1=write, 2=exec.                             //
+        //   Size is rounded up to page granularity.                          //
+        //   Returns the virtual base address on success.                     //
+        // ------------------------------------------------------------------ //
+        .mmap => {
+            const size_bytes = syscall_frame.arg(.one);
+            const prot_raw: u32 = @truncate(syscall_frame.arg(.two));
+
+            if (size_bytes == 0) {
+                arch_frame.rax = errCode(-22); // EINVAL
+                return;
+            }
+
+            const page_align = architecture.paging.standard_page_size_alignment;
+            const aligned_size = core.Size.from(size_bytes, .byte).alignForward(page_align);
+
+            const protection: innigkeit.mem.MapType.Protection = .{
+                .read = (prot_raw & 1) != 0,
+                .write = (prot_raw & 2) != 0,
+                .execute = (prot_raw & 4) != 0,
+            };
+
+            if (protection.equal(.none)) {
+                arch_frame.rax = errCode(-22); // EINVAL — must have at least one permission
+                return;
+            }
+
+            const current_task: innigkeit.Task.Current = .get();
+            const process = Process.from(current_task.task);
+
+            const range = process.address_space.map(.{
+                .size = aligned_size,
+                .protection = protection,
+                .type = .zero_fill,
+            }) catch |err| {
+                arch_frame.rax = switch (err) {
+                    error.OutOfMemory, error.RequestedRangeUnavailable => errCode(-12),
+                    else => errCode(-22),
+                };
+                return;
+            };
+
+            arch_frame.rax = range.address.value;
+        },
+
+        // ------------------------------------------------------------------ //
+        // munmap(addr: usize, size: usize) → 0|error                         //
+        //   Unmaps the region [addr, addr+size).                             //
+        //   addr and size must be page-aligned.                              //
+        // ------------------------------------------------------------------ //
+        .munmap => {
+            const addr_raw = syscall_frame.arg(.one);
+            const size_bytes = syscall_frame.arg(.two);
+
+            if (size_bytes == 0 or addr_raw == 0) {
+                arch_frame.rax = errCode(-22); // EINVAL
+                return;
+            }
+
+            const page_align = architecture.paging.standard_page_size_alignment;
+            if (!page_align.check(addr_raw) or !page_align.check(size_bytes)) {
+                arch_frame.rax = errCode(-22); // EINVAL
+                return;
+            }
+
+            const vaddr: innigkeit.VirtualAddress = .from(addr_raw);
+            if (vaddr.getType() != .user) {
+                arch_frame.rax = errCode(-14); // EFAULT
+                return;
+            }
+
+            const range: innigkeit.VirtualRange = .{
+                .address = vaddr,
+                .size = .from(size_bytes, .byte),
+            };
+
+            const current_task: innigkeit.Task.Current = .get();
+            const process = Process.from(current_task.task);
+
+            process.address_space.unmap(range) catch |err| {
+                arch_frame.rax = switch (err) {
+                    error.OutOfMemory => errCode(-12),
+                    error.RangeNotPageAligned => errCode(-22),
+                };
+                return;
+            };
+
+            arch_frame.rax = 0;
+        },
     }
+}
+
+/// Kernel-side entry for threads spawned via the spawn_thread syscall.
+/// Runs in the new thread's context; calls `Thread.start` to enter userspace.
+fn spawnThreadEntry(entry_point: innigkeit.UserVirtualAddress, arg: usize) !noreturn {
+    const current_task: innigkeit.Task.Current = .get();
+    const thread: *Thread = .from(current_task.task);
+    try thread.start(entry_point, arg);
+    unreachable;
 }
 
 pub const init = struct {

@@ -29,6 +29,12 @@ pub const Syscall = enum(usize) {
     cap_move = 8,
     /// Delete a capability: (handle: u32) → 0|error
     cap_delete = 9,
+    /// Create a new kernel capability object: (type: u8) → handle|error
+    cap_create = 10,
+    /// Map anonymous zero-fill memory: (size: usize, prot: u32) → addr|error
+    mmap = 11,
+    /// Unmap a previously mapped range: (addr: usize, size: usize) → 0|error
+    munmap = 12,
 
     /// Decode a raw syscall return value into a success count or a `SyscallError`.
     ///

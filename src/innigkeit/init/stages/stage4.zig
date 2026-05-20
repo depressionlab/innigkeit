@@ -107,6 +107,6 @@ fn loadHelloWorld() !void {
         }
     }
 
-    try thread.start(entry_point);
+    try thread.start(entry_point, 0);
     unreachable;
 }

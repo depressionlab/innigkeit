@@ -35,13 +35,14 @@ pub fn enterUserspace(options: architecture.user.EnterUserspaceOptions) noreturn
         \\mov %[frame], %rsp
         \\.cfi_undefined rip
         \\
+        \\mov %[arg], %rdi
         \\xor %ebp, %ebp
         \\xor %eax, %eax
         \\xor %ebx, %ebx
         \\xor %ecx, %ecx
         \\xor %edx, %edx
         \\xor %esi, %esi
-        \\xor %edi, %edi
+        // \\xor %edi, %edi
         \\xor %r8, %r8
         \\xor %r9, %r9
         \\xor %r10, %r10
@@ -54,6 +55,7 @@ pub fn enterUserspace(options: architecture.user.EnterUserspaceOptions) noreturn
         \\iretq
         :
         : [frame] "r" (&frame),
+          [arg] "r" (options.arg),
     );
 
     unreachable;

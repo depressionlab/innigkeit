@@ -81,6 +81,9 @@ pub fn notifyPoll(handle: Handle, clear_mask: u64) SyscallError!u64 {
 pub const EndpointOp = enum(u64) {
     send = 0,
     recv = 1,
+    call = 2,
+    reply = 3,
+    reply_recv = 4,
 };
 
 /// Send a message on an Endpoint, blocking until the receiver picks it up.
@@ -93,6 +96,37 @@ pub fn endpointSend(handle: Handle, msg: *const Message) SyscallError!void {
 /// Requires read rights.
 pub fn endpointRecv(handle: Handle, msg: *Message) SyscallError!void {
     _ = try invoke(handle, @intFromEnum(EndpointOp.recv), @intFromPtr(msg));
+}
+
+/// Synchronous call: send `msg` and block until a reply is written back.
+/// The reply overwrites `msg` in place. Requires write rights.
+pub fn endpointCall(handle: Handle, msg: *Message) SyscallError!void {
+    _ = try invoke(handle, @intFromEnum(EndpointOp.call), @intFromPtr(msg));
+}
+
+/// Reply to the pending call-mode sender. `msg` is the reply payload.
+/// Requires write rights.
+pub fn endpointReply(handle: Handle, msg: *const Message) SyscallError!void {
+    _ = try invoke(handle, @intFromEnum(EndpointOp.reply), @intFromPtr(msg));
+}
+
+/// Atomically reply to the current pending sender, then block for the next message.
+/// `msg` in: reply payload; `msg` out: next incoming message. Requires read+write rights.
+pub fn endpointReplyRecv(handle: Handle, msg: *Message) SyscallError!void {
+    _ = try invoke(handle, @intFromEnum(EndpointOp.reply_recv), @intFromPtr(msg));
+}
+
+/// Kernel object types that can be created via `cap_create`.
+pub const CreateType = enum(u8) {
+    notify = 2,
+    endpoint = 3,
+};
+
+/// Create a new kernel capability object and return a handle to it.
+/// The caller gets a slot with full rights (read + write + grant).
+pub fn create(object_type: CreateType) SyscallError!Handle {
+    const result = Syscall.call1(.cap_create, @intFromEnum(object_type));
+    return @intCast(try Syscall.decode(result));
 }
 
 pub const FrameOp = enum(u64) {

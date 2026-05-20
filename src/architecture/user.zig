@@ -98,6 +98,8 @@ pub const SyscallFrame = struct {
 pub const EnterUserspaceOptions = struct {
     entry_point: innigkeit.UserVirtualAddress,
     stack_pointer: innigkeit.UserVirtualAddress,
+    /// Value placed in the first argument register (rdi/x0/a0) on entry.
+    arg: usize = 0,
 };
 
 /// Enter userspace for the first time in the current task.

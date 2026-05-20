@@ -20,11 +20,14 @@ lock: innigkeit.sync.TicketSpinLock = .{},
 send_queue: innigkeit.sync.WaitQueue = .{},
 /// Queue of tasks blocked waiting to receive.
 recv_queue: innigkeit.sync.WaitQueue = .{},
+/// Queue of call-mode senders blocked waiting for a reply.
+/// Each parked task stores its outgoing message in task.ipc_message.
+call_queue: innigkeit.sync.WaitQueue = .{},
 
 /// Scratch space used to hand a message from sender to receiver.
 /// Protected by `lock`. Only valid while a handoff is in progress.
 pending_msg: Message = .{},
-/// Non-null while a sender is parked waiting for its reply.
+/// Non-null while a call-mode sender is parked waiting for its reply.
 /// Protected by `lock`.
 pending_sender: ?*innigkeit.Task = null,
 
@@ -65,21 +68,144 @@ pub fn send(self: *Endpoint, msg: Message) void {
 }
 
 /// Block until a message arrives, then return it.
+///
+/// Prefers call-mode senders over fire-and-forget senders.
+/// When a call-mode sender is dequeued, `pending_sender` is set and the sender
+/// remains parked; the caller should eventually call `reply` or `replyRecv`.
 pub fn recv(self: *Endpoint) Message {
     self.lock.lock();
 
-    // If a sender is already waiting, wake it and take the message.
-    const sender = self.send_queue.popFirst();
-    if (sender) |s| {
+    // Prefer call-mode senders (they are waiting for a reply).
+    if (self.call_queue.popFirst()) |caller| {
+        const msg = caller.ipc_message;
+        self.pending_msg = msg;
+        self.pending_sender = caller;
+        self.lock.unlock();
+        // caller stays parked — they will be woken by reply/replyRecv.
+        return msg;
+    }
+
+    // Fall back to fire-and-forget senders.
+    if (self.send_queue.popFirst()) |s| {
         const msg = self.pending_msg;
         self.lock.unlock();
         s.wakeFromBlocked();
         return msg;
     }
 
-    // No sender yet, so we park on the recv queue.
+    // No sender yet, park on the recv queue.
     self.recv_queue.wait(&self.lock);
-    // When we wake up, pending_msg was set by the sender.
+    self.lock.lock();
+    const msg = self.pending_msg;
+    self.lock.unlock();
+    return msg;
+}
+
+/// Synchronous send: block until a receiver picks up the message AND sends a reply.
+///
+/// The caller parks in `call_queue`. When a receiver calls `recv`, it finds this
+/// task, reads `task.ipc_message`, sets `pending_sender`, and leaves the caller
+/// parked. The receiver must subsequently call `reply` or `replyRecv` to unblock
+/// the caller. The reply message is placed in `task.ipc_message` and then read
+/// after the task unblocks.
+pub fn call(self: *Endpoint, msg: Message) Message {
+    const current_task: innigkeit.Task.Current = .get();
+    current_task.task.ipc_message = msg;
+
+    self.lock.lock();
+
+    if (self.recv_queue.popFirst()) |receiver| {
+        // Receiver is already waiting.  Set pending_sender and wake the receiver
+        // while still holding the endpoint lock (so the receiver cannot call
+        // reply/replyRecv before we finish setting up).
+        // IMPORTANT: do NOT put this task in call_queue here.  pending_sender is
+        // the only reference: reply/replyRecv will wake us via wakeFromBlocked
+        // directly.  Putting ourselves in call_queue AND setting pending_sender
+        // would cause replyRecv to pop us from call_queue a second time.
+        self.pending_msg = msg;
+        self.pending_sender = current_task.task;
+        receiver.wakeFromBlocked();
+        // Park directly via the scheduler (not call_queue) so the node is clean.
+        parkAndUnlock(&self.lock);
+        return current_task.task.ipc_message;
+    }
+
+    // No receiver yet; park in call_queue so a future recv() can find us.
+    self.call_queue.wait(&self.lock);
+    return current_task.task.ipc_message;
+}
+
+/// Block the current task and unlock `spinlock` atomically via the scheduler's
+/// deferred-action mechanism.  Mirrors what WaitQueue.wait() does internally,
+/// but without appending to any queue (used when the task is tracked via
+/// pending_sender instead).
+fn parkAndUnlock(spinlock: *innigkeit.sync.TicketSpinLock) void {
+    var scheduler_handle = innigkeit.Task.Scheduler.Handle.get();
+    defer scheduler_handle.unlock();
+    scheduler_handle = scheduler_handle.block(.{
+        .action = struct {
+            fn action(old_task: *innigkeit.Task, arg: usize) void {
+                const lock: *innigkeit.sync.TicketSpinLock = @ptrFromInt(arg);
+                old_task.state = .blocked;
+                old_task.spinlocks_held -= 1;
+                _ = old_task.interrupt_disable_count.fetchSub(1, .acq_rel);
+                lock.unsafeUnlock();
+            }
+        }.action,
+        .arg = @intFromPtr(spinlock),
+    });
+}
+
+/// Send a reply to the pending call-mode sender, then unblock them.
+///
+/// Must only be called after `recv` returned a message from a call-mode sender
+/// (i.e. `pending_sender != null`). Asserts this is the case.
+pub fn reply(self: *Endpoint, msg: Message) void {
+    self.lock.lock();
+    const sender = self.pending_sender orelse {
+        self.lock.unlock();
+        return; // no pending call to reply to
+    };
+    self.pending_sender = null;
+    sender.ipc_message = msg;
+    // wakeFromBlocked takes the scheduler lock (not self.lock), safe to call here.
+    sender.wakeFromBlocked();
+    self.lock.unlock();
+}
+
+/// Atomically reply to the pending call-mode sender, then immediately block
+/// waiting for the next incoming message.
+///
+/// This is the hot-path for server tasks: one call handles the previous request
+/// and re-arms for the next without releasing the server's timeslice.
+pub fn replyRecv(self: *Endpoint, reply_msg: Message) Message {
+    self.lock.lock();
+
+    // Reply to the pending sender (if any).
+    // wakeFromBlocked takes the scheduler lock (not self.lock), safe to call here.
+    if (self.pending_sender) |sender| {
+        self.pending_sender = null;
+        sender.ipc_message = reply_msg;
+        sender.wakeFromBlocked();
+    }
+
+    // Now behave exactly like recv().
+    if (self.call_queue.popFirst()) |caller| {
+        const msg = caller.ipc_message;
+        self.pending_msg = msg;
+        self.pending_sender = caller;
+        self.lock.unlock();
+        return msg;
+    }
+
+    if (self.send_queue.popFirst()) |s| {
+        const msg = self.pending_msg;
+        self.lock.unlock();
+        s.wakeFromBlocked();
+        return msg;
+    }
+
+    self.recv_queue.wait(&self.lock);
     self.lock.lock();
     const msg = self.pending_msg;
     self.lock.unlock();
@@ -88,8 +214,14 @@ pub fn recv(self: *Endpoint) Message {
 
 /// cap_invoke operations for Endpoint.
 pub const Op = enum(u64) {
-    /// Send: words[0..5] = payload; blocks until receiver calls recv.
+    /// Fire-and-forget send; block until reciver calls recv.
     send = 0,
-    /// Recv: blocks until a sender calls send; returns message in words.
+    /// Block until any sender arrives; returns message in words.
     recv = 1,
+    /// Synchronous call; blocks until receiver replies. Returns reply in words.
+    call = 2,
+    /// Reply to the pending call-mode sender. words[0..5] = reply payload.
+    reply = 3,
+    /// Atomically reply to pending sender then block for the next message.
+    reply_recv = 4,
 };
