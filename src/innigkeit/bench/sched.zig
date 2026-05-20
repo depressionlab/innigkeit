@@ -1,6 +1,6 @@
 //! Scheduler benchmark: measures yield latency and fairness across N worker tasks.
 //!
-//! Each worker yields `yields_per_task` times then exits.  The main task waits
+//! Each worker yields `yields_per_task` times then exits. The main task waits
 //! until all workers have finished, then prints a summary:
 //!   - total wall time
 //!   - average yield latency (sum of per-worker wall time / total yields)
@@ -60,7 +60,7 @@ pub fn run() !void {
     const start = wallclock.read();
 
     // Allocate all worker tasks before taking the scheduler lock — same pattern
-    // as stage4's hello_world creation.  createKernelTask triggers heap slab
+    // as stage4's hello_world creation. createKernelTask triggers heap slab
     // allocations; holding the scheduler lock across those is unnecessary and
     // can interact badly with the memory subsystem.
     var workers: [task_count]*innigkeit.Task = undefined;
@@ -90,7 +90,7 @@ pub fn run() !void {
     const total_ns = wallclock.elapsed(start, end).value;
 
     const total_yields: u64 = @as(u64, task_count) * yields_per_task;
-    // avg_yield: total wall time / total yields.  Each worker's loop wall time
+    // avg_yield: total wall time / total yields. Each worker's loop wall time
     // is summed to exclude time the init task spent spinning between workers.
     var sum_worker_wall: u64 = 0;
     for (global_state.worker_wall_ns) |w| sum_worker_wall += w;

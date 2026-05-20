@@ -97,6 +97,10 @@ needs_resched: bool = false,
 ///   - Caller writes message here before blocking; replier writes reply here before waking.
 ipc_message: innigkeit.capabilities.Message = .{},
 
+/// Virtual address this task is blocked on via futex_wait.
+/// Zero when not blocked in a futex bucket.
+futex_addr: usize = 0,
+
 pub const State = union(enum) {
     ready,
     /// Do not access the executor directly, use `known_executor` instead.

@@ -64,6 +64,25 @@ pub const thread = struct {
     }
 };
 
+pub const futex = struct {
+    /// Block until `*addr != expected` or a futex_wake on addr is received.
+    ///
+    /// Returns immediately if the word already differs from `expected`
+    /// (spurious wakeup — caller should re-check the condition).
+    pub fn wait(addr: *const u32, expected: u32) SyscallError!void {
+        const result = Syscall.call2(.futex_wait, @intFromPtr(addr), expected);
+        _ = try Syscall.decode(result);
+    }
+
+    /// Wake up to `max_wake` threads blocked on `addr`.
+    ///
+    /// Returns the number of threads actually woken.
+    pub fn wake(addr: *const u32, max_wake: u32) SyscallError!u32 {
+        const result = Syscall.call2(.futex_wake, @intFromPtr(addr), max_wake);
+        return @intCast(try Syscall.decode(result));
+    }
+};
+
 pub const process = struct {
     /// Exit the process.
     ///

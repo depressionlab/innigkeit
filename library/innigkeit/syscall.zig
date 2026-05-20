@@ -35,6 +35,10 @@ pub const Syscall = enum(usize) {
     mmap = 11,
     /// Unmap a previously mapped range: (addr: usize, size: usize) → 0|error
     munmap = 12,
+    /// Block until futex word at addr != expected: (addr: usize, expected: u32) → 0|error
+    futex_wait = 13,
+    /// Wake up to max_wake tasks on addr: (addr: usize, max_wake: u32) → woken_count|error
+    futex_wake = 14,
 
     /// Decode a raw syscall return value into a success count or a `SyscallError`.
     ///

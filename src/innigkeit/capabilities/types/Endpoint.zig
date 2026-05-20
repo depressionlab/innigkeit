@@ -115,12 +115,12 @@ pub fn call(self: *Endpoint, msg: Message) Message {
     self.lock.lock();
 
     if (self.recv_queue.popFirst()) |receiver| {
-        // Receiver is already waiting.  Set pending_sender and wake the receiver
+        // Receiver is already waiting. Set pending_sender and wake the receiver
         // while still holding the endpoint lock (so the receiver cannot call
         // reply/replyRecv before we finish setting up).
-        // IMPORTANT: do NOT put this task in call_queue here.  pending_sender is
+        // IMPORTANT: do NOT put this task in call_queue here. pending_sender is
         // the only reference: reply/replyRecv will wake us via wakeFromBlocked
-        // directly.  Putting ourselves in call_queue AND setting pending_sender
+        // directly. Putting ourselves in call_queue AND setting pending_sender
         // would cause replyRecv to pop us from call_queue a second time.
         self.pending_msg = msg;
         self.pending_sender = current_task.task;
@@ -136,7 +136,7 @@ pub fn call(self: *Endpoint, msg: Message) Message {
 }
 
 /// Block the current task and unlock `spinlock` atomically via the scheduler's
-/// deferred-action mechanism.  Mirrors what WaitQueue.wait() does internally,
+/// deferred-action mechanism. Mirrors what WaitQueue.wait() does internally,
 /// but without appending to any queue (used when the task is tracked via
 /// pending_sender instead).
 fn parkAndUnlock(spinlock: *innigkeit.sync.TicketSpinLock) void {

@@ -634,6 +634,42 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
 
             arch_frame.rax = 0;
         },
+
+        // ------------------------------------------------------------------ //
+        // futex_wait(addr: usize, expected: u32) → 0|error                   //
+        //   Block until *addr != expected or a matching futex_wake arrives.  //
+        //   Returns 0 on wake or if the value already differed.              //
+        // ------------------------------------------------------------------ //
+        .futex_wait => {
+            const addr = syscall_frame.arg(.one);
+            const expected: u32 = @truncate(syscall_frame.arg(.two));
+
+            if (!validateUserBuffer(addr, @sizeOf(u32))) {
+                arch_frame.rax = errCode(-14); // EFAULT
+                return;
+            }
+
+            innigkeit.sync.futex.wait(addr, expected);
+            arch_frame.rax = 0;
+        },
+
+        // ------------------------------------------------------------------ //
+        // futex_wake(addr: usize, max_wake: u32) → woken_count|error         //
+        //   Wake up to max_wake threads blocked on addr.                     //
+        //   Returns the number of threads actually woken.                    //
+        // ------------------------------------------------------------------ //
+        .futex_wake => {
+            const addr = syscall_frame.arg(.one);
+            const max_wake: u32 = @truncate(syscall_frame.arg(.two));
+
+            if (!validateUserBuffer(addr, @sizeOf(u32))) {
+                arch_frame.rax = errCode(-14); // EFAULT
+                return;
+            }
+
+            const woken = innigkeit.sync.futex.wake(addr, max_wake);
+            arch_frame.rax = @intCast(woken);
+        },
     }
 }
 
