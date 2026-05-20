@@ -1,6 +1,7 @@
 pub const acpi = @import("acpi/root.zig");
 pub const capabilities = @import("capabilities/root.zig");
 pub const config = @import("config.zig");
+pub const drivers = @import("drivers/root.zig");
 pub const debug = @import("debug/root.zig");
 pub const Executor = @import("Executor.zig");
 pub const init = @import("init/root.zig");

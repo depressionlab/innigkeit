@@ -29,3 +29,44 @@ pub fn getFunction(address: Address) ?*Function {
 
     return null;
 }
+
+/// Call `callback(address, function)` for every present PCI function.
+///
+/// Skips buses covered by no ECAM, absent devices (vendor == `0xFFFF`), and
+/// non-present functions on single-function devices
+pub fn forEachFunction(callback: *const fn (Address, *Function) void) void {
+    for (globals.ecams) |ecam| {
+        var bus = ecam.start_bus;
+        while (bus < ecam.end_bus) : (bus +%= 1) {
+            var device: u8 = 0;
+            while (device < 32) : (device += 1) {
+                const addr0: Address = .{
+                    .segment = ecam.segment_group,
+                    .bus = bus,
+                    .device = device,
+                    .function = 0,
+                };
+                const f0 = getFunction(addr0) orelse continue;
+                if (f0.read(u16, 0x00) == 0xFFFF) continue; // absent
+                callback(addr0, f0);
+
+                // header type bit 7 = multifunction
+                const header_type = f0.read(u8, 0x0E);
+                if (header_type & 0x80 == 0) continue;
+
+                var function: u8 = 1;
+                while (function < 8) : (function += 1) {
+                    const addr: Address = .{
+                        .segment = ecam.segment_group,
+                        .bus = bus,
+                        .device = device,
+                        .function = function,
+                    };
+                    const f = getFunction(addr) orelse continue;
+                    if (f.read(u16, 0x00) == 0xFFFF) continue;
+                    callback(addr, f);
+                }
+            }
+        }
+    }
+}

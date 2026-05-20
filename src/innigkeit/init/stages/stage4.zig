@@ -15,6 +15,17 @@ pub fn start() !void {
     log.debug("initializing ACPI", .{});
     try innigkeit.acpi.init.initialize();
 
+    // log.debug("initializing virtio-blk driver", .{});
+    // innigkeit.drivers.virtio_blk.init();
+
+    // if (innigkeit.drivers.virtio_blk.isReady()) {
+    //     var sector: [512]u8 = undefined;
+    //     innigkeit.drivers.virtio_blk.readSectors(0, &sector, 1) catch |err| {
+    //         log.err("virtio-blk sector read failed: {t}", .{err});
+    //     };
+    //     log.info("virtio-blk sector 0 [0..8]: {x}", .{sector[0..8]});
+    // }
+
     try innigkeit.time.init.printInitializationTime();
 
     log.debug("starting first user process", .{});
