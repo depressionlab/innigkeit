@@ -1,8 +1,9 @@
 //! Per-executor multi-class run queue.
 //!
 //! Holds a sub-queue for each scheduling class and dispatches operations
-//! through the task's `sched_class` vtable.  The real-time class always
-//! takes precedence over the fair (EEVDF) class.
+//! through the task's `sched_class` vtable.
+//!
+//! The real-time class always takes precedence over the fair (EEVDF) class.
 const Runqueue = @This();
 
 const innigkeit = @import("innigkeit");

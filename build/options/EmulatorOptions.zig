@@ -22,7 +22,7 @@ pub fn get(b: *std.Build) EmulatorOptions {
     const display = b.option(bool, "display", "Open a graphical QEMU display (default: false)") orelse false;
     const uefi = b.option(bool, "uefi", "Run QEMU in UEFI mode (default: true)") orelse true;
     const cpus = b.option(usize, "cpus", "Number of CPU cores to give QEMU (default: 1)") orelse 1;
-    const memory = b.option(usize, "memory", "MiB of RAM to give QEMU (default: 256)") orelse 256;
+    const memory = b.option(usize, "memory", "MiB of RAM to give QEMU (default: 256)") orelse 512;
     const kaslr = b.option(bool, "kaslr", "Enable KASLR (default: true, forced false when '-Ddebug' is set)") orelse !remote_debug;
     const tpm_socket = b.option([]const u8, "tpm_socket", "Path to an swtpm socket; omit to run without a TPM");
 

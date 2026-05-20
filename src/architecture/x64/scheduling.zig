@@ -68,10 +68,12 @@ pub fn beforeSwitchTask(transition: innigkeit.Task.Transition) void {
 
     const per_executor: *x64.PerExecutor = .from(executor);
 
-    per_executor.tss.setPrivilegeStack(
-        .ring0,
-        transition.new_task.stack.top_stack_pointer,
-    );
+    // Propagate the executor's IRQ stack top into the incoming task's PerTask
+    // so the ring0 -> ring0 interrupt entry path can find it via %gs without
+    // walking task -> executor. RSP0 is fixed at the IRQ stack (set once in
+    // initExecutor) and does not need updating here.
+    x64.PerTask.from(transition.new_task).irq_stack_top =
+        per_executor.irq_stack.top_stack_pointer.value;
 
     switch (transition.type) {
         .user_to_kernel, .user_to_user => {

@@ -1,10 +1,14 @@
 const innigkeit = @import("innigkeit");
+const sched_bench = @import("../../bench/sched.zig");
 const log = innigkeit.debug.log.scoped(.init);
 
 /// Stage 4 of kernel initialization.
 ///
 /// This function is executed in a fully scheduled kernel task with interrupts enabled.
 pub fn start() !void {
+    log.info("running scheduler benchmark", .{});
+    try sched_bench.run();
+
     log.debug("initializing PCI ECAM", .{});
     try innigkeit.pci.init.initializeECAM();
 

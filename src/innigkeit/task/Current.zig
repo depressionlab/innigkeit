@@ -43,6 +43,17 @@ pub fn decrementInterruptDisable(self: Current) void {
     if (previous == 1) {
         self.setKnownExecutor();
         architecture.interrupts.enable();
+
+        // Deferred preemption: if a timer interrupt set needs_resched while we were
+        // in an interrupt-disabled critical section, honour it now that we're back on
+        // the task stack with no spinlocks held and no nesting.
+        if (self.task.needs_resched and
+            self.task.spinlocks_held == 0 and
+            !self.task.is_scheduler_task and
+            self.task.state == .running)
+        {
+            self.maybePreempt();
+        }
     }
 }
 
@@ -78,6 +89,20 @@ pub fn decrementEnableAccessToUserMemory(self: Current) void {
     if (core.is_debug) std.debug.assert(previous > 0);
 
     if (previous == 1) architecture.paging.disableAccessToUserMemory();
+}
+
+/// Tick the scheduler and set needs_resched if preemption is warranted.
+///
+/// Safe to call from interrupt context (IRQ stack): does NOT switch tasks.
+/// Actual preemption is deferred to the next decrementInterruptDisable(1→0).
+pub fn tickAndRequestPreemptIfNeeded(self: Current) void {
+    const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
+    defer scheduler_handle.unlock();
+
+    const now = wallclock.read();
+    if (self.task.needs_resched or scheduler_handle.scheduler.tick(self.task, now)) {
+        self.task.needs_resched = true;
+    }
 }
 
 /// Maybe preempt the current task.

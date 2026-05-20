@@ -10,6 +10,14 @@ self_pointer: *innigkeit.Task,
 /// Used to store the user rsp temporarily on syscall entry.
 user_rsp_scratch: u64 = undefined,
 
+/// Top of the current executor's dedicated IRQ stack.
+///
+/// Accessed via GS in the ring0 -> ring0 interrupt entry path to switch execution
+/// away from the task stack before calling the Zig interrupt dispatcher.
+/// Updated by `initExecutor` (for the initial task) and `beforeSwitchTask`
+/// (for every subsequent task switch).
+irq_stack_top: u64 = 0,
+
 pub inline fn from(task: *innigkeit.Task) *PerTask {
     return &task.arch_specific;
 }
@@ -18,6 +26,7 @@ pub fn initializeTaskArchSpecific(task: *innigkeit.Task) void {
     const per_task: *PerTask = .from(task);
     per_task.* = .{
         .self_pointer = task,
+        .irq_stack_top = 0,
     };
 }
 

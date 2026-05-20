@@ -34,11 +34,11 @@ pub const DequeueFlags = packed struct(u8) {
 enqueue: *const fn (rq: *Runqueue, task: *innigkeit.Task, flags: EnqueueFlags) void,
 /// Remove the task from the run queue.
 dequeue: *const fn (rq: *Runqueue, task: *innigkeit.Task, flags: DequeueFlags) void,
-/// Select the next task to run.  May return `prev` to mean "keep running".
+/// Select the next task to run. May return `prev` to mean "keep running".
 pick_next: *const fn (rq: *Runqueue, prev: ?*innigkeit.Task) ?*innigkeit.Task,
 /// Called before switching away from `prev` (update accounting).
 put_prev: *const fn (rq: *Runqueue, prev: *innigkeit.Task) void,
-/// Timer tick.  Returns true if the current task should be preempted.
+/// Timer tick. Returns true if the current task should be preempted.
 tick: *const fn (rq: *Runqueue, curr: *innigkeit.Task, now: wallclock.Tick) bool,
 /// Called once right after a task is forked/spawned, before first enqueue.
 task_new: *const fn (rq: *Runqueue, task: *innigkeit.Task) void,
@@ -47,7 +47,7 @@ task_waking: *const fn (task: *innigkeit.Task) void,
 /// Called when a task is about to be destroyed.
 task_dead: *const fn (task: *innigkeit.Task) void,
 
-/// Scheduling priority of this class.  Lower = more urgent.
+/// Scheduling priority of this class. Lower = more urgent.
 prio: u8,
 
 pub fn make(comptime Impl: type, comptime priority: u8) SchedClass {

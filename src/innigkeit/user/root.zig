@@ -153,7 +153,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         // ------------------------------------------------------------------ //
         .yield => {
             // TODO: expose a scheduler.yield() API that moves the current task
-            //       to the back of the run queue.  For now this is a no-op;
+            //       to the back of the run queue. For now this is a no-op;
             //       the next timer interrupt will preempt as usual.
             const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
             scheduler_handle.yield();

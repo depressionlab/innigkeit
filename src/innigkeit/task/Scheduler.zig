@@ -49,7 +49,9 @@ pub fn getNextTask(self: *Scheduler) ?*innigkeit.Task {
     return self.runqueue.pickNext(null);
 }
 
-/// Run the per-tick accounting for `curr`.  Returns true if preemption is warranted.
+/// Run the per-tick accounting for `curr`.
+///
+/// Returns true if preemption is warranted.
 pub fn tick(self: *Scheduler, curr: *innigkeit.Task, now: wallclock.Tick) bool {
     return self.runqueue.tick(curr, now);
 }
