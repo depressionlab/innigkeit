@@ -5,7 +5,8 @@ const SchedClass = @import("../SchedClass.zig");
 
 const init_log = innigkeit.debug.log.scoped(.task_init);
 
-pub const earlyCreateStack = innigkeit.Task.Stack.createStack;
+/// Create an IST stack (double-fault / NMI) for use before the task system is fully up.
+pub const earlyCreateStack = innigkeit.Task.Stack.createInterruptStack;
 
 pub fn initializeTasks() !void {
     try innigkeit.Task.Stack.init.initializeStacks();

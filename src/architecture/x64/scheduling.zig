@@ -64,15 +64,6 @@ pub fn prepareTaskForScheduling(
 ///
 /// Interrupts are disabled when this function is called.
 pub fn beforeSwitchTask(transition: innigkeit.Task.Transition) void {
-    const executor = transition.old_task.known_executor.?;
-
-    const per_executor: *x64.PerExecutor = .from(executor);
-
-    per_executor.tss.setPrivilegeStack(
-        .ring0,
-        transition.new_task.stack.top_stack_pointer,
-    );
-
     switch (transition.type) {
         .user_to_kernel, .user_to_user => {
             const per_thread: *x64.user.PerThread = .from(.from(transition.old_task));

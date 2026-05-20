@@ -404,7 +404,7 @@ export fn uacpi_kernel_free_mutex(mutex: *innigkeit.sync.Mutex) void {
 export fn uacpi_kernel_create_event() *anyopaque {
     log.verbose("uacpi_kernel_create_event called", .{});
 
-    log.warn("uacpi_kernel_create_event called with dummy implementation", .{});
+    // TODO: log.warn("uacpi_kernel_create_event called with dummy implementation", .{});
 
     const static = struct {
         var value: std.atomic.Value(usize) = .init(1);

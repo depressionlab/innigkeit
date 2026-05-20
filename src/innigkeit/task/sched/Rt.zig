@@ -1,7 +1,7 @@
 //! Real-time scheduling class.
 //!
 //! Implements fixed-priority preemptive scheduling with FIFO ordering within
-//! each priority level.  RT tasks always preempt fair (EEVDF) tasks.
+//! each priority level. RT tasks always preempt fair (EEVDF) tasks.
 //!
 //! Priority range: 0 (highest) ... 99 (lowest).
 //! Within a priority level tasks are scheduled FIFO.

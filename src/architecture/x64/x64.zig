@@ -16,6 +16,9 @@ pub const tsc = @import("tsc/root.zig");
 pub const Tss = @import("Tss.zig").Tss;
 pub const user = @import("user/root.zig");
 
+/// See https://en.wikipedia.org/wiki/Protection_ring
+///
+/// We basically never use rings one or two.
 pub const PrivilegeLevel = enum(u2) {
     ring0 = 0,
     ring1 = 1,

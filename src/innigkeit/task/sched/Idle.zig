@@ -1,7 +1,7 @@
 //! Idle scheduling class.
 //!
 //! The idle "task" is special: it is the per-executor scheduler task that runs
-//! the halt loop when no other work is available.  It never competes with real
+//! the halt loop when no other work is available. It never competes with real
 //! tasks and is handled directly by Handle.zig rather than through the normal
 //! dispatch path.
 //!

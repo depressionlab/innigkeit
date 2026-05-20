@@ -2,12 +2,16 @@
 //!
 //! Implements the algorithm described in:
 //!   Stoica & Abdel-Wahab 1995, "Earliest Eligible Virtual Deadline First"
-//! and as deployed in Linux 6.6+ (kernel/sched/eevdf.c).
+//! and as deployed in Linux 6.6+ (`kernel/sched/eevdf.c`).
+//!
+//! - https://en.wikipedia.org/wiki/Earliest_eligible_virtual_deadline_first_scheduling
+//! - https://github.com/torvalds/linux/blob/master/Documentation/scheduler/sched-eevdf.rst
+//! - https://web.archive.org/web/20251230112235/https://citeseerx.ist.psu.edu/document?repid=rep1&type=pdf&doi=805acf7726282721504c8f00575d91ebfd750564
 //!
 //! Virtual time model
 //! ------------------
-//! Each task has a weight derived from its nice level.  Virtual time for task i
-//! advances at rate NICE_0_WEIGHT / weight_i.
+//! Each task has a weight derived from its nice level.
+//! Virtual time for task i advances at rate NICE_0_WEIGHT / weight_i.
 //!
 //! Heavy tasks (high weight) have virtual time advance slowly, earning more real CPU time.
 //!
@@ -15,17 +19,17 @@
 //! runnable tasks (i.e. it has been underserved relative to its fair share).
 //!
 //! Among eligible tasks, we pick the one with the earliest virtual deadline:
-//!   deadline = vruntime_at_enqueue + slice * NICE_0_WEIGHT / weight
+//!   `deadline = vruntime_at_enqueue + slice * NICE_0_WEIGHT / weight`
 //!
 //! This gives strong latency guarantees while maintaining fairness.
 //!
 //! Data structures
 //! ---------------
-//! Tasks are kept in a red-black tree sorted by deadline.  The leftmost node
-//! (earliest deadline) is checked first.  Without the augmented min_vruntime
-//! heap optimisation (planned for a later iteration), ineligible leftmost nodes
-//! trigger a linear right-scan, which is O(1) in the common case, O(n) worst-case.
-//! For the task counts typical in a microkernel (<=32 per CPU) this is fine.
+//! Tasks are kept in an augmented red-black tree sorted by deadline. Each node
+//! caches the minimum vruntime in its subtree (`subtree_min_vruntime`), allowing
+//! `pickBest()` to prune ineligible subtrees and select the best eligible task
+//! in O(log n). The augmentation is recomputed with a full O(n) walk after every
+//! structural change; for ≤32 tasks per CPU this is negligible.
 
 const std = @import("std");
 const innigkeit = @import("innigkeit");
@@ -93,14 +97,21 @@ pub const SchedEntity = struct {
     /// Updated every ~32 ms window.
     util_avg: u32 = 0,
 
-    /// CPU time accumulated in the current measurement window.
-    util_sum: u64 = 0,
+    /// Value of sum_exec_runtime at the start of the current util window.
+    /// CPU time in the window = sum_exec_runtime - util_runtime_at_window_start.
+    util_runtime_at_window_start: u64 = 0,
 
     /// Wallclock tick when util tracking was last reset.
     util_window_start: wallclock.Tick = .zero,
 
     /// Embedded node in the per-executor EEVDF red-black tree.
     rq_node: RbTree.Node = .{},
+
+    /// Minimum vruntime in this node's subtree (including `self`).
+    ///
+    /// Maintained by `recomputeSubtreeMin` and used by `pickBest` to prune
+    /// ineligible subtrees in O(log n).
+    subtree_min_vruntime: u64 = 0,
 
     pub fn fromNode(node: *RbTree.Node) *SchedEntity {
         return @fieldParentPtr("rq_node", node);
@@ -145,7 +156,7 @@ pub const EevdfRunqueue = struct {
     zero_vruntime: u64 = 0,
 
     /// Monotonically increasing lower bound on vruntime across all queued tasks.
-    /// Updated after every enqueue/dequeue.  Used as the placement floor for
+    /// Updated after every enqueue/dequeue. Used as the placement floor for
     /// waking tasks (prevents a long-sleeping task from hogging the CPU on wakeup).
     min_vruntime: u64 = 0,
 
@@ -220,7 +231,7 @@ pub const EevdfRunqueue = struct {
 
     /// Core pick algorithm.
     ///
-    /// Select the next task.  Returns null if the queue is empty.
+    /// Select the next task. Returns null if the queue is empty.
     /// May return `prev` to signal "keep running the current task".
     pub fn pickNext(self: *EevdfRunqueue, prev: ?*innigkeit.Task) ?*innigkeit.Task {
         if (self.nr_queued == 0) {
@@ -247,24 +258,9 @@ pub const EevdfRunqueue = struct {
     }
 
     /// Find the eligible task with the earliest virtual deadline.
-    /// O(1) common case (leftmost eligible), O(n) worst case.
+    /// O(log n) via subtree_min_vruntime augmentation.
     fn pickEevdf(self: *EevdfRunqueue) ?*innigkeit.Task {
-        // Fast path: leftmost node (earliest deadline), usually eligible.
-        if (self.tree.first) |first| {
-            const se = SchedEntity.fromNode(first);
-            if (self.entityEligible(se)) return se.task();
-        }
-
-        // Linear scan for the first eligible task (sorted by deadline, so the
-        // first eligible one is still the best choice).
-        var node = self.tree.first;
-        while (node) |n| {
-            const se = SchedEntity.fromNode(n);
-            if (self.entityEligible(se)) return se.task();
-            node = RbTree.successor(n);
-        }
-
-        return null;
+        return pickBest(self, self.tree.root);
     }
 };
 
@@ -278,6 +274,7 @@ pub fn enqueue(rq: *Runqueue, task: *innigkeit.Task, flags: SchedClass.EnqueueFl
 
     erq.addToAvg(se);
     _ = erq.tree.put(EevdfRunqueue.deadlineCmp, &se.rq_node);
+    _ = recomputeSubtreeMin(erq.tree.root);
     erq.nr_queued += 1;
     se.on_rq = true;
     erq.updateMinVruntime();
@@ -296,6 +293,7 @@ pub fn dequeue(rq: *Runqueue, task: *innigkeit.Task, flags: SchedClass.DequeueFl
 
     erq.removeFromAvg(se);
     erq.tree.remove(&se.rq_node);
+    _ = recomputeSubtreeMin(erq.tree.root);
     erq.nr_queued -= 1;
     se.on_rq = false;
     erq.updateMinVruntime();
@@ -311,16 +309,16 @@ pub fn pickNext(rq: *Runqueue, prev: ?*innigkeit.Task) ?*innigkeit.Task {
 pub fn putPrev(rq: *Runqueue, prev: *innigkeit.Task) void {
     const erq = &rq.eevdf;
     const se = &prev.sched;
-
-    // Update vruntime for the time spent since exec_start.
     const now = wallclock.read();
     updateCurr(erq, prev, now);
 
     erq.curr = null;
 
+    // curr is always removed from the tree by setRunning before putPrev is called.
+    if (core.is_debug) std.debug.assert(!se.on_rq);
+
     // Re-enqueue if still runnable (voluntary yield path).
     // Caller must have set prev.state = .ready before calling for this to trigger.
-    if (se.on_rq) return; // already in queue, shouldn't happen for curr
     if (prev.state == .ready) {
         // Renew the deadline if the slice was exhausted before re-enqueueing.
         // Without this, a task with vruntime >= deadline has a stale (earlier)
@@ -331,11 +329,14 @@ pub fn putPrev(rq: *Runqueue, prev: *innigkeit.Task) void {
         }
         erq.addToAvg(se);
         _ = erq.tree.put(EevdfRunqueue.deadlineCmp, &se.rq_node);
+        _ = recomputeSubtreeMin(erq.tree.root);
         erq.nr_queued += 1;
         se.on_rq = true;
         erq.updateMinVruntime();
         rq.nr_running += 1; // balance the setNextRunning decrement that will follow
     }
+
+    if (core.is_debug) log.verbose("putPrev {f} vr={} dl={}", .{ prev, se.vruntime, se.deadline });
 }
 
 pub fn tick(rq: *Runqueue, curr: *innigkeit.Task, now: wallclock.Tick) bool {
@@ -343,7 +344,7 @@ pub fn tick(rq: *Runqueue, curr: *innigkeit.Task, now: wallclock.Tick) bool {
     const se = &curr.sched;
 
     updateCurr(erq, curr, now);
-    updateUtil(se, now, true);
+    updateUtil(se, now);
 
     // No competition, keep running.
     if (rq.nr_running == 0) return false;
@@ -389,6 +390,7 @@ pub fn setRunning(erq: *EevdfRunqueue, task: *innigkeit.Task) void {
     if (se.on_rq) {
         erq.removeFromAvg(se);
         erq.tree.remove(&se.rq_node);
+        _ = recomputeSubtreeMin(erq.tree.root);
         erq.nr_queued -= 1;
         se.on_rq = false;
         erq.updateMinVruntime();
@@ -408,11 +410,43 @@ fn calcDeltaFair(delta_ns: u64, weight: u32) u64 {
 }
 
 /// Current scheduling lag: positive = task is owed service.
+///
+/// lag = weighted_avg_vruntime - vruntime
+///     = (sum_w_vruntime / sum_weight + zero_vruntime) - vruntime
 fn lag(erq: *const EevdfRunqueue, se: *const SchedEntity) i64 {
     if (erq.sum_weight == 0) return 0;
-    // lag = weighted_avg_vruntime - vruntime (approximately)
-    const avg_vruntime: i64 = @intCast(erq.min_vruntime); // conservative approximation
-    return avg_vruntime -% @as(i64, @bitCast(se.vruntime));
+    const sum_weight: i64 = @intCast(erq.sum_weight);
+    const avg_key = @divTrunc(erq.sum_w_vruntime, sum_weight);
+    const se_key: i64 = @as(i64, @bitCast(se.vruntime)) -% @as(i64, @bitCast(erq.zero_vruntime));
+    return avg_key -% se_key;
+}
+
+/// Recompute `subtree_min_vruntime` for every node in the subtree rooted at `node_opt`.
+/// Returns the minimum vruntime found (std.math.maxInt(u64) for an empty subtree).
+/// Called after every tree structural change (put/remove).
+fn recomputeSubtreeMin(node_opt: ?*RbTree.Node) u64 {
+    const node = node_opt orelse return std.math.maxInt(u64);
+    const se = SchedEntity.fromNode(node);
+    const left_min = recomputeSubtreeMin(node.left);
+    const right_min = recomputeSubtreeMin(node.right);
+    se.subtree_min_vruntime = @min(se.vruntime, @min(left_min, right_min));
+    return se.subtree_min_vruntime;
+}
+
+/// Recursively select the eligible task with the earliest virtual deadline.
+/// Prunes subtrees whose `subtree_min_vruntime` exceeds the weighted average,
+/// guaranteeing O(log n) traversal in the common case.
+fn pickBest(erq: *const EevdfRunqueue, node_opt: ?*RbTree.Node) ?*innigkeit.Task {
+    const node = node_opt orelse return null;
+    const se = SchedEntity.fromNode(node);
+    // If no task in this subtree is eligible, skip the whole subtree.
+    if (!erq.vruntimeEligible(se.subtree_min_vruntime)) return null;
+    // Tree is sorted by deadline: check left (earlier deadlines) first.
+    if (pickBest(erq, node.left)) |t| return t;
+    // Check this node.
+    if (erq.vruntimeEligible(se.vruntime)) return se.task();
+    // Fall through to right subtree (later deadlines).
+    return pickBest(erq, node.right);
 }
 
 /// Set vruntime and deadline when placing a task onto the run queue.
@@ -452,30 +486,34 @@ fn updateCurr(erq: *EevdfRunqueue, curr: *innigkeit.Task, now: wallclock.Tick) v
 }
 
 /// Update the utilization EWMA for a task.
-/// `running` = true when the task currently holds the CPU.
-fn updateUtil(se: *SchedEntity, now: wallclock.Tick, running: bool) void {
+///
+/// Called from tick() after updateCurr(), so sum_exec_runtime already includes
+/// the current interval.Using sum_exec_runtime delta avoids the overcounting
+/// that occurs when accumulating elapsed-since-window-start each tick.
+fn updateUtil(se: *SchedEntity, now: wallclock.Tick) void {
     const window_ns: u64 = 32_000_000; // 32 ms window
     const elapsed = wallclock.elapsed(se.util_window_start, now).value;
 
-    if (running) se.util_sum += elapsed;
+    if (elapsed < window_ns) {
+        @branchHint(.likely);
+        return;
+    }
 
-    if (elapsed >= window_ns) {
-        // Compute utilization fraction scaled to [0, NICE_0_WEIGHT].
-        se.util_avg = @intCast(@min(
-            @as(u64, nice_0_weight) * se.util_sum / window_ns,
-            nice_0_weight,
-        ));
-        se.util_sum = 0;
-        se.util_window_start = now;
+    const cpu_ns = se.sum_exec_runtime - se.util_runtime_at_window_start;
+    se.util_avg = @intCast(@min(
+        @as(u64, nice_0_weight) * cpu_ns / window_ns,
+        nice_0_weight,
+    ));
+    se.util_runtime_at_window_start = se.sum_exec_runtime;
+    se.util_window_start = now;
 
-        // Auto-adjust slice based on measured utilization (unless user-set).
-        if (!se.custom_slice) {
-            se.slice = if (se.util_avg < 256)
-                1_000_000 // 1 ms: IO-bound, prioritize latency
-            else if (se.util_avg > 768)
-                6_000_000 // 6 ms: CPU-bound, prioritize throughput
-            else
-                default_slice_ns;
-        }
+    // Auto-adjust slice based on measured utilization (unless user-set).
+    if (!se.custom_slice) {
+        se.slice = if (se.util_avg < 256)
+            1_000_000 // 1 ms: IO-bound, prioritize latency
+        else if (se.util_avg > 768)
+            6_000_000 // 6 ms: CPU-bound, prioritize throughput
+        else
+            default_slice_ns;
     }
 }

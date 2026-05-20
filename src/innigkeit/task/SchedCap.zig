@@ -1,6 +1,8 @@
 //! A task must hold this capability to change its own scheduling class,
-//! nice level, or time slice.  The capability is checked at the syscall
-//! boundary before any scheduler parameter is modified.
+//! nice level, or time slice.
+//!
+//! The capability is checked at the syscall boundary before any scheduler
+//! parameter is modified.
 //!
 //! Rights are a bitmask so they can be narrowed when delegating:
 //! A process may hold change_class | change_nice but grant a child only change_nice.

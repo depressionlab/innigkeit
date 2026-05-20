@@ -102,8 +102,8 @@ pub fn yield(self: Handle) void {
     }
 
     const new_task = self.scheduler.getNextTask() orelse {
-        // Nothing queued.  If we're a real task that just put itself in the queue,
-        // it will be picked immediately below on a future wakeup.  For now just
+        // Nothing queued. If we're a real task that just put itself in the queue,
+        // it will be picked immediately below on a future wakeup. For now just
         // keep running.
         if (!old_task.is_scheduler_task) {
             // putPrev re-enqueued us undo the state change so the task stays
@@ -470,12 +470,17 @@ fn idle() callconv(.c) noreturn {
 
     current_task.knownExecutor().scheduler.unlock();
 
+    log.debug("idle: entering idle loop", .{});
+
     while (true) {
         {
             const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
             defer scheduler_handle.unlock();
 
             scheduler_handle.yield();
+
+            // If a task was queued between unlock and halt, skip the halt.
+            if (!scheduler_handle.isEmpty()) continue;
         }
 
         architecture.halt();

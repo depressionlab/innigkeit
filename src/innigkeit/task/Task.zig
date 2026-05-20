@@ -71,15 +71,22 @@ scheduler_locked: bool,
 
 arch_specific: architecture.scheduling.PerTask,
 
-/// EEVDF fair-class scheduling entity.  Populated for all tasks regardless of class,
-/// since tasks may migrate between classes at runtime (with a SchedCap capability).
+/// EEVDF fair-class scheduling entity.
+///
+/// Populated for all tasks regardless of class, since tasks may migrate between classes
+/// at runtime (with a SchedCap capability).
 sched: Eevdf.SchedEntity = .{},
 
-/// Real-time scheduling entity.  Active when sched_class == &SchedClass.rt_class.
+/// Real-time scheduling entity.
+///
+/// Active when sched_class == &SchedClass.rt_class.
 rt_sched: Rt.RtSchedEntity = .{},
 
 /// The scheduling class this task currently belongs to.
-/// Default: fair class (EEVDF).  Requires SchedCap to change.
+///
+/// Default: fair class (EEVDF).
+///
+/// Requires SchedCap to change.
 sched_class: *const SchedClass = SchedClass.default_class,
 
 /// Set by the scheduler class tick() when the task should be preempted at the

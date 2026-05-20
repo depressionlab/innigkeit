@@ -8,6 +8,8 @@
   - [x] first commit!
 - target architecture (64-bit only)
   - [x] x64
+    - [ ] good interrupts
+    - [ ] good syscall
   - [ ] arm (next priority)
   - [ ] riscv
 - target bootloader

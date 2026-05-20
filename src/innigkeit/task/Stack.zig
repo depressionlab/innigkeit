@@ -75,9 +75,21 @@ pub fn reset(self: *Stack) void {
     self.top_stack_pointer = self.stack_pointer;
 }
 
+/// Create a kernel task stack sized by `innigkeit.config.task.kernel_stack_size`.
 pub fn createStack() !Stack {
+    return createStackWithSize(innigkeit.config.task.kernel_stack_size);
+}
+
+/// Create an IST stack (double-fault / NMI) sized by `innigkeit.config.task.interrupt_stack_size`.
+pub fn createInterruptStack() !Stack {
+    return createStackWithSize(innigkeit.config.task.interrupt_stack_size);
+}
+
+fn createStackWithSize(usable_size: core.Size) !Stack {
+    const size_with_guard = usable_size.add(architecture.paging.standard_page_size);
+
     const stack_range = globals.stack_arena.allocate(
-        stack_size_including_guard_page.value,
+        size_with_guard.value,
         .instant_fit,
     ) catch return error.ItemConstructionFailed;
     errdefer globals.stack_arena.deallocate(stack_range);
@@ -85,7 +97,7 @@ pub fn createStack() !Stack {
     const range = stack_range.toVirtualRange();
     const usable_range: innigkeit.KernelVirtualRange = .{
         .address = range.address,
-        .size = innigkeit.config.task.kernel_stack_size,
+        .size = usable_size,
     };
 
     {
@@ -125,8 +137,6 @@ pub fn destroyStack(self: Stack) void {
 
     globals.stack_arena.deallocate(.fromVirtualRange(self.range));
 }
-
-const stack_size_including_guard_page = innigkeit.config.task.kernel_stack_size.add(architecture.paging.standard_page_size);
 
 const globals = struct {
     var stack_arena: innigkeit.mem.arena.Arena(.none) = undefined;

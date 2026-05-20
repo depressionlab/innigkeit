@@ -1,6 +1,7 @@
 .cfi_sections .debug_frame
 
 .extern interruptDispatch
+.extern _interruptEntry
 .set .HasError, 1
 .set .NoError, 2
 
@@ -38,7 +39,7 @@ _interrupt_handler_\number:
     cld
     xor %ebp, %ebp
     mov %rsp, %rdi
-    call interruptDispatch
+    call _interruptEntry
 
     .irp reg, r15, r14, r13, r12, r11, r10, r9, r8, rdi, rsi, rbp, rdx, rcx, rbx, rax
         pop %\reg

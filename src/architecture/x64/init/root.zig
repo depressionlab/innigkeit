@@ -58,8 +58,9 @@ pub fn prepareBootstrapExecutor(
     architecture_processor_id: u64,
 ) void {
     const static = struct {
-        var bootstrap_double_fault_stack: [innigkeit.config.task.kernel_stack_size.value]u8 align(16) = undefined;
-        var bootstrap_non_maskable_interrupt_stack: [innigkeit.config.task.kernel_stack_size.value]u8 align(16) = undefined;
+        var bootstrap_double_fault_stack: [innigkeit.config.task.interrupt_stack_size.value]u8 align(16) = undefined;
+        var bootstrap_non_maskable_interrupt_stack: [innigkeit.config.task.interrupt_stack_size.value]u8 align(16) = undefined;
+        var bootstrap_irq_stack: [innigkeit.config.task.interrupt_stack_size.value]u8 align(16) = undefined;
     };
 
     prepareExecutorShared(
@@ -73,6 +74,10 @@ pub fn prepareBootstrapExecutor(
             .fromSlice(u8, &static.bootstrap_non_maskable_interrupt_stack),
             .fromSlice(u8, &static.bootstrap_non_maskable_interrupt_stack),
         ),
+        .fromRange(
+            .fromSlice(u8, &static.bootstrap_irq_stack),
+            .fromSlice(u8, &static.bootstrap_irq_stack),
+        ),
     );
 }
 
@@ -85,6 +90,7 @@ pub fn prepareExecutor(executor: *innigkeit.Executor, architecture_processor_id:
         @intCast(architecture_processor_id),
         innigkeit.Task.init.earlyCreateStack() catch @panic("failed to allocate double fault stack!"),
         innigkeit.Task.init.earlyCreateStack() catch @panic("failed to allocate NMI stack!"),
+        innigkeit.Task.init.earlyCreateStack() catch @panic("failed to allocate IRQ stack!"),
     );
 }
 
@@ -93,6 +99,7 @@ fn prepareExecutorShared(
     apic_id: u32,
     double_fault_stack: innigkeit.Task.Stack,
     non_maskable_interrupt_stack: innigkeit.Task.Stack,
+    irq_stack: innigkeit.Task.Stack,
 ) void {
     const per_executor: *x64.PerExecutor = .from(executor);
 
@@ -100,6 +107,7 @@ fn prepareExecutorShared(
         .apic_id = apic_id,
         .double_fault_stack = double_fault_stack,
         .non_maskable_interrupt_stack = non_maskable_interrupt_stack,
+        .irq_stack = irq_stack,
     };
 
     per_executor.tss.setInterruptStack(
@@ -121,6 +129,11 @@ pub fn initExecutor(executor: *innigkeit.Executor) void {
 
     per_executor.gdt.load();
     per_executor.gdt.setTss(&per_executor.tss);
+
+    // Point RSP0 at the dedicated IRQ stack so ring3→ring0 interrupts land
+    // there instead of the task stack. This is a fixed per-executor value;
+    // it does not change on task switches.
+    per_executor.tss.setPrivilegeStack(.ring0, per_executor.irq_stack.top_stack_pointer);
 
     x64.interrupts.init.loadIdt();
 }
