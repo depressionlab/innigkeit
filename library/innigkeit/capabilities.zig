@@ -29,7 +29,7 @@ pub const Message = extern struct {
 ///
 /// `op` and `arg` semantics depend on the object type; see the `*Op` enums.
 pub fn invoke(handle: Handle, op: u64, arg: usize) SyscallError!usize {
-    const result = Syscall.call3(.cap_invoke, handle, @intCast(op), arg);
+    const result = Syscall.invoke(.cap_invoke, .{ handle, @as(usize, @intCast(op)), arg });
     return Syscall.decode(result);
 }
 
@@ -38,7 +38,10 @@ pub fn invoke(handle: Handle, op: u64, arg: usize) SyscallError!usize {
 /// `new_rights` must be a subset of the source slot's rights.
 /// Returns the new handle on success.
 pub fn copy(handle: Handle, new_rights: Rights) SyscallError!Handle {
-    const result = Syscall.call2(.cap_copy, handle, @as(usize, @as(u16, @bitCast(new_rights))));
+    const result = Syscall.invoke(.cap_copy, .{
+        handle,
+        @as(usize, @as(u16, @bitCast(new_rights))),
+    });
     return @intCast(try Syscall.decode(result));
 }
 
@@ -46,13 +49,13 @@ pub fn copy(handle: Handle, new_rights: Rights) SyscallError!Handle {
 ///
 /// Returns the new handle. The old handle is invalidated.
 pub fn move(handle: Handle) SyscallError!Handle {
-    const result = Syscall.call1(.cap_move, handle);
+    const result = Syscall.invoke(.cap_move, .{handle});
     return @intCast(try Syscall.decode(result));
 }
 
 /// Delete a capability, releasing the kernel object if this was the last reference.
 pub fn delete(handle: Handle) SyscallError!void {
-    const result = Syscall.call1(.cap_delete, handle);
+    const result = Syscall.invoke(.cap_delete, .{handle});
     _ = try Syscall.decode(result);
 }
 
@@ -125,7 +128,7 @@ pub const CreateType = enum(u8) {
 /// Create a new kernel capability object and return a handle to it.
 /// The caller gets a slot with full rights (read + write + grant).
 pub fn create(object_type: CreateType) SyscallError!Handle {
-    const result = Syscall.call1(.cap_create, @intFromEnum(object_type));
+    const result = Syscall.invoke(.cap_create, .{@intFromEnum(object_type)});
     return @intCast(try Syscall.decode(result));
 }
 

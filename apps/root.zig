@@ -11,4 +11,9 @@ pub const apps: []const AppDescription = &.{
         .dependencies = &.{"innigkeit"},
         .configuration = .simple,
     },
+    .{
+        .name = "shell",
+        .dependencies = &.{"innigkeit"},
+        .configuration = .simple,
+    },
 };

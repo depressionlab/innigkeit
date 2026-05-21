@@ -111,10 +111,12 @@ fn callMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
         {}, // TODO: args aren't supported for `.os = .other`
         env_block,
     );
-    _ = return_value; // TODO: don't just throw this away
+    // _ = return_value; // TODO: don't just throw this away
 
-    // TODO: exit the process rather than just the current thread.
-    innigkeit.thread.exitCurrent();
+    // // TODO: exit the process rather than just the current thread.
+    // innigkeit.thread.exitCurrent();
+
+    innigkeit.process.exit(return_value);
 }
 
 inline fn callMain(args: std.process.Args.Vector, environ: std.process.Environ.Block) u8 {
@@ -126,7 +128,7 @@ inline fn callMain(args: std.process.Args.Vector, environ: std.process.Environ.B
     }));
 
     // TODO: support all the stuff below
-    @compileError("juicy main is unsupported");
+    // @compileError("juicy main is unsupported");
 
     // const gpa = if (use_debug_allocator)
     //     debug_allocator.allocator()
@@ -137,12 +139,17 @@ inline fn callMain(args: std.process.Args.Vector, environ: std.process.Environ.B
     // else
     //     comptime unreachable;
 
+    const gpa = innigkeit.mem.page_allocator;
+
     // defer if (use_debug_allocator) {
     //     _ = debug_allocator.deinit(); // Leaks do not affect return code.
     // };
 
     // var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     // defer arena_allocator.deinit();
+
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+    defer arena_allocator.deinit();
 
     // var threaded: std.Io.Threaded = .init(gpa, .{
     //     .argv0 = .init(.{ .vector = args }),
@@ -153,6 +160,11 @@ inline fn callMain(args: std.process.Args.Vector, environ: std.process.Environ.B
     // var environ_map = std.process.Environ.createMap(.{ .block = environ }, gpa) catch |err|
     //     std.process.fatal("failed to parse environment variables: {t}", .{err});
     // defer environ_map.deinit();
+
+    var environ_map = std.process.Environ.Map.init(gpa);
+    defer environ_map.deinit();
+
+    // TODO: populate environ_map once the kernel exposes env vars on the stack.
 
     // const preopens = std.process.Preopens.init(arena_allocator.allocator()) catch |err|
     //     std.process.fatal("failed to init preopens: {t}", .{err});
@@ -168,6 +180,18 @@ inline fn callMain(args: std.process.Args.Vector, environ: std.process.Environ.B
     //     .environ_map = &environ_map,
     //     .preopens = preopens,
     // }));
+
+    return wrapMain(root.main(.{
+        .minimal = .{
+            .args = .{ .vector = args },
+            .environ = .{ .block = environ },
+        },
+        .arena = &arena_allocator,
+        .gpa = gpa,
+        .io = innigkeit.interop.debug_io,
+        .environ_map = &environ_map,
+        .preopens = .empty,
+    }));
 }
 
 inline fn wrapMain(result: anytype) u8 {
@@ -181,10 +205,12 @@ inline fn wrapMain(result: anytype) u8 {
     if (@typeInfo(ReturnType) != .error_union) @compileError(bad_main_ret);
 
     const unwrapped_result = result catch |err| {
-        std.log.err("{t}", .{err});
+        // std.log.err("{t}", .{err});
 
         // TODO: need to implement some io stuff
-        // if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace);
+        // if (@errorReturnTrace()) |trace| std.debug.dumpErrorReturnTrace(trace);
+
+        innigkeit.io.stderr.print("error: {t}\n", .{err}) catch {};
 
         return 1;
     };

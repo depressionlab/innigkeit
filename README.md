@@ -6,6 +6,7 @@
   - [x] works on my machine
 - learn [Jujutsu VCS](https://www.jj-vcs.dev)
   - [x] first commit!
+  - [x] i'm pretty good at it i guess and i like it a lot!
 - target architecture (64-bit only)
   - [x] x64
     - [ ] good interrupts
@@ -47,6 +48,15 @@
   - [ ] make a small CLI
   - [ ] re-implement a small CLI
   - [ ] create a target to build existing apps for innigkeit
+
+## q & a
+
+- q: why in Zig?
+  - a: mostly a mix of masochism because I love having to reimplement everything every version bump and i wanted to learn the language.
+- q: why create a new OS isnt that like reinventing the wheel?
+  - a: sort of, it's more like reinventing the wheel but there's thousands of pages of PDF documentation on the exact specifications of the wheel and it has been worked on and iterated upon for decades so if you mess up one tiny measurement for some 25 year old chip that was created in a basement in New Mexico everything falls apart and no one really knows what they're doing or why they're doing it
+- q: that... sounds terrible
+  - a: its actually kinda fun also that's not a question
 
 ## instructions
 

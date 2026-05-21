@@ -16,7 +16,7 @@ const globals = @import("globals.zig");
 /// stack (the CPU used TSS.RSP0 which points there).
 ///
 /// For ring0 -> ring0 interrupts the stub's frame is on the task's kernel stack.
-/// We do NOT switch to the shared IRQ stack here — doing so would require
+/// We do NOT switch to the shared IRQ stack here: doing so would require
 /// saving the task RSP at a fixed per-CPU location (irq_top-8), which any
 /// subsequent ring0 -> ring0 interrupt could overwrite, corrupting the saved RSP.
 /// The task kernel stack is 32 KiB and can safely absorb the interrupt frame.

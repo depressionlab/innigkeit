@@ -8,6 +8,7 @@ const PL011 = @This();
 const root = @import("root.zig");
 const core = @import("core");
 const innigkeit = @import("innigkeit");
+const architecture = @import("architecture");
 
 write_register: [*]volatile u32,
 flag_register: [*]volatile u32,
@@ -137,7 +138,7 @@ inline fn waitForOutputReady(pl011: PL011) void {
     while (true) {
         const flags: FlagRegister = @bitCast(readRegister(pl011.flag_register));
         if (flags.transmit_fifo_empty) return;
-        // TODO: should there be a spinloop hint here?
+        architecture.spinLoopHint();
     }
 }
 

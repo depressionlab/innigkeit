@@ -59,7 +59,7 @@ pub fn run() !void {
 
     const start = wallclock.read();
 
-    // Allocate all worker tasks before taking the scheduler lock — same pattern
+    // Allocate all worker tasks before taking the scheduler lock: same pattern
     // as stage4's hello_world creation. createKernelTask triggers heap slab
     // allocations; holding the scheduler lock across those is unnecessary and
     // can interact badly with the memory subsystem.

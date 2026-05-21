@@ -127,17 +127,20 @@ fn buildInitfs(
     apps: App.Collection,
     tools: Tool.Collection,
 ) std.Build.LazyPath {
-    const hello_world = apps.get("hello_world") orelse @panic("no hello_world app!");
-    const hello_world_exe = hello_world.executables.get(.{
-        .architecture = arch,
-        .context = .internal,
-    }).?;
-
     const initfs_builder = tools.get("initfs_builder").?.release_safe_exe;
-
     const run = b.addRunArtifact(initfs_builder);
+    const bundle: Bundle = .{ .architecture = arch, .context = .internal };
+
+    const hello_world = apps.get("hello_world") orelse
+        @panic("no hello_world app!");
     run.addArg("hello_world");
-    run.addFileArg(hello_world_exe.getEmittedBin());
+    run.addFileArg(hello_world.executables.get(bundle).?.getEmittedBin());
+
+    const shell = apps.get("shell") orelse
+        @panic("no shell app!");
+    run.addArg("shell");
+    run.addFileArg(shell.executables.get(bundle).?.getEmittedBin());
+
     return run.captureStdOut(.{});
 }
 

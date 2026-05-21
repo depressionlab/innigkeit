@@ -277,4 +277,29 @@ pub const Syscall = enum(usize) {
             else => |t| @compileError("unsupported architecture: " ++ @tagName(t)),
         };
     }
+
+    /// Invoke a syscall using a comptime-counted anonymous argument tuple.
+    ///
+    /// The argument count is determined at compile time via struct field
+    /// reflection, so the right `callN` is selected with zero runtime overhead.
+    /// All argument values must be implicitly coercible to `usize` (integers,
+    /// pointers via @intFromPtr, packed structs via @bitCast, etc.).
+    ///
+    /// ```zig
+    /// _ = Syscall.invoke(.write, .{ fd, len });
+    /// _ = try Syscall.decode(Syscall.invoke(.mmap, .{ size, prot }));
+    /// ```
+    pub inline fn invoke(syscall: Syscall, args: anytype) isize {
+        const fields = @typeInfo(@TypeOf(args)).@"struct".fields;
+        return switch (fields.len) {
+            0 => call0(syscall),
+            1 => call1(syscall, @field(args, fields[0].name)),
+            2 => call2(syscall, @field(args, fields[0].name), @field(args, fields[1].name)),
+            3 => call3(syscall, @field(args, fields[0].name), @field(args, fields[1].name), @field(args, fields[2].name)),
+            4 => call4(syscall, @field(args, fields[0].name), @field(args, fields[1].name), @field(args, fields[2].name), @field(args, fields[3].name)),
+            5 => call5(syscall, @field(args, fields[0].name), @field(args, fields[1].name), @field(args, fields[2].name), @field(args, fields[3].name), @field(args, fields[4].name)),
+            6 => call6(syscall, @field(args, fields[0].name), @field(args, fields[1].name), @field(args, fields[2].name), @field(args, fields[3].name), @field(args, fields[4].name), @field(args, fields[5].name)),
+            else => @compileError("too many syscall arguments (max 6)"),
+        };
+    }
 };

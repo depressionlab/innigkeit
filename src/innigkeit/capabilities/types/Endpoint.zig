@@ -51,20 +51,21 @@ pub fn unref(self: *Endpoint) void {
 /// The sender is unblocked only after the message has been picked up.
 /// This ensures the sender knows the message was delivered.
 pub fn send(self: *Endpoint, msg: Message) void {
-    self.lock.lock();
-    self.pending_msg = msg;
+    const current_task: innigkeit.Task.Current = .get();
+    current_task.task.ipc_message = msg;
 
-    // If a receiver is already waiting, wake it and we're done.
-    const receiver = self.recv_queue.popFirst();
-    if (receiver) |r| {
+    self.lock.lock();
+
+    // If a receiver is already waiting, hand off via pending_msg and wake it.
+    if (self.recv_queue.popFirst()) |r| {
+        self.pending_msg = msg;
         self.lock.unlock();
         r.wakeFromBlocked();
         return;
     }
 
-    // No receiver yet, so we park ourselves on the send queue.
+    // No receiver yet, so we park ourselves on the send queue. recv() reads ipc_message
     self.send_queue.wait(&self.lock);
-    // When we wake up, the receiver has copied pending_msg.
 }
 
 /// Block until a message arrives, then return it.
@@ -81,19 +82,20 @@ pub fn recv(self: *Endpoint) Message {
         self.pending_msg = msg;
         self.pending_sender = caller;
         self.lock.unlock();
-        // caller stays parked — they will be woken by reply/replyRecv.
+        // caller stays parked, they will be woken by reply/replyRecv.
         return msg;
     }
 
     // Fall back to fire-and-forget senders.
     if (self.send_queue.popFirst()) |s| {
-        const msg = self.pending_msg;
+        const msg = s.ipc_message;
         self.lock.unlock();
         s.wakeFromBlocked();
         return msg;
     }
 
     // No sender yet, park on the recv queue.
+    // The sender that wakes us will have written pending_msg before calling wakeFromBlocked.
     self.recv_queue.wait(&self.lock);
     self.lock.lock();
     const msg = self.pending_msg;
@@ -160,11 +162,11 @@ fn parkAndUnlock(spinlock: *innigkeit.sync.TicketSpinLock) void {
 ///
 /// Must only be called after `recv` returned a message from a call-mode sender
 /// (i.e. `pending_sender != null`). Asserts this is the case.
-pub fn reply(self: *Endpoint, msg: Message) void {
+pub fn reply(self: *Endpoint, msg: Message) error{NoPendingSender}!void {
     self.lock.lock();
     const sender = self.pending_sender orelse {
         self.lock.unlock();
-        return; // no pending call to reply to
+        return error.NoPendingSender;
     };
     self.pending_sender = null;
     sender.ipc_message = msg;
@@ -199,7 +201,7 @@ pub fn replyRecv(self: *Endpoint, reply_msg: Message) Message {
     }
 
     if (self.send_queue.popFirst()) |s| {
-        const msg = self.pending_msg;
+        const msg = s.ipc_message;
         self.lock.unlock();
         s.wakeFromBlocked();
         return msg;

@@ -206,7 +206,7 @@ pub fn Uart16X50(comptime mode: root.Mode, comptime fifo_mode: enum { disabled, 
             while (true) {
                 const line_status: LineStatusRegister = @bitCast(readRegister(uart.line_status_register));
                 if (line_status.transmitter_holding_register_empty) return;
-                // TODO: should there be a spinloop hint here?
+                architecture.spinLoopHint();
             }
         }
 

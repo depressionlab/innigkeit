@@ -1,5 +1,9 @@
-const innigkeit = @import("innigkeit");
 const std = @import("std");
+const innigkeit = @import("innigkeit");
+
+pub const std_options = innigkeit.interop.std_options;
+pub const std_options_debug_io = innigkeit.interop.debug_io;
+pub const panic = innigkeit.interop.panic;
 
 var buffer: [256]u8 = undefined;
 

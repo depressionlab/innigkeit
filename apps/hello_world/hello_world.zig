@@ -1,13 +1,22 @@
+const std = @import("std");
 const innigkeit = @import("innigkeit");
 const capabilities = innigkeit.capabilities;
+
+pub const std_options = innigkeit.interop.std_options;
+pub const std_options_debug_io = innigkeit.interop.debug_io;
+pub const panic = innigkeit.interop.panic;
 
 pub fn main() void {
     innigkeit.io.stdout.print("Hello, World!\n", .{}) catch {};
 
+    std.log.info("hello_world starting", .{});
+
     testIpc();
     testMmap();
+    testAllocator();
     testFutex();
 
+    std.log.info("all tests passed", .{});
     innigkeit.io.stdout.print("all tests passed\n", .{}) catch {};
 }
 
@@ -42,6 +51,20 @@ fn testMmap() void {
 
     innigkeit.mem.munmap(region) catch {};
     innigkeit.io.stdout.print("mmap test done\n", .{}) catch {};
+}
+
+fn testAllocator() void {
+    var arena = std.heap.ArenaAllocator.init(innigkeit.mem.page_allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const buf = alloc.alloc(u8, 1024) catch {
+        std.log.err("page_allocator: alloc failed", .{});
+        return;
+    };
+    @memset(buf, 0xAA);
+    const ok = buf[0] == 0xAA and buf[1023] == 0xAA;
+    std.log.info("page_allocator: alloc+write {s}", .{if (ok) "ok" else "FAIL"});
 }
 
 // A simple futex-based mutex: 0=unlocked, 1=locked, 2=locked+waiters.
@@ -102,8 +125,7 @@ fn incrementer(n_raw: usize) callconv(.c) noreturn {
         counter_mutex.unlock();
     }
 
-    const prev = @atomicRmw(u32, &done_count, .Add, 1, .acq_rel);
-    _ = prev;
+    _ = @atomicRmw(u32, &done_count, .Add, 1, .acq_rel);
     @atomicStore(u32, &done_futex, 1, .release);
     _ = innigkeit.futex.wake(&done_futex, 1) catch 0;
 

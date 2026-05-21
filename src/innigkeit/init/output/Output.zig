@@ -146,6 +146,14 @@ fn tryGetSerialOutputFromGenericSources(memory_system_available: bool) ?innigkei
     return static.init_output_uart.output();
 }
 
+/// Write directly to all outputs without touching the shared Io.Writer buffer.
+///
+/// Safe to call from interrupt context. Does not flush any pending buffered
+/// content, call `terminal.writer.flush()` from task context for that.
+pub fn writeRawImmediate(str: []const u8) void {
+    writeToOutputs(str);
+}
+
 fn writeToOutputs(str: []const u8) void {
     if (globals.graphical_output) |*output| output.writeFn(output.state, str);
     if (globals.serial_output) |*output| output.writeFn(output.state, str);

@@ -33,6 +33,11 @@ pub const Iterator = struct {
             if (program_header.type != .load) continue;
             if (program_header.memory_size == 0) continue; // can this even happen with a loadable segment?
 
+            if (program_header.file_size > program_header.memory_size) {
+                log.warn("PT_LOAD segment has file_size > memory_size: {f}", .{program_header});
+                return error.ProgramHeaderInvalidSize;
+            }
+
             const address, const offset_due_to_alignment = blk: {
                 const unaligned_address: innigkeit.VirtualAddress = .from(program_header.virtual_address);
                 const aligned_address = unaligned_address.pageAlignBackward();
@@ -61,6 +66,11 @@ pub const Iterator = struct {
                 if (prot.equal(.none)) {
                     log.warn("no protection flags set in program header", .{});
                     return error.ProgramHeaderInvalidProtection;
+                }
+
+                if (prot.write and prot.execute) {
+                    log.warn("PT_LOAD segment is writable+executable (W^X violation): {f}", .{program_header});
+                    return error.ProgramHeaderWritableExecutable;
                 }
 
                 break :blk prot;

@@ -159,9 +159,9 @@ pub fn initializePhysicalMemory(pages_range: innigkeit.KernelVirtualRange) void 
 
     for (bootstrap_regions.constSlice()) |bootstrap_region| {
         std.debug.assert(
-            (@intFromEnum(bootstrap_region.start_physical_page) +
-                bootstrap_region.page_count - 1) <
-                @intFromEnum(innigkeit.mem.PhysicalPage.Index.none),
+            (@as(usize, @intFromEnum(bootstrap_region.start_physical_page)) +
+                @as(usize, bootstrap_region.page_count -| 1) <
+                @as(usize, @intFromEnum(innigkeit.mem.PhysicalPage.Index.none))),
         );
 
         const in_use_pages = bootstrap_region.first_free_page_index;
@@ -199,11 +199,11 @@ pub fn initializePhysicalMemory(pages_range: innigkeit.KernelVirtualRange) void 
             }
         }
 
-        var current_free_index: u32 = @intFromEnum(bootstrap_region.start_physical_page) + bootstrap_region.first_free_page_index;
-        const last_free_index: u32 = @intFromEnum(bootstrap_region.start_physical_page) + bootstrap_region.page_count - 1;
+        var current_free_index: usize = @as(usize, @intFromEnum(bootstrap_region.start_physical_page)) + @as(usize, bootstrap_region.first_free_page_index);
+        const last_free_index: usize = @as(usize, @intFromEnum(bootstrap_region.start_physical_page)) + @as(usize, bootstrap_region.page_count) - 1;
 
         while (current_free_index <= last_free_index) : (current_free_index += 1) {
-            globals.free_page_list.prepend(@enumFromInt(current_free_index));
+            globals.free_page_list.prepend(@enumFromInt(@as(u32, @intCast(current_free_index))));
         }
     }
 

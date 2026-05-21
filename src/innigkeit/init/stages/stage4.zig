@@ -4,7 +4,7 @@ const log = innigkeit.debug.log.scoped(.init);
 
 /// Stage 4 of kernel initialization.
 ///
-/// This function is executed in a fully scheduled kernel task with interrupts enabled.
+/// Runs in a fully scheduled kernel task with interrupts enabled.
 pub fn start() !void {
     log.info("running scheduler benchmark", .{});
     try sched_bench.run();
@@ -18,7 +18,6 @@ pub fn start() !void {
     log.debug("initializing virtio-blk driver", .{});
     innigkeit.drivers.virtio.blk.init();
 
-    // Quick disk-read smoke test: read the first sector and log its first 8 bytes.
     if (innigkeit.drivers.virtio.blk.isReady()) {
         var sector: [512]u8 = undefined;
         innigkeit.drivers.virtio.blk.readSectors(0, &sector, 1) catch |err| {
@@ -31,33 +30,43 @@ pub fn start() !void {
 
     try innigkeit.time.init.printInitializationTime();
 
-    log.debug("starting first user process", .{});
-    const hello_world_process: *innigkeit.user.Process = try .create(
-        .{ .name = try .fromSlice("hello world") },
-    );
-    defer hello_world_process.decrementReferenceCount();
+    log.debug("initializing PS/2 keyboard", .{});
+    innigkeit.drivers.input.ps2.init() catch |err| {
+        log.err("PS/2 keyboard init failed: {t}", .{err});
+    };
 
-    const hello_world_main_thread = try hello_world_process.createThread(
-        .{ .entry = .prepare(loadHelloWorld, .{}) },
+    log.debug("starting shell", .{});
+    const shell_process: *innigkeit.user.Process = try .create(
+        .{ .name = try .fromSlice("shell") },
+    );
+    defer shell_process.decrementReferenceCount();
+
+    const shell_main_thread = try shell_process.createThread(
+        .{ .entry = .prepare(loadShell, .{}) },
     );
 
     const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
     defer scheduler_handle.unlock();
-    scheduler_handle.queueTask(&hello_world_main_thread.task, .{ .initial = true });
+    scheduler_handle.queueTask(&shell_main_thread.task, .{ .initial = true });
 
-    // TODO: colors
     try innigkeit.init.Output.experimentalRegister(.full);
 }
 
-fn loadHelloWorld() !void {
-    const hello_world_elf = innigkeit.fs.initfs.findFile("hello_world") orelse
-        @panic("hello_world not found in initfs!");
+fn loadShell() !void {
+    try loadElfFromInitfs("shell");
+}
+
+fn loadElfFromInitfs(name: []const u8) !noreturn {
+    const elf_data = innigkeit.fs.initfs.findFile(name) orelse {
+        log.err("'{s}' not found in initfs", .{name});
+        return error.FileNotFound;
+    };
 
     const current_task: innigkeit.Task.Current = .get();
     const thread: *innigkeit.user.Thread = .from(current_task.task);
     const address_space = &thread.process.address_space;
 
-    const header = try innigkeit.user.elf.Header.parse(hello_world_elf);
+    const header = try innigkeit.user.elf.Header.parse(elf_data);
 
     const entry_point = blk: {
         const possible_entry_point: innigkeit.VirtualAddress = .from(header.entry);
@@ -66,19 +75,18 @@ fn loadHelloWorld() !void {
     };
 
     const program_header_table: []const u8 = blk: {
-        const program_header_table_location = header.programHeaderTableLocation();
-        break :blk hello_world_elf[program_header_table_location.base..][0..program_header_table_location.length];
+        const loc = header.programHeaderTableLocation();
+        break :blk elf_data[loc.base..][0..loc.length];
     };
 
-    // map all loadable segments read write - this allows the address space to merge the entries
-    // TODO: this only makes sense for an embedded program, not if it is loaded from disk
+    // Map all loadable segments read-write so the address space can merge entries.
     {
         var iter = header.loadableRegionIterator(program_header_table);
 
-        while (try iter.next()) |loadable_region| {
+        while (try iter.next()) |region| {
             _ = try address_space.map(.{
-                .base = loadable_region.virtual_range.address.toVirtualAddress(),
-                .size = loadable_region.virtual_range.size,
+                .base = region.virtual_range.address.toVirtualAddress(),
+                .size = region.virtual_range.size,
                 .protection = .{ .read = true, .write = true },
                 .max_protection = .all,
                 .type = .zero_fill,
@@ -86,36 +94,35 @@ fn loadHelloWorld() !void {
         }
     }
 
-    // copy the regions from the elf into the address space
+    // Copy ELF segments into the mapped address space.
     {
         current_task.incrementEnableAccessToUserMemory();
         defer current_task.decrementEnableAccessToUserMemory();
 
         var iter = header.loadableRegionIterator(program_header_table);
 
-        while (try iter.next()) |loadable_region| {
-            if (loadable_region.source_length == 0) continue;
-
-            const mapped_slice = loadable_region.virtual_range.byteSlice();
+        while (try iter.next()) |region| {
+            if (region.source_length == 0) continue;
+            const mapped_slice = region.virtual_range.byteSlice();
 
             @memcpy(
-                mapped_slice[loadable_region.destination_offset..][0..loadable_region.source_length],
-                hello_world_elf[loadable_region.source_base..][0..loadable_region.source_length],
+                mapped_slice[region.destination_offset..][0..region.source_length],
+                elf_data[region.source_base..][0..region.source_length],
             );
         }
     }
 
-    // change each regions protections as per the elf
+    // Apply correct protections as specified by the ELF program headers.
     {
         var iter = header.loadableRegionIterator(program_header_table);
 
-        while (try iter.next()) |loadable_region| {
+        while (try iter.next()) |region| {
             try address_space.changeProtection(
-                loadable_region.virtual_range.toVirtualRange(),
+                region.virtual_range.toVirtualRange(),
                 .{
                     .both = .{
-                        .protection = loadable_region.protection,
-                        .max_protection = loadable_region.protection,
+                        .protection = region.protection,
+                        .max_protection = region.protection,
                     },
                 },
             );

@@ -129,7 +129,7 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
     // BAR0: I/O space BAR.
     const bar0 = func.read(u32, 0x10);
     if (bar0 & 1 == 0) {
-        log.warn("virtio-blk BAR0 is not an I/O BAR ({x}) — skipping", .{bar0});
+        log.warn("virtio-blk BAR0 is not an I/O BAR ({x}), skipping", .{bar0});
         return;
     }
     io_base = @truncate(bar0 & 0xFFFC);
@@ -142,7 +142,7 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
     iow8(REG_DEVICE_STATUS, STATUS_ACKNOWLEDGE);
     iow8(REG_DEVICE_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER);
 
-    // Feature negotiation — accept all device features.
+    // Feature negotiation: accept all device features.
     const dev_features = ior32(REG_DEVICE_FEATURES);
     iow32(REG_DRIVER_FEATURES, dev_features);
 
@@ -169,8 +169,8 @@ fn setupQueue() bool {
     // Select queue 0.
     iow16(REG_QUEUE_SEL, 0);
 
-    // Read the device-reported queue size.  In QEMU's legacy virtio-pci the
-    // QUEUE_NUM register is read-only; writes are silently ignored.  We must
+    // Read the device-reported queue size. In QEMU's legacy virtio-pci the
+    // QUEUE_NUM register is read-only; writes are silently ignored. We must
     // use the value the device reports for all ring offset calculations.
     queue_num = ior16(REG_QUEUE_SIZE);
     if (queue_num == 0 or queue_num > QUEUE_SIZE_MAX) {
@@ -250,13 +250,13 @@ fn allocContiguousPages() bool {
                 continue;
             }
         }
-        // Not consecutive — discard current run into spares, start fresh.
+        // Not consecutive: discard current run into spares, start fresh.
         for (0..run_len) |i| spares.prepend(run[i]);
         run[0] = page;
         run_len = 1;
     }
 
-    // Failed — release everything.
+    // Failed: release everything.
     for (0..run_len) |i| spares.prepend(run[i]);
     if (spares.count > 0) innigkeit.mem.PhysicalPage.allocator.deallocate(spares);
     return false;

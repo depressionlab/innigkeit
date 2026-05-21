@@ -25,8 +25,9 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
     architecture.interrupts.enable();
 
     const syscall = syscall_frame.syscall() orelse {
-        // TODO: return an error to userspace, ideally to the process that did the oopsie
-        std.debug.panic("invalid syscall!\n{f}", .{syscall_frame});
+        log.warn("invalid syscall from usersapce\n{f}", .{syscall_frame});
+        syscall_frame.arch_specific.rax = errCode(e.ENOSYS);
+        return;
     };
 
     log.verbose("received syscall: {t}", .{syscall});
@@ -57,7 +58,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const buf_len = syscall_frame.arg(.three);
 
             if (fd != 1 and fd != 2) {
-                arch_frame.rax = errCode(-9); // EBADF
+                arch_frame.rax = errCode(e.EBADF);
                 return;
             }
 
@@ -67,7 +68,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             }
 
             if (!validateUserBuffer(buf_ptr, buf_len)) {
-                arch_frame.rax = errCode(-14); // EFAULT
+                arch_frame.rax = errCode(e.EFAULT);
                 return;
             }
 
@@ -81,12 +82,12 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const output = innigkeit.init.Output.terminal;
             output.writer.writeAll(buffer) catch |err| {
                 log.err("write: {t}", .{err});
-                arch_frame.rax = errCode(-5); // EIO
+                arch_frame.rax = errCode(e.EIO);
                 return;
             };
             output.writer.flush() catch |err| {
                 log.err("write flush: {t}", .{err});
-                arch_frame.rax = errCode(-5); // EIO
+                arch_frame.rax = errCode(e.EIO);
                 return;
             };
 
@@ -106,7 +107,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const buf_len = syscall_frame.arg(.three);
 
             if (fd != 0) {
-                arch_frame.rax = errCode(-9); // EBADF
+                arch_frame.rax = errCode(e.EBADF);
                 return;
             }
 
@@ -116,7 +117,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             }
 
             if (!validateUserBuffer(buf_ptr, buf_len)) {
-                arch_frame.rax = errCode(-14); // EFAULT
+                arch_frame.rax = errCode(e.EFAULT);
                 return;
             }
 
@@ -126,8 +127,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
 
             const buffer: []u8 = @as([*]u8, @ptrFromInt(buf_ptr))[0..buf_len];
 
-            // TODO: route through per-process file descriptor table.
-            const bytes_read = globals.input_buffer.readUntilNewline(buffer);
+            const bytes_read = innigkeit.drivers.input.ps2.keyboard_buffer.readLine(buffer);
             arch_frame.rax = @intCast(bytes_read);
         },
 
@@ -168,13 +168,13 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const user_arg = syscall_frame.arg(.two);
 
             if (entry_ptr == 0) {
-                arch_frame.rax = errCode(-22); // EINVAL
+                arch_frame.rax = errCode(e.EINVAL);
                 return;
             }
 
             const vaddr: innigkeit.VirtualAddress = .from(entry_ptr);
             if (vaddr.getType() != .user) {
-                arch_frame.rax = errCode(-14); // EFAULT
+                arch_frame.rax = errCode(e.EFAULT);
                 return;
             }
             const entry_point = vaddr.toUser();
@@ -185,7 +185,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const new_thread = process.createThread(.{
                 .entry = .prepare(spawnThreadEntry, .{ entry_point, user_arg }),
             }) catch {
-                arch_frame.rax = errCode(-12); // ENOMEM
+                arch_frame.rax = errCode(e.ENOMEM);
                 return;
             };
 
@@ -212,7 +212,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             cap_table.lock.lock();
             const slot_info = cap_table.getAndRefLocked(handle) orelse {
                 cap_table.lock.unlock();
-                arch_frame.rax = errCode(-9); // EBADF
+                arch_frame.rax = errCode(e.EBADF);
                 return;
             };
             cap_table.lock.unlock();
@@ -224,13 +224,13 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 .notify => {
                     const notify: *innigkeit.capabilities.Notify = @ptrCast(@alignCast(slot_info.ptr));
                     const notify_op = std.enums.fromInt(innigkeit.capabilities.Notify.Op, op) orelse {
-                        arch_frame.rax = errCode(-22); // EINVAL
+                        arch_frame.rax = errCode(e.EINVAL);
                         return;
                     };
                     switch (notify_op) {
                         .signal => {
                             if (!slot_info.rights.write) {
-                                arch_frame.rax = errCode(-1); // EPERM
+                                arch_frame.rax = errCode(e.EPERM);
                                 return;
                             }
                             notify.signal(arg3);
@@ -238,14 +238,14 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                         },
                         .wait => {
                             if (!slot_info.rights.read) {
-                                arch_frame.rax = errCode(-1); // EPERM
+                                arch_frame.rax = errCode(e.EPERM);
                                 return;
                             }
                             arch_frame.rax = notify.wait(arg3);
                         },
                         .poll => {
                             if (!slot_info.rights.read) {
-                                arch_frame.rax = errCode(-1); // EPERM
+                                arch_frame.rax = errCode(e.EPERM);
                                 return;
                             }
                             arch_frame.rax = notify.poll(arg3);
@@ -256,17 +256,17 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 .endpoint => {
                     const endpoint: *innigkeit.capabilities.Endpoint = @ptrCast(@alignCast(slot_info.ptr));
                     const ep_op = std.enums.fromInt(innigkeit.capabilities.Endpoint.Op, op) orelse {
-                        arch_frame.rax = errCode(-22); // EINVAL
+                        arch_frame.rax = errCode(e.EINVAL);
                         return;
                     };
                     switch (ep_op) {
                         .send => {
                             if (!slot_info.rights.write) {
-                                arch_frame.rax = errCode(-1); // EPERM
+                                arch_frame.rax = errCode(e.EPERM);
                                 return;
                             }
                             if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
-                                arch_frame.rax = errCode(-14); // EFAULT
+                                arch_frame.rax = errCode(e.EFAULT);
                                 return;
                             }
                             // Copy message out of user memory before blocking.
@@ -279,11 +279,11 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                         },
                         .recv => {
                             if (!slot_info.rights.read) {
-                                arch_frame.rax = errCode(-1); // EPERM
+                                arch_frame.rax = errCode(e.EPERM);
                                 return;
                             }
                             if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
-                                arch_frame.rax = errCode(-14); // EFAULT
+                                arch_frame.rax = errCode(e.EFAULT);
                                 return;
                             }
                             // Block first, then copy into user memory.
@@ -296,12 +296,12 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                         },
                         .call => {
                             if (!slot_info.rights.write) {
-                                arch_frame.rax = errCode(-1); // EPERM
+                                arch_frame.rax = errCode(e.EPERM);
                                 return;
                             }
                             // arg3 = pointer to Message (in: request, out: reply).
                             if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
-                                arch_frame.rax = errCode(-14); // EFAULT
+                                arch_frame.rax = errCode(e.EFAULT);
                                 return;
                             }
                             const msg_uptr: *innigkeit.capabilities.Message = @ptrFromInt(arg3);
@@ -316,28 +316,31 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                         },
                         .reply => {
                             if (!slot_info.rights.write) {
-                                arch_frame.rax = errCode(-1); // EPERM
+                                arch_frame.rax = errCode(e.EPERM);
                                 return;
                             }
                             if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
-                                arch_frame.rax = errCode(-14); // EFAULT
+                                arch_frame.rax = errCode(e.EFAULT);
                                 return;
                             }
                             const msg_uptr: *const innigkeit.capabilities.Message = @ptrFromInt(arg3);
                             current_task.incrementEnableAccessToUserMemory();
                             const msg = msg_uptr.*;
                             current_task.decrementEnableAccessToUserMemory();
-                            endpoint.reply(msg);
+                            endpoint.reply(msg) catch {
+                                arch_frame.rax = errCode(e.EINVAL); // no pending sender
+                                return;
+                            };
                             arch_frame.rax = 0;
                         },
                         .reply_recv => {
                             if (!slot_info.rights.read or !slot_info.rights.write) {
-                                arch_frame.rax = errCode(-1); // EPERM
+                                arch_frame.rax = errCode(e.EPERM);
                                 return;
                             }
                             // arg3 = pointer to Message (in: reply to send, out: next request).
                             if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
-                                arch_frame.rax = errCode(-14); // EFAULT
+                                arch_frame.rax = errCode(e.EFAULT);
                                 return;
                             }
                             const msg_uptr: *innigkeit.capabilities.Message = @ptrFromInt(arg3);
@@ -356,34 +359,33 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 .frame => {
                     const frame: *innigkeit.capabilities.Frame = @ptrCast(@alignCast(slot_info.ptr));
                     const frame_op = std.enums.fromInt(innigkeit.capabilities.Frame.Op, op) orelse {
-                        arch_frame.rax = errCode(-22); // EINVAL
+                        arch_frame.rax = errCode(e.EINVAL);
                         return;
                     };
                     switch (frame_op) {
                         .clone => {
                             if (!slot_info.rights.grant) {
-                                arch_frame.rax = errCode(-1); // EPERM
+                                arch_frame.rax = errCode(e.EPERM);
                                 return;
                             }
                             // Bump refcount before inserting the new slot.
                             frame.ref();
                             cap_table.lock.lock();
+                            defer cap_table.lock.unlock();
                             const new_idx = cap_table.insertLocked(
                                 .frame,
                                 frame,
                                 slot_info.rights,
                             ) catch {
-                                cap_table.lock.unlock();
                                 frame.unref();
-                                arch_frame.rax = errCode(-12); // ENOMEM (table full)
+                                arch_frame.rax = errCode(e.ENOMEM); // table full
                                 return;
                             };
-                            cap_table.lock.unlock();
                             arch_frame.rax = @intCast(new_idx);
                         },
                         .phys_addr => {
                             if (!slot_info.rights.read) {
-                                arch_frame.rax = errCode(-1); // EPERM
+                                arch_frame.rax = errCode(e.EPERM);
                                 return;
                             }
                             arch_frame.rax = frame.physicalAddress().value;
@@ -405,16 +407,15 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const cap_table = process.cap_table;
 
             cap_table.lock.lock();
+            defer cap_table.lock.unlock();
             const new_idx = cap_table.copyLocked(handle, new_rights) catch |err| {
-                cap_table.lock.unlock();
                 arch_frame.rax = switch (err) {
-                    error.NotFound => errCode(-9), // EBADF
-                    error.Full => errCode(-12), // ENOMEM
-                    error.RightsEscalation => errCode(-1), // EPERM
+                    error.NotFound => errCode(e.EBADF),
+                    error.Full => errCode(e.ENOMEM),
+                    error.RightsEscalation => errCode(e.EPERM),
                 };
                 return;
             };
-            cap_table.lock.unlock();
             arch_frame.rax = @intCast(new_idx);
         },
 
@@ -429,10 +430,10 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const cap_table = process.cap_table;
 
             cap_table.lock.lock();
+            defer cap_table.lock.unlock();
 
             const slot = cap_table.getLocked(handle) orelse {
-                cap_table.lock.unlock();
-                arch_frame.rax = errCode(-9); // EBADF
+                arch_frame.rax = errCode(e.EBADF);
                 return;
             };
             const current_rights = slot.rights;
@@ -441,8 +442,8 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const new_idx = cap_table.copyLocked(handle, current_rights) catch |err| {
                 cap_table.lock.unlock();
                 arch_frame.rax = switch (err) {
-                    error.NotFound => errCode(-9),
-                    error.Full => errCode(-12),
+                    error.NotFound => errCode(e.EBADF),
+                    error.Full => errCode(e.ENOMEM),
                     error.RightsEscalation => unreachable, // same rights
                 };
                 return;
@@ -451,7 +452,6 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             // Remove the original slot (decrements refcount back to 1).
             cap_table.removeLocked(handle) catch unreachable;
 
-            cap_table.lock.unlock();
             arch_frame.rax = @intCast(new_idx);
         },
 
@@ -465,12 +465,11 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const cap_table = process.cap_table;
 
             cap_table.lock.lock();
+            defer cap_table.lock.unlock();
             cap_table.removeLocked(handle) catch {
-                cap_table.lock.unlock();
-                arch_frame.rax = errCode(-9); // EBADF
+                arch_frame.rax = errCode(e.EBADF);
                 return;
             };
-            cap_table.lock.unlock();
             arch_frame.rax = 0;
         },
 
@@ -481,7 +480,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .cap_create => {
             const type_raw: u8 = @truncate(syscall_frame.arg(.one));
             const cap_type = std.enums.fromInt(innigkeit.capabilities.ObjectType, type_raw) orelse {
-                arch_frame.rax = errCode(-22); // EINVAL
+                arch_frame.rax = errCode(e.EINVAL);
                 return;
             };
 
@@ -491,52 +490,49 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
 
             switch (cap_type) {
                 .null => {
-                    arch_frame.rax = errCode(-22); // EINVAL
+                    arch_frame.rax = errCode(e.EINVAL);
                 },
                 .notify => {
                     const notify = innigkeit.capabilities.Notify.create() catch {
-                        arch_frame.rax = errCode(-12); // ENOMEM
+                        arch_frame.rax = errCode(e.ENOMEM);
                         return;
                     };
                     cap_table.lock.lock();
+                    defer cap_table.lock.unlock();
                     const idx = cap_table.insertLocked(.notify, notify, .all) catch {
-                        cap_table.lock.unlock();
                         notify.unref();
-                        arch_frame.rax = errCode(-12); // ENOMEM
+                        arch_frame.rax = errCode(e.ENOMEM);
                         return;
                     };
-                    cap_table.lock.unlock();
                     arch_frame.rax = @intCast(idx);
                 },
                 .endpoint => {
                     const endpoint = innigkeit.capabilities.Endpoint.create() catch {
-                        arch_frame.rax = errCode(-12); // ENOMEM
+                        arch_frame.rax = errCode(e.ENOMEM);
                         return;
                     };
                     cap_table.lock.lock();
+                    defer cap_table.lock.unlock();
                     const idx = cap_table.insertLocked(.endpoint, endpoint, .all) catch {
-                        cap_table.lock.unlock();
                         endpoint.unref();
-                        arch_frame.rax = errCode(-12); // ENOMEM
+                        arch_frame.rax = errCode(e.ENOMEM);
                         return;
                     };
-                    cap_table.lock.unlock();
                     arch_frame.rax = @intCast(idx);
                 },
                 .frame => {
                     // Physical frame allocation requires a size; use cap_invoke on a Vmem capability.
                     const frame = innigkeit.capabilities.Frame.create() catch {
-                        arch_frame.rax = errCode(-12); // ENOMEM
+                        arch_frame.rax = errCode(e.ENOMEM);
                         return;
                     };
                     cap_table.lock.lock();
+                    defer cap_table.lock.unlock();
                     const idx = cap_table.insertLocked(.frame, frame, .all) catch {
-                        cap_table.lock.unlock();
                         frame.unref();
-                        arch_frame.rax = errCode(-12); // ENOMEM
+                        arch_frame.rax = errCode(e.ENOMEM);
                         return;
                     };
-                    cap_table.lock.unlock();
                     arch_frame.rax = @intCast(idx);
                 },
             }
@@ -554,11 +550,17 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const prot_raw: u32 = @truncate(syscall_frame.arg(.two));
 
             if (size_bytes == 0) {
-                arch_frame.rax = errCode(-22); // EINVAL
+                arch_frame.rax = errCode(e.EINVAL);
                 return;
             }
 
             const page_align = architecture.paging.standard_page_size_alignment;
+            const page_size = page_align.toByteUnits();
+            // Guard against integer overflow in alignment rounding.
+            if (size_bytes > std.math.maxInt(usize) - (page_size - 1)) {
+                arch_frame.rax = errCode(e.EINVAL);
+                return;
+            }
             const aligned_size = core.Size.from(size_bytes, .byte).alignForward(page_align);
 
             const protection: innigkeit.mem.MapType.Protection = .{
@@ -568,7 +570,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             };
 
             if (protection.equal(.none)) {
-                arch_frame.rax = errCode(-22); // EINVAL — must have at least one permission
+                arch_frame.rax = errCode(e.EINVAL); // must have at least one permission
                 return;
             }
 
@@ -581,8 +583,8 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 .type = .zero_fill,
             }) catch |err| {
                 arch_frame.rax = switch (err) {
-                    error.OutOfMemory, error.RequestedRangeUnavailable => errCode(-12),
-                    else => errCode(-22),
+                    error.OutOfMemory, error.RequestedRangeUnavailable => errCode(e.ENOMEM),
+                    else => errCode(e.EINVAL),
                 };
                 return;
             };
@@ -600,19 +602,19 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const size_bytes = syscall_frame.arg(.two);
 
             if (size_bytes == 0 or addr_raw == 0) {
-                arch_frame.rax = errCode(-22); // EINVAL
+                arch_frame.rax = errCode(e.EINVAL);
                 return;
             }
 
             const page_align = architecture.paging.standard_page_size_alignment;
             if (!page_align.check(addr_raw) or !page_align.check(size_bytes)) {
-                arch_frame.rax = errCode(-22); // EINVAL
+                arch_frame.rax = errCode(e.EINVAL);
                 return;
             }
 
             const vaddr: innigkeit.VirtualAddress = .from(addr_raw);
             if (vaddr.getType() != .user) {
-                arch_frame.rax = errCode(-14); // EFAULT
+                arch_frame.rax = errCode(e.EFAULT);
                 return;
             }
 
@@ -626,8 +628,8 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
 
             process.address_space.unmap(range) catch |err| {
                 arch_frame.rax = switch (err) {
-                    error.OutOfMemory => errCode(-12),
-                    error.RangeNotPageAligned => errCode(-22),
+                    error.OutOfMemory => errCode(e.ENOMEM),
+                    error.RangeNotPageAligned => errCode(e.EINVAL),
                 };
                 return;
             };
@@ -645,7 +647,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const expected: u32 = @truncate(syscall_frame.arg(.two));
 
             if (!validateUserBuffer(addr, @sizeOf(u32))) {
-                arch_frame.rax = errCode(-14); // EFAULT
+                arch_frame.rax = errCode(e.EFAULT);
                 return;
             }
 
@@ -663,7 +665,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const max_wake: u32 = @truncate(syscall_frame.arg(.two));
 
             if (!validateUserBuffer(addr, @sizeOf(u32))) {
-                arch_frame.rax = errCode(-14); // EFAULT
+                arch_frame.rax = errCode(e.EFAULT);
                 return;
             }
 
@@ -695,20 +697,25 @@ inline fn errCode(code: i64) usize {
     return @bitCast(code);
 }
 
-/// Return true if `[ptr, ptr+len)` is a non-wrapping range inside the
-/// user virtual address space.
-///
-/// This is a coarse guard against obviously bogus pointers. The paging
-/// hardware provides the true isolation guarantee.
+/// Negated POSIX errno values used as syscall return codes.
+const e = struct {
+    const EPERM: i64 = -1;
+    const EIO: i64 = -5;
+    const EBADF: i64 = -9;
+    const ENOMEM: i64 = -12;
+    const EFAULT: i64 = -14;
+    const EINVAL: i64 = -22;
+    const ENOSYS: i64 = -38;
+};
+
+/// Return true if `[ptr, ptr+len)` is a non-wrapping range fully inside
+/// the user virtual address space as defined by the architecture.
 fn validateUserBuffer(ptr: usize, len: usize) bool {
     if (len == 0) return true;
-    const end = ptr +% len; // wrapping add to detect overflow
-    if (end < ptr) return false; // wrapped around
-    // TODO: tighten against `architecture.user.user_memory_range` once the
-    //       address-space layout is stable.
-    return ptr != 0;
+    if (ptr +% len < ptr) return false; // integer overflow
+    const range: innigkeit.VirtualRange = .from(
+        .from(ptr),
+        .from(len, .byte),
+    );
+    return architecture.user.user_memory_range.fullyContains(range);
 }
-
-const globals = struct {
-    var input_buffer: innigkeit.init.SerialInputBuffer = .{};
-};
