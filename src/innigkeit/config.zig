@@ -42,12 +42,12 @@ pub const task = struct {
     /// Fixed regardless of build mode so that a stack overflow caught in release is
     /// also reproducible in debug (mode-dependent sizes hide release-only bugs).
     ///
-    /// Linux x86-64 uses 16 KiB. We use 32 KiB (2×) because Zig stack frames
+    /// Linux x86-64 uses 16 KiB. We use 32 KiB (2x) because Zig stack frames
     /// are deeper than equivalent C frames, and the logging path stack-allocates
-    /// a 4 KiB writer buffer. Interrupt handling no longer runs on this stack
-    /// (it uses the dedicated per-CPU IRQ stack), so this can be revisited once
-    /// the worst-case task call depth is measured.
-    pub const kernel_stack_size = architecture.paging.standard_page_size.multiplyScalar(8); // 32 KiB
+    /// a 4 KiB writer buffer.
+    ///
+    /// TODO: figure out this value...
+    pub const kernel_stack_size = architecture.paging.standard_page_size.multiplyScalar(128); // 512 KiB
 
     /// The size of IST stacks (double-fault, NMI) and the per-CPU IRQ stack.
     ///

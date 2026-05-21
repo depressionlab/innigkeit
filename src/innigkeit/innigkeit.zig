@@ -4,6 +4,7 @@ pub const config = @import("config.zig");
 pub const drivers = @import("drivers/root.zig");
 pub const debug = @import("debug/root.zig");
 pub const Executor = @import("Executor.zig");
+pub const fs = @import("fs/root.zig");
 pub const init = @import("init/root.zig");
 pub const mem = @import("mem/root.zig");
 pub const pci = @import("pci/root.zig");

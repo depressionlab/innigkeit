@@ -15,16 +15,19 @@ pub fn start() !void {
     log.debug("initializing ACPI", .{});
     try innigkeit.acpi.init.initialize();
 
-    // log.debug("initializing virtio-blk driver", .{});
-    // innigkeit.drivers.virtio_blk.init();
+    log.debug("initializing virtio-blk driver", .{});
+    innigkeit.drivers.virtio.blk.init();
 
-    // if (innigkeit.drivers.virtio_blk.isReady()) {
-    //     var sector: [512]u8 = undefined;
-    //     innigkeit.drivers.virtio_blk.readSectors(0, &sector, 1) catch |err| {
-    //         log.err("virtio-blk sector read failed: {t}", .{err});
-    //     };
-    //     log.info("virtio-blk sector 0 [0..8]: {x}", .{sector[0..8]});
-    // }
+    // Quick disk-read smoke test: read the first sector and log its first 8 bytes.
+    if (innigkeit.drivers.virtio.blk.isReady()) {
+        var sector: [512]u8 = undefined;
+        innigkeit.drivers.virtio.blk.readSectors(0, &sector, 1) catch |err| {
+            log.err("virtio-blk sector read failed: {t}", .{err});
+        };
+        log.info("virtio-blk sector 0 [0..8]: {x}", .{sector[0..8]});
+    } else {
+        log.warn("virtio-blk not ready", .{});
+    }
 
     try innigkeit.time.init.printInitializationTime();
 
@@ -47,7 +50,8 @@ pub fn start() !void {
 }
 
 fn loadHelloWorld() !void {
-    const hello_world_elf = @embedFile("hello_world");
+    const hello_world_elf = innigkeit.fs.initfs.findFile("hello_world") orelse
+        @panic("hello_world not found in initfs!");
 
     const current_task: innigkeit.Task.Current = .get();
     const thread: *innigkeit.user.Thread = .from(current_task.task);

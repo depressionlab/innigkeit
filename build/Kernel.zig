@@ -13,6 +13,7 @@ const KernelModule = @import("KernelModule.zig");
 const Library = @import("Library.zig");
 const Options = @import("Options.zig");
 const Wrapper = @import("Wrapper.zig");
+const Tool = @import("Tool.zig");
 
 pub const Collection = std.AutoHashMapUnmanaged(Bundle.Architecture, Kernel);
 
@@ -32,6 +33,7 @@ pub fn getKernels(
     options: Options,
     architectures: []const Bundle.Architecture,
     apps: App.Collection,
+    tools: Tool.Collection,
 ) !Kernel.Collection {
     var kernels: Kernel.Collection = .empty;
     try kernels.ensureTotalCapacity(
@@ -47,6 +49,7 @@ pub fn getKernels(
             options,
             architecture,
             apps,
+            tools,
         ));
     }
 
@@ -60,7 +63,11 @@ fn buildKernel(
     options: Options,
     arch: Bundle.Architecture,
     apps: App.Collection,
+    tools: Tool.Collection,
 ) !Kernel {
+    // Build the initfs archive once; share between check and release modules.
+    const initfs_archive = buildInitfs(b, arch, apps, tools);
+
     // Check compilation: verifies correctness without emitting a binary.
     wrapper.registerCheck(b.addExecutable(.{
         .name = "kernel_check",
@@ -69,7 +76,7 @@ fn buildKernel(
             libraries,
             options,
             arch,
-            apps,
+            initfs_archive,
             .check,
         ),
     }));
@@ -81,7 +88,7 @@ fn buildKernel(
             libraries,
             options,
             arch,
-            apps,
+            initfs_archive,
             .release,
         ),
     });
@@ -109,6 +116,31 @@ fn buildKernel(
     };
 }
 
+/// Build the initfs ustar archive for the given architecture.
+///
+/// The archive is produced by running the `initfs_builder` host tool which
+/// packs the compiled hello_world ELF (and any future init binaries) into a
+/// POSIX ustar archive that is later embedded in the kernel via @embedFile.
+fn buildInitfs(
+    b: *std.Build,
+    arch: Bundle.Architecture,
+    apps: App.Collection,
+    tools: Tool.Collection,
+) std.Build.LazyPath {
+    const hello_world = apps.get("hello_world") orelse @panic("no hello_world app!");
+    const hello_world_exe = hello_world.executables.get(.{
+        .architecture = arch,
+        .context = .internal,
+    }).?;
+
+    const initfs_builder = tools.get("initfs_builder").?.release_safe_exe;
+
+    const run = b.addRunArtifact(initfs_builder);
+    run.addArg("hello_world");
+    run.addFileArg(hello_world_exe.getEmittedBin());
+    return run.captureStdOut(.{});
+}
+
 const BuildMode = enum { check, release };
 
 fn buildRootModule(
@@ -116,7 +148,7 @@ fn buildRootModule(
     libraries: Library.Collection,
     options: Options,
     arch: Bundle.Architecture,
-    apps: App.Collection,
+    initfs_archive: std.Build.LazyPath,
     mode: BuildMode,
 ) !*std.Build.Module {
     const graph = try resolveComponentGraph(b);
@@ -144,18 +176,10 @@ fn buildRootModule(
         .omit_frame_pointer = false,
     });
 
-    // Embed the hello_world app binary so the kernel can load it at runtime.
-    const hello_world = apps.get("hello_world") orelse
-        @panic("no hello_world app!");
-    const hello_world_exe = hello_world.executables.get(.{
-        .architecture = arch,
-        .context = .internal,
-    }).?;
+    // Embed the initfs archive so the kernel can look up files by name at runtime.
     graph.entry.module.addImport(
-        "hello_world",
-        b.createModule(.{
-            .root_source_file = hello_world_exe.getEmittedBin(),
-        }),
+        "initfs",
+        b.createModule(.{ .root_source_file = initfs_archive }),
     );
 
     root.addImport("architecture", graph.nodes.get("architecture").?.module);

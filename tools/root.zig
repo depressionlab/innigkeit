@@ -11,4 +11,7 @@ pub const tools: []const ToolDescription = &.{
             .custom = @import("limine_install/config.zig").config,
         },
     },
+    .{
+        .name = "initfs_builder",
+    },
 };

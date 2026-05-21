@@ -32,7 +32,7 @@ const STATUS_DRIVER: u8 = 0x02;
 const STATUS_DRIVER_OK: u8 = 0x04;
 const STATUS_FAILED: u8 = 0x80;
 
-const BLK_T_IN: u32 = 0; // read
+const BLK_T_IN: u32 = 0; // read request type
 
 const VRING_DESC_F_NEXT: u16 = 1;
 const VRING_DESC_F_WRITE: u16 = 2;
@@ -40,7 +40,7 @@ const VRING_DESC_F_WRITE: u16 = 2;
 // Queue size.
 //
 // QEMU's legacy virtio-pci REG_QUEUE_SIZE is read-only (it always returns the
-// device maximum).  Writes are silently ignored. We must therefore use the
+// device maximum). Writes are silently ignored. We must therefore use the
 // device-reported queue size for all ring calculations.
 //
 // QUEUE_SIZE_MAX is the compile-time upper bound. The runtime value is
@@ -54,6 +54,7 @@ const PAGE_SIZE: usize = 4096;
 //   Page 2 (PFN+2): used ring: align(avail_end, PAGE_SIZE) = 8192
 const DMA_PAGES: usize = 3;
 
+// Virtqueue data structures (sized for QUEUE_SIZE_MAX)
 const VringDesc = extern struct {
     addr: u64,
     len: u32,
@@ -68,6 +69,7 @@ const BlkReqHeader = extern struct {
     sector: u64,
 };
 
+// Driver state (single device)
 var initialized: bool = false;
 var io_base: u16 = 0;
 var capacity_sectors: u64 = 0;

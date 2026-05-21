@@ -21,7 +21,7 @@ pub fn build(b: *std.Build) !void {
     const libraries = try Library.getLibraries(b, wrapper, options, architectures);
     const tools = try Tool.getTools(b, wrapper, libraries, options.optimize);
     const apps = try App.getApps(b, wrapper, libraries, options, architectures);
-    const kernels = try Kernel.getKernels(b, wrapper, libraries, options, architectures, apps);
+    const kernels = try Kernel.getKernels(b, wrapper, libraries, options, architectures, apps, tools);
     const image_steps = try ImageStep.registerImageSteps(b, kernels, tools, wrapper, options, architectures);
 
     try QEMU.registerQemuSteps(b, image_steps, options, architectures);

@@ -44,8 +44,8 @@ fn buildQemuCommand(
     run.addArgs(&.{ "-m", b.fmt("{d}", .{emu.memory}) });
     run.addArgs(&.{ "-smp", b.fmt("{d}", .{emu.cpus}) });
 
-    // Boot disk.
-    run.addArgs(&.{ "-device", "virtio-blk-pci,drive=drive0,bootindex=0", "-drive" });
+    // Boot disk (for now we use legacy virtio-blk for simpler I/O register access).
+    run.addArgs(&.{ "-device", "virtio-blk-pci,drive=drive0,bootindex=0,disable-modern=on,disable-legacy=off", "-drive" });
     run.addDecoratedDirectoryArg("file=", image, ",format=raw,if=none,id=drive0");
 
     if (emu.interrupt_details) {
