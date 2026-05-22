@@ -142,6 +142,27 @@ fn buildQemuCommand(
     return run;
 }
 
+/// Build a QEMU run step for `test_{arch}`.
+///
+/// Adds the ISA debug-exit device so the guest can signal pass/fail:
+///   write 0 -> QEMU exits 1 (pass), write 1 -> QEMU exits 3 (fail).
+/// The step expects exit code 1, so the build fails when tests fail.
+pub fn buildTestQemuStep(
+    b: *std.Build,
+    arch: Bundle.Architecture,
+    image: std.Build.LazyPath,
+    options: Options,
+) !*std.Build.Step.Run {
+    const run = try buildQemuCommand(b, arch, image, options);
+    run.addArgs(&.{ "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04" });
+    run.addArg("-no-reboot");
+    // buildQemuCommand sets stdio = .inherit; reset it so expectExitCode works.
+    // With .infer, output is captured and printed only on failure.
+    run.stdio = .infer_from_args;
+    run.expectExitCode(1); // (0 << 1) | 1 = 1 means all tests passed
+    return run;
+}
+
 /// Returns true for architectures that always require UEFI (no BIOS fallback).
 fn requiresUefi(arch: Bundle.Architecture) bool {
     return switch (arch) {

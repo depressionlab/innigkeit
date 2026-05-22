@@ -10,6 +10,7 @@ pub const mem = @import("mem/root.zig");
 pub const pci = @import("pci/root.zig");
 pub const sync = @import("sync/root.zig");
 pub const Task = @import("task/Task.zig");
+pub const testing = @import("testing/root.zig");
 pub const time = @import("time/root.zig");
 pub const user = @import("user/root.zig");
 

@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const innigkeit = @import("innigkeit");
 const sched_bench = @import("../../bench/sched.zig");
 const log = innigkeit.debug.log.scoped(.init);
@@ -6,6 +7,19 @@ const log = innigkeit.debug.log.scoped(.init);
 ///
 /// Runs in a fully scheduled kernel task with interrupts enabled.
 pub fn start() !void {
+    // In test builds, run all collected unit tests then exit QEMU.
+    // ISA debug exit: write 0 -> QEMU exists 1 (pass), write 1 -> exits 3 (fail).
+    if (comptime builtin.is_test) {
+        const failed = innigkeit.testing.runner.runAll();
+        const exit_val: u8 = if (failed == 0) 0 else 1;
+        asm volatile ("outb %[val], %[port]"
+            :
+            : [val] "{al}" (exit_val),
+              [port] "{dx}" (@as(u16, 0xf4)),
+        );
+        while (true) asm volatile ("hlt");
+    }
+
     // log.info("running scheduler benchmark", .{});
     // try sched_bench.run();
 

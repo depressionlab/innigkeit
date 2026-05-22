@@ -94,6 +94,67 @@ pub fn registerImageSteps(
     return image_steps;
 }
 
+/// Build a single bootable disk image from `kernel` for `arch`.
+///
+/// Uses `innigkeit_test_{arch}.hdd` as the image name so it doesn't conflict
+/// with the regular kernel image. The wrapper is not notified (test images are
+/// not part of the normal install graph).
+pub fn buildTestImageStep(
+    b: *std.Build,
+    kernel: Kernel,
+    tools: Tool.Collection,
+    arch: Bundle.Architecture,
+    options: Options, // reserved for future use (e.g. UEFI vs BIOS selection)
+) !*ImageStep {
+    _ = options;
+    const image_builder = tools.get("image_builder").?.release_safe_exe;
+    const limine_dep = b.dependency("limine_bin", .{});
+    const image_file_name = b.fmt("innigkeit_test_{s}.hdd", .{@tagName(arch)});
+
+    const desc_step = try ImageManifestStep.create(
+        b,
+        kernel,
+        arch,
+        limine_dep,
+        false, // no KASLR for tests — deterministic load address
+    );
+
+    const assemble = b.addRunArtifact(image_builder);
+    assemble.addFileArg(desc_step.manifest_file);
+    const raw_image = assemble.addOutputFileArg(image_file_name);
+
+    const final_image = if (arch == .x64) blk: {
+        const bios_install = b.addRunArtifact(tools.get("limine_install").?.release_safe_exe);
+        bios_install.addArgs(&.{ "-p", "1" });
+        bios_install.addArg("-i");
+        bios_install.addFileArg(raw_image);
+        bios_install.addArg("-o");
+        break :blk bios_install.addOutputFileArg(image_file_name);
+    } else raw_image;
+
+    const install = b.addInstallFile(
+        final_image,
+        b.pathJoin(&.{ @tagName(arch), image_file_name }),
+    );
+
+    const image_step = try b.allocator.create(ImageStep);
+    image_step.* = .{
+        .install_image = install,
+        .step = Step.init(.{
+            .id = .custom,
+            .name = b.fmt("build {s} test image", .{@tagName(arch)}),
+            .owner = b,
+            .makeFn = resolveImagePath,
+        }),
+        .generated_image_file = .{ .step = &image_step.step },
+        .image_file = .{ .generated = .{
+            .file = &image_step.generated_image_file,
+        } },
+    };
+    image_step.step.dependOn(&install.step);
+    return image_step;
+}
+
 /// Resolves the installed image path into `generated_image_file` at make time.
 fn resolveImagePath(step: *Step, _: Step.MakeOptions) !void {
     const self: *ImageStep = @fieldParentPtr("step", step);

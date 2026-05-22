@@ -116,6 +116,83 @@ fn buildKernel(
     };
 }
 
+/// Build the test kernel ELF for the given architecture.
+///
+/// Uses `b.addTest()` to set `builtin.is_test = true` and collect all
+/// `test "..."` blocks. Stage 4 detects the test build at comptime and runs
+/// them, then exits QEMU via the ISA debug-exit device instead of doing
+/// normal hardware initialisation.
+pub fn buildTestKernel(
+    b: *std.Build,
+    libraries: Library.Collection,
+    options: Options,
+    arch: Bundle.Architecture,
+    apps: App.Collection,
+    tools: Tool.Collection,
+) !Kernel {
+    const initfs_archive = buildInitfs(b, arch, apps, tools);
+
+    // Build the component graph exactly as the normal kernel does.
+    const graph = try resolveComponentGraph(b);
+    const required_libs = try collectRequiredLibraries(b, libraries, graph);
+    try configureComponents(b, arch, graph, required_libs, options, false);
+
+    // Wire initfs into the innigkeit component (the graph entry).
+    graph.entry.module.addImport(
+        "initfs",
+        b.createModule(.{ .root_source_file = initfs_archive }),
+    );
+
+    // Use the innigkeit component module as the test binary's root package.
+    // All files reachable via its import hierarchy are in the root package, so Zig
+    // collects every test block in them automatically, no dual-module conflict.
+    const innigkeit_module = graph.nodes.get("innigkeit").?.module;
+    innigkeit_module.resolved_target = arch.kernelTarget(b);
+    innigkeit_module.optimize = options.optimize;
+    innigkeit_module.strip = false;
+    innigkeit_module.omit_frame_pointer = false;
+    innigkeit_module.sanitize_c = switch (options.optimize) {
+        .Debug => .full,
+        .ReleaseSafe => .trap,
+        .ReleaseFast, .ReleaseSmall => .off,
+    };
+    switch (arch) {
+        .arm, .riscv => {},
+        .x64 => {
+            innigkeit_module.code_model = .kernel;
+            innigkeit_module.red_zone = false;
+        },
+    }
+
+    const test_exe = b.addTest(.{
+        .name = "kernel_test",
+        .root_module = innigkeit_module,
+        .test_runner = .{
+            .path = b.path("src/test.zig"),
+            .mode = .simple,
+        },
+    });
+
+    if (arch == .x64) test_exe.use_llvm = true;
+    test_exe.entry = .disabled;
+    test_exe.lto = .none;
+    test_exe.pie = true;
+    test_exe.linkage = .static;
+    test_exe.setLinkerScript(b.path(b.pathJoin(
+        &.{ "src", "architecture", @tagName(arch), "linker.ld" },
+    )));
+
+    const install = b.addInstallFile(
+        test_exe.getEmittedBin(),
+        b.pathJoin(&.{ @tagName(arch), "kernel_test" }),
+    );
+
+    return .{
+        .kernel_binary = test_exe.getEmittedBin(),
+        .install_step = &install.step,
+    };
+}
+
 /// Build the initfs ustar archive for the given architecture.
 ///
 /// The archive is produced by running the `initfs_builder` host tool which

@@ -25,6 +25,16 @@ pub fn build(b: *std.Build) !void {
     const image_steps = try ImageStep.registerImageSteps(b, kernels, tools, wrapper, options, architectures);
 
     try QEMU.registerQemuSteps(b, image_steps, options, architectures);
+
+    // Test step: builds a test kernel (builtin.is_test = true), assembles a
+    // disk image, and runs it in QEMU with the ISA debug-exit device.
+    // Exit code 1 means all tests passed; any other code means failure.
+    {
+        const test_kernel = try Kernel.buildTestKernel(b, libraries, options, .x64, apps, tools);
+        const test_image = try ImageStep.buildTestImageStep(b, test_kernel, tools, .x64, options);
+        const test_qemu = try QEMU.buildTestQemuStep(b, .x64, test_image.image_file, options);
+        b.step("test_x64", "Build test kernel and run unit tests in QEMU (x64)").dependOn(&test_qemu.step);
+    }
 }
 
 fn disableUnsupportedSteps(b: *std.Build) !void {
