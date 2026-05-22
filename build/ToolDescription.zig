@@ -9,7 +9,7 @@ const std = @import("std");
 
 /// Unique tool name.
 ///
-/// Determines the executable name, the root source file (`tool/{name}/{name}.zig`),
+/// Determines the executable name, the root source file (`tool/{name}/main.zig`),
 /// and derived build step names.
 name: []const u8,
 

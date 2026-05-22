@@ -149,6 +149,7 @@ pub fn refObject(cap_type: ObjectType, ptr: *anyopaque) void {
         .frame => (@as(*@import("types/Frame.zig"), @ptrCast(@alignCast(ptr)))).ref(),
         .notify => (@as(*@import("types/Notify.zig"), @ptrCast(@alignCast(ptr)))).ref(),
         .endpoint => (@as(*@import("types/Endpoint.zig"), @ptrCast(@alignCast(ptr)))).ref(),
+        .reply => (@as(*@import("types/Reply.zig"), @ptrCast(@alignCast(ptr)))).ref(),
     }
 }
 
@@ -158,5 +159,6 @@ pub fn unrefObject(cap_type: ObjectType, ptr: *anyopaque) void {
         .frame => (@as(*@import("types/Frame.zig"), @ptrCast(@alignCast(ptr)))).unref(),
         .notify => (@as(*@import("types/Notify.zig"), @ptrCast(@alignCast(ptr)))).unref(),
         .endpoint => (@as(*@import("types/Endpoint.zig"), @ptrCast(@alignCast(ptr)))).unref(),
+        .reply => (@as(*@import("types/Reply.zig"), @ptrCast(@alignCast(ptr)))).unref(),
     }
 }

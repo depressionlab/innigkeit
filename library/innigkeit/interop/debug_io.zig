@@ -15,10 +15,11 @@ const innigkeit = @import("innigkeit");
 var g_cancel_protection: std.Io.CancelProtection = .unblocked;
 
 // A File.Writer whose interface drain calls rawWrite(stderr).
-// io and file are set to undefined because our drain never accesses them.
+// io and file are set to undefined because our drain never accesses them,
+// but we avoid undefined to prevent UB if any code path ever reads them.
 var g_stderr_fw: std.Io.File.Writer = .{
-    .io = undefined,
-    .file = undefined,
+    .io = .failing,
+    .file = .{ .handle = 0, .flags = .{ .nonblocking = false } },
     .interface = .{
         .vtable = &innigkeit.io.stderr_vtable,
         .buffer = &.{},

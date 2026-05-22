@@ -4,7 +4,7 @@ const core = @import("core");
 const filesystem = @import("filesystem");
 
 const ImageDescription = @import("../image/ImageDescription.zig");
-const root = @import("../image_builder.zig");
+const root = @import("../main.zig");
 
 pub const Context = @import("Context.zig");
 pub const DateTime = @import("DateTime.zig");

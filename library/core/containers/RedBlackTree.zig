@@ -60,7 +60,7 @@ pub const Node = struct {
         return self.childPtr(side).*;
     }
 
-    fn parent(self: @This()) ?*Node {
+    pub fn parent(self: @This()) ?*Node {
         return @ptrFromInt(@as(u64, self.extra.ptr) << 3);
     }
 

@@ -63,11 +63,7 @@ fn resolveApp(
         description.name,
         description.dependencies,
     );
-    const lazy_path = b.path(b.pathJoin(&.{
-        "apps",
-        description.name,
-        b.fmt("{s}.zig", .{description.name}),
-    }));
+    const lazy_path = b.path(b.pathJoin(&.{ "apps", description.name, "main.zig" }));
 
     const all_tests_step = b.step(
         b.fmt("{s}_test", .{description.name}),

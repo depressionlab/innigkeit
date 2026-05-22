@@ -7,3 +7,4 @@ pub const Message = @import("Message.zig").Message;
 pub const Frame = @import("types/Frame.zig");
 pub const Notify = @import("types/Notify.zig");
 pub const Endpoint = @import("types/Endpoint.zig");
+pub const Reply = @import("types/Reply.zig");

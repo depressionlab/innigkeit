@@ -1,7 +1,7 @@
 //! Declarative description of a kernel component.
 //!
 //! Kernel components form a DAG. Each component is a Zig module whose root
-//! file lives at `kernel/{name}/{name}.zig`. The build system walks this graph
+//! file lives at `kernel/{name}/root.zig`. The build system walks this graph
 //! starting from a hardcoded entry component, creates one `*std.Build.Module`
 //! per component, and wires imports according to the dependency fields below.
 //!
@@ -14,7 +14,7 @@ const Options = @import("Options.zig");
 
 /// Unique component name.
 ///
-/// Determines the `@import` key and the root source file (`kernel/{name}/{name}.zig`).
+/// Determines the `@import` key and the root source file (`kernel/{name}/root.zig`).
 name: []const u8,
 
 /// Names of other kernel components this component may `@import`.

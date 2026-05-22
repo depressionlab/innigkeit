@@ -131,7 +131,7 @@ fn resolveLibrary(
 
     const owned_deps = try resolveDeps(b, libraries, desc.name, desc.dependencies);
     const dir = b.pathJoin(&.{ "library", desc.name });
-    const lazy_path = b.path(b.pathJoin(&.{ dir, b.fmt("{s}.zig", .{desc.name}) }));
+    const lazy_path = b.path(b.pathJoin(&.{ dir, "root.zig" }));
     const target_archs = desc.architectures.resolve(architectures);
 
     var internal_modules: Modules = .empty;

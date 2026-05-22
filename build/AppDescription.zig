@@ -10,7 +10,7 @@ const Bundle = @import("Bundle.zig");
 
 /// Unique application name.
 ///
-/// Determines the executable name, the root source file (apps/{name}/{name}.zig`),
+/// Determines the executable name, the root source file (apps/{name}/main.zig`),
 /// and all derived build step names.
 name: []const u8,
 

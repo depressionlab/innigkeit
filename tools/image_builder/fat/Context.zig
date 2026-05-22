@@ -5,7 +5,7 @@ const core = @import("core");
 const filesystem = @import("filesystem");
 
 const FAT = @import("root.zig");
-const root = @import("../image_builder.zig");
+const root = @import("../main.zig");
 
 io: std.Io,
 fat_partition: []u8,

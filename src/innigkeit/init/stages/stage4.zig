@@ -6,8 +6,8 @@ const log = innigkeit.debug.log.scoped(.init);
 ///
 /// Runs in a fully scheduled kernel task with interrupts enabled.
 pub fn start() !void {
-    log.info("running scheduler benchmark", .{});
-    try sched_bench.run();
+    // log.info("running scheduler benchmark", .{});
+    // try sched_bench.run();
 
     log.debug("initializing PCI ECAM", .{});
     try innigkeit.pci.init.initializeECAM();

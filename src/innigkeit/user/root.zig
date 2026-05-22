@@ -253,6 +253,35 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                     }
                 },
 
+                .reply => {
+                    const reply_cap: *innigkeit.capabilities.Reply = @ptrCast(@alignCast(slot_info.ptr));
+                    const reply_op = std.enums.fromInt(innigkeit.capabilities.Reply.Op, op) orelse {
+                        arch_frame.rax = errCode(e.EINVAL);
+                        return;
+                    };
+                    switch (reply_op) {
+                        .send => {
+                            if (!slot_info.rights.write) {
+                                arch_frame.rax = errCode(e.EPERM);
+                                return;
+                            }
+                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
+                                arch_frame.rax = errCode(e.EFAULT);
+                                return;
+                            }
+                            const msg_uptr: *const innigkeit.capabilities.Message = @ptrFromInt(arg3);
+                            current_task.incrementEnableAccessToUserMemory();
+                            const msg = msg_uptr.*;
+                            current_task.decrementEnableAccessToUserMemory();
+                            reply_cap.send(msg) catch {
+                                arch_frame.rax = errCode(e.EINVAL); // already replied
+                                return;
+                            };
+                            arch_frame.rax = 0;
+                        },
+                    }
+                },
+
                 .endpoint => {
                     const endpoint: *innigkeit.capabilities.Endpoint = @ptrCast(@alignCast(slot_info.ptr));
                     const ep_op = std.enums.fromInt(innigkeit.capabilities.Endpoint.Op, op) orelse {
@@ -352,6 +381,47 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                             msg_uptr.* = next_request;
                             current_task.decrementEnableAccessToUserMemory();
                             arch_frame.rax = 0;
+                        },
+                        .recv_call => {
+                            if (!slot_info.rights.read) {
+                                arch_frame.rax = errCode(e.EPERM);
+                                return;
+                            }
+                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
+                                arch_frame.rax = errCode(e.EFAULT);
+                                return;
+                            }
+                            // Block until a message arrives.
+                            const result = endpoint.recvCall();
+                            // Copy message to user memory.
+                            const msg_uptr: *innigkeit.capabilities.Message = @ptrFromInt(arg3);
+                            current_task.incrementEnableAccessToUserMemory();
+                            msg_uptr.* = result.msg;
+                            current_task.decrementEnableAccessToUserMemory();
+                            // If the sender used call(), create a Reply cap for them.
+                            if (result.sender) |sender_task| {
+                                const reply_cap = innigkeit.capabilities.Reply.create(sender_task) catch {
+                                    sender_task.ipc_message = .{};
+                                    sender_task.wakeFromBlocked();
+                                    arch_frame.rax = errCode(e.ENOMEM);
+                                    return;
+                                };
+                                const idx = blk: {
+                                    const tbl = Process.from(current_task.task).cap_table;
+                                    tbl.lock.lock();
+                                    const i = tbl.insertLocked(.reply, reply_cap, .{ .write = true }) catch {
+                                        tbl.lock.unlock();
+                                        reply_cap.unref(); // wakes sender with empty reply
+                                        arch_frame.rax = errCode(e.ENOMEM);
+                                        return;
+                                    };
+                                    tbl.lock.unlock();
+                                    break :blk i;
+                                };
+                                arch_frame.rax = @intCast(idx);
+                            } else {
+                                arch_frame.rax = @intCast(innigkeit.config.capabilities.null_slot);
+                            }
                         },
                     }
                 },
@@ -535,6 +605,8 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                     };
                     arch_frame.rax = @intCast(idx);
                 },
+                // Reply capabilities are created by the kernel (recv_call), not by userspace.
+                .reply => arch_frame.rax = errCode(e.EINVAL),
             }
         },
 

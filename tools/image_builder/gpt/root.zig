@@ -2,7 +2,7 @@ const std = @import("std");
 const core = @import("core");
 const filesystem = @import("filesystem");
 const UUID = @import("uuid").UUID;
-const root = @import("../image_builder.zig");
+const root = @import("../main.zig");
 
 const ImageDescription = @import("../image/ImageDescription.zig");
 pub const Partition = @import("Partition.zig");

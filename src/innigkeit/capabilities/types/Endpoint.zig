@@ -43,6 +43,14 @@ pub fn ref(self: *Endpoint) void {
 
 pub fn unref(self: *Endpoint) void {
     if (self.refcount.fetchSub(1, .acq_rel) != 1) return;
+    // Wake any call-mode sender that is still parked and waiting for a reply.
+    // Deliver an empty message so they get a defined (zero) response rather
+    // than blocking forever. Senders should treat tag==0 + all-zero words
+    // as "endpoint destroyed" and handle it as an error.
+    if (self.pending_sender) |s| {
+        s.ipc_message = .{};
+        s.wakeFromBlocked();
+    }
     innigkeit.mem.heap.allocator.destroy(self);
 }
 
@@ -214,11 +222,54 @@ pub fn replyRecv(self: *Endpoint, reply_msg: Message) Message {
     return msg;
 }
 
+/// Result of a recvCall: the received message plus a pointer to the task that
+/// sent it via `call`. `sender` is null for fire-and-forget senders.
+pub const RecvCallResult = struct {
+    msg: Message,
+    /// Non-null when the sender used `call` and is waiting for a reply.
+    /// The caller is responsible for creating a Reply capability for this task.
+    /// This field is intentionally NOT stored in pending_sender: responsibility
+    /// is transferred to the Reply cap, so the Endpoint is clean for re-use.
+    sender: ?*innigkeit.Task,
+};
+
+/// Like `recv`, but hands off call-mode sender ownership to the caller instead
+/// of storing it in `pending_sender`.
+///
+/// This is the preferred path when the receiver wants a Reply capability: the
+/// returned `sender` pointer is wrapped in a Reply cap, allowing correct cleanup
+/// if the receiver dies before calling reply.
+pub fn recvCall(self: *Endpoint) RecvCallResult {
+    self.lock.lock();
+
+    if (self.call_queue.popFirst()) |caller| {
+        const msg = caller.ipc_message;
+        // Do NOT set pending_sender: ownership goes to the Reply cap.
+        self.lock.unlock();
+        return .{ .msg = msg, .sender = caller };
+    }
+
+    if (self.send_queue.popFirst()) |s| {
+        const msg = s.ipc_message;
+        self.lock.unlock();
+        s.wakeFromBlocked();
+        return .{ .msg = msg, .sender = null };
+    }
+
+    self.recv_queue.wait(&self.lock);
+    self.lock.lock();
+    const msg = self.pending_msg;
+    // pending_msg was set by a fire-and-forget sender (send path).
+    self.lock.unlock();
+    return .{ .msg = msg, .sender = null };
+}
+
 /// cap_invoke operations for Endpoint.
 pub const Op = enum(u64) {
     /// Fire-and-forget send; block until reciver calls recv.
     send = 0,
     /// Block until any sender arrives; returns message in words.
+    /// rax = 0 on success (use recv_call to get a Reply capability for call-mode senders).
     recv = 1,
     /// Synchronous call; blocks until receiver replies. Returns reply in words.
     call = 2,
@@ -226,4 +277,7 @@ pub const Op = enum(u64) {
     reply = 3,
     /// Atomically reply to pending sender then block for the next message.
     reply_recv = 4,
+    /// Like recv, but returns a Reply capability handle in rax for call-mode senders.
+    /// rax = reply_handle (>= 0) for call-mode; rax = invalid_handle for fire-and-forget.
+    recv_call = 5,
 };

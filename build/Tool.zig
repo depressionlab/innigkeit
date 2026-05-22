@@ -63,11 +63,7 @@ fn resolveTool(
         description.name,
         description.dependencies,
     );
-    const lazy_path = b.path(b.pathJoin(&.{
-        "tools",
-        description.name,
-        b.fmt("{s}.zig", .{description.name}),
-    }));
+    const lazy_path = b.path(b.pathJoin(&.{ "tools", description.name, "main.zig" }));
 
     const normal_module = createModule(
         b,

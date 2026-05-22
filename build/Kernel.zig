@@ -291,10 +291,7 @@ fn configureComponents(
         const desc = node.description;
         const module = node.module;
 
-        module.root_source_file = b.path(b.pathJoin(&.{
-            node.source_dir,
-            b.fmt("{s}.zig", .{desc.name}),
-        }));
+        module.root_source_file = b.path(b.pathJoin(&.{ node.source_dir, "root.zig" }));
 
         for (desc.library_dependencies) |dep| {
             module.addImport(

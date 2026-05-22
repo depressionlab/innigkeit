@@ -130,8 +130,18 @@ inline fn callMain(args: std.process.Args.Vector, environ: std.process.Environ.B
     // TODO: support all the stuff below
     // @compileError("juicy main is unsupported");
 
-    // const gpa = if (use_debug_allocator)
-    //     debug_allocator.allocator()
+    const use_debug_allocator = switch (builtin.mode) {
+        .Debug, .ReleaseSafe => true,
+        .ReleaseFast, .ReleaseSmall => false,
+    };
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .{
+        .backing_allocator = innigkeit.mem.page_allocator,
+    };
+
+    const gpa = if (use_debug_allocator)
+        debug_allocator.allocator()
+    else
+        innigkeit.mem.page_allocator;
     // else if (builtin.link_libc)
     //     std.heap.c_allocator
     // else if (!builtin.single_threaded)
@@ -139,11 +149,9 @@ inline fn callMain(args: std.process.Args.Vector, environ: std.process.Environ.B
     // else
     //     comptime unreachable;
 
-    const gpa = innigkeit.mem.page_allocator;
-
-    // defer if (use_debug_allocator) {
-    //     _ = debug_allocator.deinit(); // Leaks do not affect return code.
-    // };
+    defer if (use_debug_allocator) {
+        _ = debug_allocator.deinit(); // Leaks do not affect return code.
+    };
 
     // var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     // defer arena_allocator.deinit();

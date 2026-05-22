@@ -9,7 +9,7 @@ const Bundle = @import("Bundle.zig");
 
 /// Unique library name.
 ///
-/// Determines the `@import` key, the root source file (`lib/{name}/{name}.zig`),
+/// Determines the `@import` key, the root source file (`lib/{name}/root.zig`),
 /// and derived build step names.
 name: []const u8,
 

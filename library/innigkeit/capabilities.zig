@@ -87,6 +87,8 @@ pub const EndpointOp = enum(u64) {
     call = 2,
     reply = 3,
     reply_recv = 4,
+    /// Like `recv`, but returns a Reply capability handle for call-mode senters.
+    recv_call = 5,
 };
 
 /// Send a message on an Endpoint, blocking until the receiver picks it up.
@@ -117,6 +119,45 @@ pub fn endpointReply(handle: Handle, msg: *const Message) SyscallError!void {
 /// `msg` in: reply payload; `msg` out: next incoming message. Requires read+write rights.
 pub fn endpointReplyRecv(handle: Handle, msg: *Message) SyscallError!void {
     _ = try invoke(handle, @intFromEnum(EndpointOp.reply_recv), @intFromPtr(msg));
+}
+
+/// Result of `endpointRecvCall`.
+pub const RecvCallResult = struct {
+    /// The received message.
+    msg: Message,
+    /// Handle to a Reply capability if the sender used `endpointCall`; otherwise
+    /// `invalid_handle`. Invoke `.replyCapSend` with this handle to unblock the
+    /// caller. The cap is automatically deleted after being used.
+    reply_handle: Handle,
+
+    /// True when a Reply cap is available (sender used call, not send).
+    pub fn hasReply(self: RecvCallResult) bool {
+        return self.reply_handle != invalid_handle;
+    }
+};
+
+/// Receive a message; for call-mode senders also obtain a Reply cap.
+///
+/// Returns `RecvCallResult.reply_handle == invalid_handle` for fire-and-forget
+/// senders. For call-mode senders, call `replyCapSend` with the handle before
+/// deleting it, otherwise the sender is unblocked with an empty error message.
+pub fn endpointRecvCall(handle: Handle, msg: *Message) SyscallError!RecvCallResult {
+    const raw = try invoke(handle, @intFromEnum(EndpointOp.recv_call), @intFromPtr(msg));
+    // Kernel returns null_slot (0xFFFF_FFFF) for fire-and-forget, or a real handle.
+    const reply_handle: Handle = @truncate(raw);
+    return .{ .msg = msg.*, .reply_handle = reply_handle };
+}
+
+pub const ReplyOp = enum(u64) {
+    send = 0,
+};
+
+/// Send a reply via a Reply capability and unblock the waiting caller.
+///
+/// Returns `error.InvalidArgument` if the reply was already sent (double-reply).
+/// The caller should `caps.delete(reply_handle)` after this returns.
+pub fn replyCapSend(handle: Handle, msg: *const Message) SyscallError!void {
+    _ = try invoke(handle, @intFromEnum(ReplyOp.send), @intFromPtr(msg));
 }
 
 /// Kernel object types that can be created via `cap_create`.
