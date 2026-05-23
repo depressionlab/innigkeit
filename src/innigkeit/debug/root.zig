@@ -6,7 +6,7 @@ const innigkeit = @import("innigkeit");
 pub const log = @import("log.zig");
 pub const PanicType = @import("PanicType.zig").PanicType;
 pub const PanicMode = @import("PanicMode.zig").PanicMode;
-pub const std_debug_exports = @import("std_debug_exports.zig");
+pub const interop = @import("interop.zig");
 pub const panic_interface = std.debug.FullPanic(zigPanic);
 
 pub fn hasAnExecutorPanicked() bool {

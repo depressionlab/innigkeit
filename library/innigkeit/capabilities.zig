@@ -1,5 +1,4 @@
 const Syscall = @import("syscall.zig").Syscall;
-const SyscallError = @import("syscall.zig").SyscallError;
 
 /// An opaque index into the process capability table.
 pub const Handle = u32;
@@ -28,7 +27,7 @@ pub const Message = extern struct {
 /// Invoke a capability operation.
 ///
 /// `op` and `arg` semantics depend on the object type; see the `*Op` enums.
-pub fn invoke(handle: Handle, op: u64, arg: usize) SyscallError!usize {
+pub fn invoke(handle: Handle, op: u64, arg: usize) Syscall.Error!usize {
     const result = Syscall.invoke(.cap_invoke, .{ handle, @as(usize, @intCast(op)), arg });
     return Syscall.decode(result);
 }
@@ -37,7 +36,7 @@ pub fn invoke(handle: Handle, op: u64, arg: usize) SyscallError!usize {
 ///
 /// `new_rights` must be a subset of the source slot's rights.
 /// Returns the new handle on success.
-pub fn copy(handle: Handle, new_rights: Rights) SyscallError!Handle {
+pub fn copy(handle: Handle, new_rights: Rights) Syscall.Error!Handle {
     const result = Syscall.invoke(.cap_copy, .{
         handle,
         @as(usize, @as(u16, @bitCast(new_rights))),
@@ -48,13 +47,13 @@ pub fn copy(handle: Handle, new_rights: Rights) SyscallError!Handle {
 /// Move a capability to a new slot (copy with same rights, then delete the original).
 ///
 /// Returns the new handle. The old handle is invalidated.
-pub fn move(handle: Handle) SyscallError!Handle {
+pub fn move(handle: Handle) Syscall.Error!Handle {
     const result = Syscall.invoke(.cap_move, .{handle});
     return @intCast(try Syscall.decode(result));
 }
 
 /// Delete a capability, releasing the kernel object if this was the last reference.
-pub fn delete(handle: Handle) SyscallError!void {
+pub fn delete(handle: Handle) Syscall.Error!void {
     const result = Syscall.invoke(.cap_delete, .{handle});
     _ = try Syscall.decode(result);
 }
@@ -66,18 +65,18 @@ pub const NotifyOp = enum(u64) {
 };
 
 /// Set bits on a Notify capability. Never blocks. Requires write rights.
-pub fn notifySignal(handle: Handle, bits: u64) SyscallError!void {
+pub fn notifySignal(handle: Handle, bits: u64) Syscall.Error!void {
     _ = try invoke(handle, @intFromEnum(NotifyOp.signal), @intCast(bits));
 }
 
 /// Block until at least one bit in `clear_mask` is set. Returns the bits received.
 /// Requires read rights.
-pub fn notifyWait(handle: Handle, clear_mask: u64) SyscallError!u64 {
+pub fn notifyWait(handle: Handle, clear_mask: u64) Syscall.Error!u64 {
     return try invoke(handle, @intFromEnum(NotifyOp.wait), @intCast(clear_mask));
 }
 
 /// Non-blocking check: returns matching pending bits (0 if none). Requires read rights.
-pub fn notifyPoll(handle: Handle, clear_mask: u64) SyscallError!u64 {
+pub fn notifyPoll(handle: Handle, clear_mask: u64) Syscall.Error!u64 {
     return try invoke(handle, @intFromEnum(NotifyOp.poll), @intCast(clear_mask));
 }
 
@@ -93,31 +92,31 @@ pub const EndpointOp = enum(u64) {
 
 /// Send a message on an Endpoint, blocking until the receiver picks it up.
 /// Requires write rights.
-pub fn endpointSend(handle: Handle, msg: *const Message) SyscallError!void {
+pub fn endpointSend(handle: Handle, msg: *const Message) Syscall.Error!void {
     _ = try invoke(handle, @intFromEnum(EndpointOp.send), @intFromPtr(msg));
 }
 
 /// Block until a sender arrives and copy the message into `msg`.
 /// Requires read rights.
-pub fn endpointRecv(handle: Handle, msg: *Message) SyscallError!void {
+pub fn endpointRecv(handle: Handle, msg: *Message) Syscall.Error!void {
     _ = try invoke(handle, @intFromEnum(EndpointOp.recv), @intFromPtr(msg));
 }
 
 /// Synchronous call: send `msg` and block until a reply is written back.
 /// The reply overwrites `msg` in place. Requires write rights.
-pub fn endpointCall(handle: Handle, msg: *Message) SyscallError!void {
+pub fn endpointCall(handle: Handle, msg: *Message) Syscall.Error!void {
     _ = try invoke(handle, @intFromEnum(EndpointOp.call), @intFromPtr(msg));
 }
 
 /// Reply to the pending call-mode sender. `msg` is the reply payload.
 /// Requires write rights.
-pub fn endpointReply(handle: Handle, msg: *const Message) SyscallError!void {
+pub fn endpointReply(handle: Handle, msg: *const Message) Syscall.Error!void {
     _ = try invoke(handle, @intFromEnum(EndpointOp.reply), @intFromPtr(msg));
 }
 
 /// Atomically reply to the current pending sender, then block for the next message.
 /// `msg` in: reply payload; `msg` out: next incoming message. Requires read+write rights.
-pub fn endpointReplyRecv(handle: Handle, msg: *Message) SyscallError!void {
+pub fn endpointReplyRecv(handle: Handle, msg: *Message) Syscall.Error!void {
     _ = try invoke(handle, @intFromEnum(EndpointOp.reply_recv), @intFromPtr(msg));
 }
 
@@ -141,7 +140,7 @@ pub const RecvCallResult = struct {
 /// Returns `RecvCallResult.reply_handle == invalid_handle` for fire-and-forget
 /// senders. For call-mode senders, call `replyCapSend` with the handle before
 /// deleting it, otherwise the sender is unblocked with an empty error message.
-pub fn endpointRecvCall(handle: Handle, msg: *Message) SyscallError!RecvCallResult {
+pub fn endpointRecvCall(handle: Handle, msg: *Message) Syscall.Error!RecvCallResult {
     const raw = try invoke(handle, @intFromEnum(EndpointOp.recv_call), @intFromPtr(msg));
     // Kernel returns null_slot (0xFFFF_FFFF) for fire-and-forget, or a real handle.
     const reply_handle: Handle = @truncate(raw);
@@ -156,7 +155,7 @@ pub const ReplyOp = enum(u64) {
 ///
 /// Returns `error.InvalidArgument` if the reply was already sent (double-reply).
 /// The caller should `caps.delete(reply_handle)` after this returns.
-pub fn replyCapSend(handle: Handle, msg: *const Message) SyscallError!void {
+pub fn replyCapSend(handle: Handle, msg: *const Message) Syscall.Error!void {
     _ = try invoke(handle, @intFromEnum(ReplyOp.send), @intFromPtr(msg));
 }
 
@@ -168,7 +167,7 @@ pub const CreateType = enum(u8) {
 
 /// Create a new kernel capability object and return a handle to it.
 /// The caller gets a slot with full rights (read + write + grant).
-pub fn create(object_type: CreateType) SyscallError!Handle {
+pub fn create(object_type: CreateType) Syscall.Error!Handle {
     const result = Syscall.invoke(.cap_create, .{@intFromEnum(object_type)});
     return @intCast(try Syscall.decode(result));
 }
@@ -180,12 +179,12 @@ pub const FrameOp = enum(u64) {
 
 /// Clone a frame capability (new handle to the same physical page).
 /// Requires grant rights.
-pub fn frameClone(handle: Handle) SyscallError!Handle {
+pub fn frameClone(handle: Handle) Syscall.Error!Handle {
     return @intCast(try invoke(handle, @intFromEnum(FrameOp.clone), 0));
 }
 
 /// Return the physical base address of the frame.
 /// Requires read rights.
-pub fn framePhysAddr(handle: Handle) SyscallError!usize {
+pub fn framePhysAddr(handle: Handle) Syscall.Error!usize {
     return try invoke(handle, @intFromEnum(FrameOp.phys_addr), 0);
 }

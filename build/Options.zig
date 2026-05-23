@@ -6,6 +6,7 @@ const Options = @This();
 const std = @import("std");
 const Bundle = @import("Bundle.zig");
 const EmulatorOptions = @import("options/EmulatorOptions.zig");
+const FilesystemOptions = @import("options/FilesystemOptions.zig");
 
 const ArchModules = std.AutoHashMapUnmanaged(Bundle.Architecture, *std.Build.Module);
 
@@ -17,6 +18,9 @@ optimize: std.builtin.OptimizeMode,
 
 /// Options for the QEMU emulator for testing.
 emulator: EmulatorOptions,
+
+/// Options for the filesystem
+filesystem: FilesystemOptions,
 
 /// Kernel log level, if overridden.
 log_level: ?LogLevel,
@@ -57,6 +61,7 @@ pub fn get(b: *std.Build, version: std.SemanticVersion, architectures: []const B
     return .{
         .optimize = b.standardOptimizeOption(.{}),
         .emulator = EmulatorOptions.get(b),
+        .filesystem = FilesystemOptions.get(b),
         .root_path = root_path,
         .log_level = log_level,
         .log_scopes = log_scopes,

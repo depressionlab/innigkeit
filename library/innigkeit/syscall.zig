@@ -1,18 +1,5 @@
 const builtin = @import("builtin");
 
-/// Error codes returned by the kernel as negative isize values.
-pub const SyscallError = error{
-    PermissionDenied,
-    IoError,
-    BadFileDescriptor,
-    WouldBlock,
-    OutOfMemory,
-    BadAddress,
-    InvalidArgument,
-    Unsupported,
-    Unknown,
-};
-
 /// Kernel-defined syscall numbers.
 pub const Syscall = enum(usize) {
     exit_thread = 0,
@@ -44,7 +31,7 @@ pub const Syscall = enum(usize) {
     ///
     /// The kernel encodes errors as negated errno-style codes (e.g. -9 = EBADF).
     /// Non-negative values are returned as-is.
-    pub fn decode(result: isize) SyscallError!usize {
+    pub fn decode(result: isize) Syscall.Error!usize {
         if (result >= 0) return @intCast(result);
         return switch (result) {
             -1 => error.PermissionDenied,
@@ -302,4 +289,17 @@ pub const Syscall = enum(usize) {
             else => @compileError("too many syscall arguments (max 6)"),
         };
     }
+
+    /// Error codes returned by the kernel as negative isize values.
+    pub const Error = error{
+        PermissionDenied,
+        IoError,
+        BadFileDescriptor,
+        WouldBlock,
+        OutOfMemory,
+        BadAddress,
+        InvalidArgument,
+        Unsupported,
+        Unknown,
+    };
 };

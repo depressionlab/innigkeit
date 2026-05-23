@@ -4,7 +4,7 @@
 //! Call `.stdWriter()` on a `Writer` to obtain a `std.Io.Writer` compatible
 //! with stdlib formatting functions (std.json.writeStream, etc.).
 const std = @import("std");
-const syscall = @import("syscall.zig");
+const innigkeit = @import("innigkeit");
 
 /// Standard file descriptors, encoded as `usize` for direct syscall use.
 pub const Fd = enum(usize) {
@@ -16,24 +16,24 @@ pub const Fd = enum(usize) {
 fn rawWrite(fd: Fd, bytes: []const u8) !void {
     var remaining = bytes;
     while (remaining.len > 0) {
-        const result = syscall.Syscall.invoke(.write, .{
+        const result = innigkeit.Syscall.invoke(.write, .{
             @intFromEnum(fd),
             @intFromPtr(remaining.ptr),
             remaining.len,
         });
-        const written = try syscall.Syscall.decode(result);
+        const written = try innigkeit.Syscall.decode(result);
         if (written == 0) return error.WriteFailed;
         remaining = remaining[written..];
     }
 }
 
 fn rawRead(fd: Fd, buf: []u8) !usize {
-    const result = syscall.Syscall.invoke(.read, .{
+    const result = innigkeit.Syscall.invoke(.read, .{
         @intFromEnum(fd),
         @intFromPtr(buf.ptr),
         buf.len,
     });
-    return syscall.Syscall.decode(result);
+    return innigkeit.Syscall.decode(result);
 }
 
 /// One comptime-specialised vtable per writable fd.

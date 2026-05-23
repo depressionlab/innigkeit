@@ -20,8 +20,7 @@ pub const std_options: std.Options = .{
 };
 
 pub const std_options_debug_io: std.Io = undefined;
-
-pub const debug = innigkeit.debug.std_debug_exports;
+pub const debug = innigkeit.debug.interop;
 
 comptime {
     @import("boot").exportEntryPoints();
