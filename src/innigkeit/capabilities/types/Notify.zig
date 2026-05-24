@@ -8,6 +8,10 @@ const Notify = @This();
 const std = @import("std");
 const innigkeit = @import("innigkeit");
 
+/// Revocation generation counter. Incremented by `cap_revoke`; checked on every
+/// capability lookup. All slots whose stored generation differs from this value
+/// are treated as revoked and return EBADF.
+generation: std.atomic.Value(u32) = .init(0),
 refcount: std.atomic.Value(usize) = .init(1),
 lock: innigkeit.sync.TicketSpinLock = .{},
 pending: u64 = 0,
@@ -75,3 +79,46 @@ pub const Op = enum(u64) {
     /// Poll: like wait but returns immediately (0 if nothing pending).
     poll = 2,
 };
+
+const testing = @import("std").testing;
+
+test "notify: poll returns 0 when nothing is pending" {
+    const n = try Notify.create();
+    defer n.unref();
+    try testing.expectEqual(@as(u64, 0), n.poll(0xFF));
+}
+
+test "notify: signal then poll returns and clears the signaled bits" {
+    const n = try Notify.create();
+    defer n.unref();
+    n.signal(0b101);
+    try testing.expectEqual(@as(u64, 0b101), n.poll(0xFF));
+    try testing.expectEqual(@as(u64, 0), n.poll(0xFF));
+}
+
+test "notify: poll mask filters which pending bits are consumed" {
+    const n = try Notify.create();
+    defer n.unref();
+    n.signal(0b1111);
+    try testing.expectEqual(@as(u64, 0b0011), n.poll(0b0011));
+    try testing.expectEqual(@as(u64, 0b1100), n.poll(0b1100));
+    try testing.expectEqual(@as(u64, 0), n.poll(0xFF));
+}
+
+test "notify: multiple signal calls accumulate bits" {
+    const n = try Notify.create();
+    defer n.unref();
+    n.signal(0b0001);
+    n.signal(0b0010);
+    n.signal(0b0100);
+    try testing.expectEqual(@as(u64, 0b0111), n.poll(0xFF));
+}
+
+test "notify: wait returns immediately when bits are already pending" {
+    const n = try Notify.create();
+    defer n.unref();
+    n.signal(0b1);
+    const result = n.wait(0b1);
+    try testing.expectEqual(@as(u64, 1), result);
+    try testing.expectEqual(@as(u64, 0), n.poll(0xFF));
+}

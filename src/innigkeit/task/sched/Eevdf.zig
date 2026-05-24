@@ -16,24 +16,25 @@
 //! so each ancestor only needs to take the min of its own vruntime and its
 //! children's cached values.
 //!
-//! Conservative invariant after insert:
+//! Conservative invariant (maintained at all times):
 //!   se.subtree_min_vruntime <= true_min(se's subtree)
 //!
-//! This holds because `tree.put` rotations can only move nodes DOWN (away from
-//! the root), and a node's old subtree always CONTAINED its new subtree. The
-//! rotated-up node is always on the walk-up path and gets its smin recomputed
-//! from (stale-small) children, giving a stale-small or exact result.
+//! For INSERT: `tree.put` rotations move nodes DOWN; the demoted node's old
+//! subtree CONTAINS its new subtree, so its old smin is still <= the new
+//! true_min. The promoted node is always on the fixupAugmentationUp walk-up
+//! path and gets an exact value. Nodes not on the path are stale-small (safe).
 //!
-//! Why not O(log n) for REMOVE:
-//!   `tree.remove` calls `rebalanceAfterRemove` which can rotate a node UP
-//!   inside the promoted node's subtree. That newly-promoted node gains
-//!   descendants it didn't have before, so its smin (reflecting the old smaller
-//!   subtree) can be LARGER than the new true minimum. `fixupAugmentationUp`
-//!   from the promoted node starts at the top of that subtree and cannot see
-//!   inside it — the stale-high value persists, causing `pickBest` to
-//!   incorrectly prune that subtree and never schedule eligible tasks (hang).
-//!   We therefore use a full O(n) `recomputeSubtreeMin` after every remove.
-//!   For <=32 tasks per CPU this is negligible.
+//! For REMOVE via `on_rotate` callbacks:
+//!   `tree.remove` calls `rebalanceAfterRemove` which may rotate nodes UP or
+//!   DOWN. `RedBlackTree.on_rotate` fires after every rotation:
+//!   - The promoted node (new_root) inherits the demoted node's old smin, which
+//!     covered the same large subtree. This is conservative-correct (<= true_min).
+//!   - The demoted node (old) gets its smin recomputed from its now-smaller
+//!     children. Their smins were set before the removal so they are stale-low
+//!     (<= true_min of their subtrees), keeping old's smin stale-low too.
+//!   All rotations thus MAINTAIN the stale-low invariant throughout rebalancing.
+//!   After `tree.remove`, `augmentHintBeforeRemove` + `fixupAugmentationUp`
+//!   walks up from the removal site and corrects smins in O(log n).
 //!
 //! Virtual time model
 //! ------------------
@@ -55,9 +56,7 @@
 //! Tasks are kept in an augmented red-black tree sorted by deadline. Each node
 //! caches the minimum vruntime in its subtree (`subtree_min_vruntime`), allowing
 //! `pickBest()` to prune ineligible subtrees and select the best eligible task
-//! in O(log n). Insert uses O(log n) walk-up; remove uses O(n) full recompute
-//! (see "Augmentation O(log n) fixup" above for why remove cannot be O(log n)
-//! without augmentation callbacks in the RbTree rotation code).
+//! in O(log n). Both insert and remove use O(log n) augmentation fixup.
 
 const std = @import("std");
 const innigkeit = @import("innigkeit");
@@ -137,9 +136,10 @@ pub const SchedEntity = struct {
 
     /// Minimum vruntime in this node's subtree (including `self`).
     ///
-    /// After insert: maintained exactly on the walk-up path; conservative
-    /// (<=true_min) elsewhere. After remove: exact everywhere (full recompute).
-    /// Used by `pickBest` to prune ineligible subtrees in O(log n).
+    /// Invariant: subtree_min_vruntime <= true_min(this subtree) at all times.
+    /// Maintained by fixupAugmentationUp after every insert/remove, and by
+    /// onRotate during tree rebalancing. Used by `pickBest` to prune
+    /// ineligible subtrees in O(log n).
     subtree_min_vruntime: u64 = 0,
 
     pub fn fromNode(node: *RbTree.Node) *SchedEntity {
@@ -160,7 +160,7 @@ pub const SchedEntity = struct {
 /// A per-executor EEVDF run queue
 pub const EevdfRunqueue = struct {
     /// Red-black tree of runnable tasks, keyed by virtual deadline.
-    tree: RbTree = .{},
+    tree: RbTree = .{ .on_rotate = &onRotate },
 
     /// Number of tasks currently in `tree` (excludes `curr`).
     nr_queued: u32 = 0,
@@ -302,7 +302,7 @@ pub fn enqueue(rq: *Runqueue, task: *innigkeit.Task, flags: SchedClass.EnqueueFl
     placeEntity(erq, se, flags);
 
     erq.addToAvg(se);
-    se.subtree_min_vruntime = se.vruntime; // initialize leaf before walk-up
+    se.subtree_min_vruntime = std.math.maxInt(u64); // sentinel so fixup propagates past the leaf
     _ = erq.tree.put(EevdfRunqueue.deadlineCmp, &se.rq_node);
     fixupAugmentationUp(&se.rq_node);
     erq.nr_queued += 1;
@@ -322,8 +322,9 @@ pub fn dequeue(rq: *Runqueue, task: *innigkeit.Task, flags: SchedClass.DequeueFl
     se.vlag = lag(erq, se);
 
     erq.removeFromAvg(se);
+    const dequeue_hint = augmentHintBeforeRemove(&se.rq_node);
     erq.tree.remove(&se.rq_node);
-    _ = recomputeSubtreeMin(erq.tree.root);
+    if (dequeue_hint) |h| fixupAugmentationUp(h);
     erq.nr_queued -= 1;
     se.on_rq = false;
     erq.updateMinVruntime();
@@ -358,7 +359,7 @@ pub fn putPrev(rq: *Runqueue, prev: *innigkeit.Task) void {
             se.deadline = se.vruntime + calcDeltaFair(se.slice, se.weight);
         }
         erq.addToAvg(se);
-        se.subtree_min_vruntime = se.vruntime; // initialize leaf before walk-up
+        se.subtree_min_vruntime = std.math.maxInt(u64); // sentinel so fixup propagates past the leaf
         _ = erq.tree.put(EevdfRunqueue.deadlineCmp, &se.rq_node);
         fixupAugmentationUp(&se.rq_node);
         erq.nr_queued += 1;
@@ -420,8 +421,9 @@ pub fn setRunning(erq: *EevdfRunqueue, task: *innigkeit.Task) void {
     const se = &task.sched;
     if (se.on_rq) {
         erq.removeFromAvg(se);
+        const running_hint = augmentHintBeforeRemove(&se.rq_node);
         erq.tree.remove(&se.rq_node);
-        _ = recomputeSubtreeMin(erq.tree.root);
+        if (running_hint) |h| fixupAugmentationUp(h);
         erq.nr_queued -= 1;
         se.on_rq = false;
         erq.updateMinVruntime();
@@ -474,18 +476,35 @@ fn fixupAugmentationUp(start: *RbTree.Node) void {
     }
 }
 
-/// O(n) full recompute of subtree_min_vruntime. Used after every removal
-/// because `rebalanceAfterRemove` can rotate a node UP inside the promoted
-/// node's subtree, giving it a smin that is LARGER than its new true minimum
-/// (the promoted node's smin, computed from stale children, would then also
-/// be too large, causing `pickBest` to prune the entire tree and hang).
-fn recomputeSubtreeMin(node_opt: ?*RbTree.Node) u64 {
-    const node = node_opt orelse return std.math.maxInt(u64);
-    const se = SchedEntity.fromNode(node);
-    const left_min = recomputeSubtreeMin(node.left);
-    const right_min = recomputeSubtreeMin(node.right);
-    se.subtree_min_vruntime = @min(se.vruntime, @min(left_min, right_min));
-    return se.subtree_min_vruntime;
+/// `RedBlackTree.on_rotate` callback: keeps subtree_min_vruntime conservative
+/// (<= true_min) during every rotation in both put and remove rebalancing.
+///
+/// After the rotation all child pointers in both nodes are already finalised,
+/// so children can be read directly to recompute `old`'s now-smaller subtree.
+fn onRotate(old: *RbTree.Node, new_root: *RbTree.Node) void {
+    const old_se = SchedEntity.fromNode(old);
+    const new_se = SchedEntity.fromNode(new_root);
+    // new_root's subtree covers the same range old's did; inherit its smin.
+    new_se.subtree_min_vruntime = old_se.subtree_min_vruntime;
+    // old has a smaller subtree now; recompute exactly from its children.
+    const left_min = if (old.left) |l| SchedEntity.fromNode(l).subtree_min_vruntime else std.math.maxInt(u64);
+    const right_min = if (old.right) |r| SchedEntity.fromNode(r).subtree_min_vruntime else std.math.maxInt(u64);
+    old_se.subtree_min_vruntime = @min(old_se.vruntime, @min(left_min, right_min));
+}
+
+/// Determine the node to pass to `fixupAugmentationUp` after `tree.remove(node)`.
+///
+/// Must be called BEFORE `tree.remove` while the node is still in the tree.
+/// - 2 children: the in-order successor is physically swapped into node's slot;
+///   return that successor so fixup starts where the change is visible.
+/// - 0/1 child: node is spliced directly; fixup from node's parent upward.
+fn augmentHintBeforeRemove(node: *RbTree.Node) ?*RbTree.Node {
+    if (node.left != null and node.right != null) {
+        var successor = node.right.?;
+        while (successor.left) |l| successor = l;
+        return successor;
+    }
+    return node.parent();
 }
 
 /// Recursively select the eligible task with the earliest virtual deadline.
@@ -577,7 +596,7 @@ test "calcDeltaFair: nice-0 task (identity)" {
 // }
 
 test "vruntimeEligible: empty queue is always eligible" {
-    const erq = EevdfRunqueue{};
+    const erq: EevdfRunqueue = .{};
     try std.testing.expect(erq.vruntimeEligible(0));
     try std.testing.expect(erq.vruntimeEligible(std.math.maxInt(u64) / 2));
 }
@@ -587,7 +606,7 @@ test "vruntimeEligible: task at the weighted average is eligible" {
     // seKey = 1000, sum_w_vruntime = 1000*1024 = 1024000, sum_weight = 1024.
     // Weighted avg = 1024000/1024 = 1000.
     // A task with vruntime <= 1000 is eligible.
-    var erq = EevdfRunqueue{};
+    var erq: EevdfRunqueue = .{};
     erq.sum_w_vruntime = 1000 * nice_0_weight;
     erq.sum_weight = nice_0_weight;
 
@@ -600,7 +619,7 @@ test "vruntimeEligible: two equal-weight tasks — average is their mean" {
     // Two queued tasks at vruntime 500 and 1500, weight 1024 each.
     // sum_w_vruntime = (500 + 1500) * 1024 = 2048000, sum_weight = 2048.
     // Weighted avg = 2048000 / 2048 = 1000.
-    var erq = EevdfRunqueue{};
+    var erq: EevdfRunqueue = .{};
     erq.sum_w_vruntime = (500 + 1500) * @as(i64, nice_0_weight);
     erq.sum_weight = 2 * nice_0_weight;
 
@@ -616,19 +635,6 @@ test "vruntimeEligible: two equal-weight tasks — average is their mean" {
 // is intentionally not dereferenced — we only compare its address as an opaque
 // pointer value when checking pickBest results.
 
-/// Verify augmentation after a REMOVE operation: `recomputeSubtreeMin` gives
-/// exact values everywhere, so we assert strict equality.
-/// Returns the true minimum for the given subtree.
-fn auditSubtreeExact(node_opt: ?*RbTree.Node) !u64 {
-    const node = node_opt orelse return std.math.maxInt(u64);
-    const se = SchedEntity.fromNode(node);
-    const left_min = try auditSubtreeExact(node.left);
-    const right_min = try auditSubtreeExact(node.right);
-    const expected = @min(se.vruntime, @min(left_min, right_min));
-    try std.testing.expectEqual(expected, se.subtree_min_vruntime);
-    return expected;
-}
-
 /// Verify augmentation after an INSERT operation: `fixupAugmentationUp` gives
 /// exact values on the walk-up path but only the conservative invariant
 /// (smin <= true_min) elsewhere (nodes rotated down during rebalancing).
@@ -640,7 +646,7 @@ fn auditSubtreeConservative(node_opt: ?*RbTree.Node) !u64 {
     const right_min = try auditSubtreeConservative(node.right);
     const true_min = @min(se.vruntime, @min(left_min, right_min));
     if (se.subtree_min_vruntime > true_min) {
-        std.debug.print(
+        log.warn(
             "augmentation stale-HIGH (unsafe): vruntime={} true_min={} smin={}\n",
             .{ se.vruntime, true_min, se.subtree_min_vruntime },
         );
@@ -653,16 +659,16 @@ fn auditSubtreeConservative(node_opt: ?*RbTree.Node) !u64 {
 /// (init leaf, put, fixup). Helper shared across tests.
 fn testInsertAll(tree: *RbTree, ses: []const *SchedEntity) void {
     for (ses) |se| {
-        se.subtree_min_vruntime = se.vruntime;
+        se.subtree_min_vruntime = std.math.maxInt(u64);
         _ = tree.put(EevdfRunqueue.deadlineCmp, &se.rq_node);
         fixupAugmentationUp(&se.rq_node);
     }
 }
 
 test "augmentation: single insert initialises leaf correctly" {
-    var se = SchedEntity{ .vruntime = 42, .deadline = 1 };
-    var tree = RbTree{};
-    se.subtree_min_vruntime = se.vruntime;
+    var se: SchedEntity = .{ .vruntime = 42, .deadline = 1 };
+    var tree: RbTree = .{};
+    se.subtree_min_vruntime = std.math.maxInt(u64);
     _ = tree.put(EevdfRunqueue.deadlineCmp, &se.rq_node);
     fixupAugmentationUp(&se.rq_node);
     try std.testing.expectEqual(@as(u64, 42), se.subtree_min_vruntime);
@@ -672,9 +678,9 @@ test "augmentation: smaller vruntime right child propagates to root" {
     // a is inserted first (root); b has a larger deadline so it goes right.
     // b.vruntime < a.vruntime -> root's smin must be <= 50 after fixup.
     // With exactly 2 nodes no rotation occurs so we can assert exact equality.
-    var a = SchedEntity{ .vruntime = 100, .deadline = 1 };
-    var b = SchedEntity{ .vruntime = 50, .deadline = 2 };
-    var tree = RbTree{};
+    var a: SchedEntity = .{ .vruntime = 100, .deadline = 1 };
+    var b: SchedEntity = .{ .vruntime = 50, .deadline = 2 };
+    var tree: RbTree = .{};
     testInsertAll(&tree, &.{ &a, &b });
     _ = try auditSubtreeConservative(tree.root);
     // No rotation with 2 nodes -> exact equality holds at the root.
@@ -685,9 +691,9 @@ test "augmentation: smaller vruntime right child propagates to root" {
 test "augmentation: larger vruntime insert stops early (no ancestor update)" {
     // a.vruntime=50 is already the minimum; inserting b.vruntime=200 must not
     // touch a's subtree_min_vruntime (early-exit fires at b's parent).
-    var a = SchedEntity{ .vruntime = 50, .deadline = 1 };
-    var b = SchedEntity{ .vruntime = 200, .deadline = 2 };
-    var tree = RbTree{};
+    var a: SchedEntity = .{ .vruntime = 50, .deadline = 1 };
+    var b: SchedEntity = .{ .vruntime = 200, .deadline = 2 };
+    var tree: RbTree = .{};
     testInsertAll(&tree, &.{&a});
     const before = a.subtree_min_vruntime;
     testInsertAll(&tree, &.{&b});
@@ -705,7 +711,7 @@ test "augmentation: 5-node insert, root smin ≤ global minimum (safe invariant)
         .{ .vruntime = 10, .deadline = 4 },
         .{ .vruntime = 400, .deadline = 5 },
     };
-    var tree = RbTree{};
+    var tree: RbTree = .{};
     testInsertAll(&tree, &.{ &nodes[0], &nodes[1], &nodes[2], &nodes[3], &nodes[4] });
     _ = try auditSubtreeConservative(tree.root);
     const root_se = SchedEntity.fromNode(tree.root.?);
@@ -713,40 +719,42 @@ test "augmentation: 5-node insert, root smin ≤ global minimum (safe invariant)
 }
 
 test "augmentation: remove leaf, parent correctly updated" {
-    var a = SchedEntity{ .vruntime = 100, .deadline = 1 };
-    var b = SchedEntity{ .vruntime = 50, .deadline = 2 };
-    var c = SchedEntity{ .vruntime = 200, .deadline = 3 };
-    var tree = RbTree{};
+    var a: SchedEntity = .{ .vruntime = 100, .deadline = 1 };
+    var b: SchedEntity = .{ .vruntime = 50, .deadline = 2 };
+    var c: SchedEntity = .{ .vruntime = 200, .deadline = 3 };
+    var tree: RbTree = .{ .on_rotate = &onRotate };
     testInsertAll(&tree, &.{ &a, &b, &c });
     _ = try auditSubtreeConservative(tree.root);
 
+    const hint = augmentHintBeforeRemove(&c.rq_node);
     tree.remove(&c.rq_node);
-    _ = recomputeSubtreeMin(tree.root); // O(n) full recompute (what dequeue/setRunning use)
-    if (tree.root) |_| _ = try auditSubtreeExact(tree.root);
+    if (hint) |h| fixupAugmentationUp(h);
+    if (tree.root) |_| _ = try auditSubtreeConservative(tree.root);
 }
 
-test "augmentation: remove two-child node — recompute fixes stale-high smin" {
-    // This test demonstrates WHY the O(log n) fixup cannot be used for remove:
-    // removing a two-child node swaps it with its successor. The successor
-    // carries its old leaf smin (200) into the new root position, where the
-    // true smin is 10 (from n1). recomputeSubtreeMin restores exact values.
-    var n1 = SchedEntity{ .vruntime = 10, .deadline = 1 };
-    var n2 = SchedEntity{ .vruntime = 100, .deadline = 2 }; // will be removed
-    var n3 = SchedEntity{ .vruntime = 200, .deadline = 3 }; // promoted node (was leaf)
-    var n4 = SchedEntity{ .vruntime = 50, .deadline = 4 };
-    var n5 = SchedEntity{ .vruntime = 300, .deadline = 5 };
-    var tree = RbTree{};
+test "augmentation: remove two-child node — on_rotate fixes stale-high smin" {
+    // Removing a two-child node swaps it with its in-order successor. The
+    // successor carries its old (small) smin into the new position. With
+    // on_rotate active during rebalanceAfterRemove the conservative smin ≤
+    // true_min invariant is maintained, and augmentHintBeforeRemove +
+    // fixupAugmentationUp corrects the successor's smin in O(log n).
+    var n1: SchedEntity = .{ .vruntime = 10, .deadline = 1 };
+    var n2: SchedEntity = .{ .vruntime = 100, .deadline = 2 }; // will be removed
+    var n3: SchedEntity = .{ .vruntime = 200, .deadline = 3 }; // promoted (was leaf)
+    var n4: SchedEntity = .{ .vruntime = 50, .deadline = 4 };
+    var n5: SchedEntity = .{ .vruntime = 300, .deadline = 5 };
+    var tree: RbTree = .{ .on_rotate = &onRotate };
     testInsertAll(&tree, &.{ &n1, &n2, &n3, &n4, &n5 });
     _ = try auditSubtreeConservative(tree.root);
 
-    tree.remove(tree.root.?); // remove n2 (root after 5 balanced inserts)
-    _ = recomputeSubtreeMin(tree.root);
-    if (tree.root) |_| _ = try auditSubtreeExact(tree.root);
+    const hint = augmentHintBeforeRemove(tree.root.?); // remove n2 (root)
+    tree.remove(tree.root.?);
+    if (hint) |h| fixupAugmentationUp(h);
+    if (tree.root) |_| _ = try auditSubtreeConservative(tree.root);
 
-    // pickBest must find eligible tasks now that smin is correct.
-    // avg=100: n1(vr=10) and n4(vr=50) eligible; n3(vr=200), n5(vr=300) not.
-
-    var erq = EevdfRunqueue{};
+    // pickBest must find eligible tasks. avg=100: n1(vr=10) and n4(vr=50)
+    // are eligible; n3(vr=200) and n5(vr=300) are not.
+    var erq: EevdfRunqueue = .{};
     erq.sum_w_vruntime = 100 * @as(i64, nice_0_weight);
     erq.sum_weight = nice_0_weight;
     try std.testing.expect(pickBest(&erq, tree.root) != null);
@@ -754,8 +762,7 @@ test "augmentation: remove two-child node — recompute fixes stale-high smin" {
 
 test "augmentation: full insert-remove cycle" {
     // Insert 7 nodes (conservative check after each insert), then remove them
-    // one by one (exact check after each remove via recomputeSubtreeMin).
-    // Insert 7 nodes, then remove them one by one, verifying after each step.
+    // one by one (conservative check after each O(log n) remove).
     var nodes: [7]SchedEntity = .{
         .{ .vruntime = 500, .deadline = 1 },
         .{ .vruntime = 100, .deadline = 2 },
@@ -765,29 +772,30 @@ test "augmentation: full insert-remove cycle" {
         .{ .vruntime = 50, .deadline = 6 },
         .{ .vruntime = 900, .deadline = 7 },
     };
-    var tree = RbTree{};
+    var tree: RbTree = .{ .on_rotate = &onRotate };
     for (&nodes) |*se| {
-        se.subtree_min_vruntime = se.vruntime;
+        se.subtree_min_vruntime = std.math.maxInt(u64);
         _ = tree.put(EevdfRunqueue.deadlineCmp, &se.rq_node);
         fixupAugmentationUp(&se.rq_node);
         _ = try auditSubtreeConservative(tree.root);
     }
     for (&nodes) |*se| {
         if (se.rq_node.extra.isolated) continue;
+        const hint = augmentHintBeforeRemove(&se.rq_node);
         tree.remove(&se.rq_node);
-        _ = recomputeSubtreeMin(tree.root);
-        if (tree.root) |_| _ = try auditSubtreeExact(tree.root);
+        if (hint) |h| fixupAugmentationUp(h);
+        if (tree.root) |_| _ = try auditSubtreeConservative(tree.root);
     }
 }
 
 test "pickBest: returns null when all tasks ineligible" {
     // avg vruntime = 100; all tasks have vruntime > 100 -> none eligible.
-    var a = SchedEntity{ .vruntime = 101, .deadline = 1 };
-    var b = SchedEntity{ .vruntime = 200, .deadline = 2 };
-    var tree = RbTree{};
+    var a: SchedEntity = .{ .vruntime = 101, .deadline = 1 };
+    var b: SchedEntity = .{ .vruntime = 200, .deadline = 2 };
+    var tree: RbTree = .{};
     testInsertAll(&tree, &.{ &a, &b });
 
-    var erq = EevdfRunqueue{};
+    var erq: EevdfRunqueue = .{};
     erq.sum_w_vruntime = 100 * @as(i64, nice_0_weight);
     erq.sum_weight = nice_0_weight;
 
@@ -797,13 +805,13 @@ test "pickBest: returns null when all tasks ineligible" {
 test "pickBest: selects eligible task with earliest deadline" {
     // avg = 100. a(dl=3,vr=80) and b(dl=1,vr=50) are eligible; c(dl=2,vr=120) is not.
     // Expected: b (earliest deadline among eligible tasks).
-    var a = SchedEntity{ .vruntime = 80, .deadline = 3 };
-    var b = SchedEntity{ .vruntime = 50, .deadline = 1 };
-    var c = SchedEntity{ .vruntime = 120, .deadline = 2 };
-    var tree = RbTree{};
+    var a: SchedEntity = .{ .vruntime = 80, .deadline = 3 };
+    var b: SchedEntity = .{ .vruntime = 50, .deadline = 1 };
+    var c: SchedEntity = .{ .vruntime = 120, .deadline = 2 };
+    var tree: RbTree = .{};
     testInsertAll(&tree, &.{ &a, &b, &c });
 
-    var erq = EevdfRunqueue{};
+    var erq: EevdfRunqueue = .{};
     erq.sum_w_vruntime = 100 * @as(i64, nice_0_weight);
     erq.sum_weight = nice_0_weight;
 
@@ -822,13 +830,13 @@ test "pickBest: prunes ineligible subtree via subtree_min_vruntime" {
     // Actually with this layout c < d by deadline so we need c to be in
     // left subtree of root. Use 3 nodes: root=b(dl=2,vr=150), b.left=a(dl=1,vr=160),
     // b.right=d(dl=3,vr=80). avg=100 -> a and b ineligible, d eligible.
-    var a = SchedEntity{ .vruntime = 160, .deadline = 1 };
-    var b = SchedEntity{ .vruntime = 150, .deadline = 2 };
-    var d = SchedEntity{ .vruntime = 80, .deadline = 3 };
-    var tree = RbTree{};
+    var a: SchedEntity = .{ .vruntime = 160, .deadline = 1 };
+    var b: SchedEntity = .{ .vruntime = 150, .deadline = 2 };
+    var d: SchedEntity = .{ .vruntime = 80, .deadline = 3 };
+    var tree: RbTree = .{};
     testInsertAll(&tree, &.{ &a, &b, &d });
 
-    var erq = EevdfRunqueue{};
+    var erq: EevdfRunqueue = .{};
     erq.sum_w_vruntime = 100 * @as(i64, nice_0_weight);
     erq.sum_weight = nice_0_weight;
 

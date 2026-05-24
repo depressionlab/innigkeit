@@ -57,7 +57,20 @@ fn runCommand(line: []const u8) void {
     } else if (std.mem.eql(u8, verb, "exit")) {
         innigkeit.thread.exitCurrent();
     } else {
-        innigkeit.io.stdout.print("unknown command: '{s}'\n", .{verb}) catch {};
+        // Try to launch the verb as a program in initfs.
+        var path_buf: [256]u8 = undefined;
+        if (verb.len < path_buf.len) {
+            @memcpy(path_buf[0..verb.len], verb);
+            path_buf[verb.len] = 0;
+            const path: [:0]const u8 = path_buf[0..verb.len :0];
+            const handle = innigkeit.process.spawn(path, &.{}) catch {
+                innigkeit.io.stdout.print("not found: '{s}'\n", .{verb}) catch {};
+                return;
+            };
+            innigkeit.process.waitProcess(handle) catch {};
+        } else {
+            innigkeit.io.stdout.print("command too long\n", .{}) catch {};
+        }
     }
 }
 

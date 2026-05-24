@@ -32,8 +32,8 @@ pub fn build(b: *std.Build) !void {
     {
         const test_kernel = try Kernel.buildTestKernel(b, libraries, options, .x64, apps, tools);
         const test_image = try ImageStep.buildTestImageStep(b, test_kernel, tools, .x64, options);
-        // const test_qemu = try QEMU.buildTestQemuStep(b, .x64, test_image.image_file, options);
-        b.step("test_x64", "Build test kernel and run unit tests in QEMU (x64)").dependOn(&test_image.step);
+        const test_qemu = try QEMU.buildTestQemuStep(b, .x64, test_image.image_file, options);
+        b.step("test_x64", "Build test kernel and run unit tests in QEMU (x64)").dependOn(&test_qemu.step);
     }
 }
 

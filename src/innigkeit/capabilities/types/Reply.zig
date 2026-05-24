@@ -14,6 +14,11 @@ const std = @import("std");
 const innigkeit = @import("innigkeit");
 const Message = @import("../Message.zig").Message;
 
+/// Revocation generation counter. See `Notify.generation` for semantics.
+/// Revoking a Reply capability before it is delivered aborts the blocked
+/// caller (unref's destructor delivers a zero message, prevented a
+/// permanent stall).
+generation: std.atomic.Value(u32) = .init(0),
 refcount: std.atomic.Value(usize) = .init(1),
 
 /// Pointer to the task waiting for a reply, or 0 if the reply was already sent.

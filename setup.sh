@@ -21,13 +21,22 @@ fi
 
 if ! command -v qemu-system-x86_64 &>/dev/null; then
   echo "[setup] Installing QEMU via apt..."
-  apt-get update -qq && apt-get install -y qemu-system-x86 >/dev/null
+  apt-get install -y qemu-system-x86 qemu-utils 2>/dev/null || \
+    { apt-get update -qq && apt-get install -y qemu-system-x86 qemu-utils >/dev/null; }
 fi
 
 export PATH="$ZIG_DIR:$PATH"
+
+cat > "$TOOLS_DIR/env.sh" <<EOF
+export PATH="$ZIG_DIR:\$PATH"
+EOF
+
 echo "[setup] Ready."
 echo "  Zig:  $(which zig) ($(zig version))"
-echo "  QEMU: $(which qemu-system-x86_64) ($(qemu-system-x86_64 --version | head -1))"
+echo "  QEMU: $(which qemu-system-x86_64 2>/dev/null || echo not-found) ($(qemu-system-x86_64 --version 2>/dev/null | head -1 || echo -))"
 echo ""
-echo "  Build: zig build run_x64"
-echo "  Patch: git format-patch origin/main --stdout > innigkeit.patch"
+echo "  Build:  zig build run_x64"
+echo "  Test:   zig build unit_test"
+echo "  Patch:  git format-patch origin/main --stdout > innigkeit.patch"
+echo ""
+echo "  Re-source env in new shells: source .tools/env.sh"

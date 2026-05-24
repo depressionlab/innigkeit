@@ -2,30 +2,44 @@ const builtin = @import("builtin");
 
 /// Kernel-defined syscall numbers.
 pub const Syscall = enum(usize) {
+    /// Exit an existing thread
     exit_thread = 0,
-    write = 1,
-    read = 2,
-    exit_process = 3,
+    /// Spawn a new thread
+    spawn_thread = 1,
+    /// Write to the standard output: (fd: Fd, ptr: usize, len: usize) → buf_len|error
+    write = 2,
+    /// Read from the standard input: (fd: Fd, ptr: usize, len: usize) → bytes_read|error
+    read = 3,
+    /// Voluntarily yield the CPU to another runnable thread. () → void
     yield = 4,
-    spawn_thread = 5,
+    /// Spawn a new process from initfs: (spec_ptr: usize) → notify_handle|error
+    spawn = 5,
+    /// Exit an existing process
+    exit_process = 6,
+    /// Wait for a spawned process to exit: (notify_handle: u32) → 0|error
+    wait_process = 7,
     /// Invoke a capability operation: (handle: u32, op: u64, arg: usize) → usize|error
-    cap_invoke = 6,
+    cap_invoke = 8,
     /// Copy a capability with optional rights restriction: (handle: u32, rights: u16) → new_handle|error
-    cap_copy = 7,
+    cap_copy = 9,
     /// Move a capability to a new slot (copy + delete original): (handle: u32) → new_handle|error
-    cap_move = 8,
+    cap_move = 10,
     /// Delete a capability: (handle: u32) → 0|error
-    cap_delete = 9,
+    cap_delete = 11,
     /// Create a new kernel capability object: (type: u8) → handle|error
-    cap_create = 10,
+    cap_create = 12,
+    /// Revoke a capability for all holders: (handle: u32) → 0|error
+    /// Requires the slot to carry .revoke rights. Increments the object's generation
+    /// counter; every other slot pointing to the same object returns EBADF on next use.
+    cap_revoke = 13,
     /// Map anonymous zero-fill memory: (size: usize, prot: u32) → addr|error
-    mmap = 11,
+    mmap = 14,
     /// Unmap a previously mapped range: (addr: usize, size: usize) → 0|error
-    munmap = 12,
+    munmap = 15,
     /// Block until futex word at addr != expected: (addr: usize, expected: u32) → 0|error
-    futex_wait = 13,
+    futex_wait = 16,
     /// Wake up to max_wake tasks on addr: (addr: usize, max_wake: u32) → woken_count|error
-    futex_wake = 14,
+    futex_wake = 17,
 
     /// Decode a raw syscall return value into a success count or a `SyscallError`.
     ///

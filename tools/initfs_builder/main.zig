@@ -8,7 +8,7 @@ const std = @import("std");
 const Io = std.Io;
 
 pub fn main(init: std.process.Init) !void {
-    const args = try init.minimal.args.toSlice(init.gpa);
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
 
     if (args.len > 1 and args.len % 2 != 1) {
         std.debug.print("usage: initfs_builder [name file]...\n", .{});
@@ -32,7 +32,7 @@ pub fn main(init: std.process.Init) !void {
         defer file.close(init.io);
 
         var reader = file.reader(init.io, &read_buf);
-        const data = try reader.interface.allocRemaining(init.gpa, .unlimited);
+        const data = try reader.interface.allocRemaining(init.arena.allocator(), .unlimited);
 
         try writeEntry(out, name, data);
     }

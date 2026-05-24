@@ -7,6 +7,7 @@ const core = @import("core");
 pub const elf = @import("elf/root.zig");
 pub const Process = @import("Process.zig");
 pub const Thread = @import("Thread.zig");
+pub const spawn = @import("spawn.zig");
 
 const log = innigkeit.debug.log.scoped(.user);
 
@@ -743,6 +744,76 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
 
             const woken = innigkeit.sync.futex.wake(addr, max_wake);
             arch_frame.rax = @intCast(woken);
+        },
+
+        // ------------------------------------------------------------------ //
+        // spawn(spec_ptr: usize) → notify_handle|error                       //
+        //   Reads a SpawnSpec from user memory, loads the named ELF from     //
+        //   initfs, creates a new process, and returns a Notify handle that  //
+        //   is signalled when the child exits.                               //
+        // ------------------------------------------------------------------ //
+        .spawn => {
+            const spec_ptr = syscall_frame.arg(.one);
+            const current_task: innigkeit.Task.Current = .get();
+            arch_frame.rax = spawn.syscallSpawn(spec_ptr, current_task);
+        },
+
+        // ------------------------------------------------------------------ //
+        // wait_process(notify_handle: u32) → 0|error                         //
+        //   Blocks until the Notify at the given handle has bit 1 set.       //
+        //   Convenience wrapper over cap_invoke(.notify, .wait, 1).          //
+        // ------------------------------------------------------------------ //
+        .wait_process => {
+            const handle: u32 = @truncate(syscall_frame.arg(.one));
+            const current_task: innigkeit.Task.Current = .get();
+            const process = Process.from(current_task.task);
+            const cap_table = process.cap_table;
+
+            cap_table.lock.lock();
+            const slot_info = cap_table.getAndRefLocked(handle) orelse {
+                cap_table.lock.unlock();
+                arch_frame.rax = errCode(e.EBADF);
+                return;
+            };
+            cap_table.lock.unlock();
+            defer innigkeit.capabilities.CapabilityTable.unrefObject(slot_info.cap_type, slot_info.ptr);
+
+            if (slot_info.cap_type != .notify) {
+                arch_frame.rax = errCode(e.EINVAL);
+                return;
+            }
+            if (!slot_info.rights.read) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
+
+            const notify: *innigkeit.capabilities.Notify = @ptrCast(@alignCast(slot_info.ptr));
+            _ = notify.wait(1);
+            arch_frame.rax = 0;
+        },
+
+        // ------------------------------------------------------------------ //
+        // cap_revoke(handle: u32) → 0|error                                   //
+        //   Increments the object's generation counter, instantly invalidating  //
+        //   every slot in every process that points to the same object.        //
+        //   Requires .revoke rights on the calling slot.                       //
+        // ------------------------------------------------------------------ //
+        .cap_revoke => {
+            const handle: u32 = @truncate(syscall_frame.arg(.one));
+            const process = Process.from(innigkeit.Task.Current.get().task);
+            const cap_table = process.cap_table;
+
+            cap_table.lock.lock();
+            defer cap_table.lock.unlock();
+
+            cap_table.revokeLocked(handle) catch |err| {
+                arch_frame.rax = switch (err) {
+                    error.NotFound => errCode(e.EBADF),
+                    error.NoRevokeRight => errCode(e.EPERM),
+                };
+                return;
+            };
+            arch_frame.rax = 0;
         },
     }
 }

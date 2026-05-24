@@ -33,3 +33,24 @@ pub const Context = union(Type) {
         user,
     };
 };
+
+// Boot-time hardware security integration tests.
+
+const std = @import("std");
+const builtin = @import("builtin");
+
+test "x64: SMEP is enforced at runtime (CR4 bit 20)" {
+    if (comptime builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    const cr4: u64 = asm ("mov %%cr4, %[value]"
+        : [value] "=r" (-> u64),
+    );
+    try std.testing.expect(cr4 & (1 << 20) != 0);
+}
+
+test "x64: SMAP is enforced at runtime (CR4 bit 21)" {
+    if (comptime builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    const cr4: u64 = asm ("mov %%cr4, %[value]"
+        : [value] "=r" (-> u64),
+    );
+    try std.testing.expect(cr4 & (1 << 21) != 0);
+}

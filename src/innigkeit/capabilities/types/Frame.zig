@@ -7,6 +7,8 @@ const Frame = @This();
 const std = @import("std");
 const innigkeit = @import("innigkeit");
 
+/// Revocation generation counter. See `Notify.generation` for semantics.
+generation: std.atomic.Value(u32) = .init(0),
 refcount: std.atomic.Value(usize) = .init(1),
 page: innigkeit.mem.PhysicalPage.Index,
 

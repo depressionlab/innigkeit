@@ -212,17 +212,12 @@ pub inline fn portWriteU32(port: u16, value: u32) void {
 }
 
 pub fn enableAccessToUserMemory() void {
-    if (!x64.info.cpu_id.smap) {
-        @branchHint(.unlikely); // modern CPUs support SMAP
-        return;
-    }
+    // SMAP is mandatory (enforced at boot). stac sets AC in RFLAGS so the kernel
+    // may access user-mode pages until the matching disableAccessToUserMemory call.
     asm volatile ("stac");
 }
 
 pub fn disableAccessToUserMemory() void {
-    if (!x64.info.cpu_id.smap) {
-        @branchHint(.unlikely); // modern CPUs support SMAP
-        return;
-    }
+    // clac clears AC, re-engaging SMAP hardware enforcement.
     asm volatile ("clac");
 }

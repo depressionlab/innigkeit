@@ -352,8 +352,15 @@ pub fn configurePerExecutorSystemFeatures() void {
         if (!x64.info.cpu_id.xsave.supported) @panic("XSAVE not supported!");
         cr4.osxsave = true;
 
-        cr4.supervisor_mode_execution_prevention = x64.info.cpu_id.smep;
-        cr4.supervisor_mode_access_prevention = x64.info.cpu_id.smap;
+        // SMEP and SMAP are mandatory. Every relevant CPU since ~2012 (Intel Ivy Bridge,
+        // AMD Zen) supports both, and QEMU's `max` CPU exposes them. Without SMEP the
+        // kernel can inadvertently execute user-page code; without SMAP it can silently
+        // read/write user pages outside of the guarded incrementEnableAccessToUserMemory
+        // windows. Neither is acceptable.
+        if (!x64.info.cpu_id.smep) @panic("CPU does not support SMEP; cannot boot securely");
+        if (!x64.info.cpu_id.smap) @panic("CPU does not support SMAP; cannot boot securely");
+        cr4.supervisor_mode_execution_prevention = true;
+        cr4.supervisor_mode_access_prevention = true;
 
         cr4.write();
     }

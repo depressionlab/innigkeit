@@ -3,10 +3,10 @@ const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
 
-/// The list of free pages.
+/// The buddy allocator for physical pages.
 ///
 /// Initialized during `init.initializePhysicalMemory`.
-pub var free_page_list: innigkeit.mem.PhysicalPage.List.Atomic = .{};
+pub var buddy: innigkeit.mem.PhysicalPage.BuddyAllocator = .{};
 
 /// The free physical memory.
 ///

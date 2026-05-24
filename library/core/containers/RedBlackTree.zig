@@ -7,6 +7,10 @@ first: ?*Node = null,
 /// cached last node
 last: ?*Node = null,
 size: usize = 0,
+/// Optional augmentation callback: called after every rotation.
+/// `old` is the node that moved down; `new_root` is the node that moved up.
+/// The callback must update any augmented values stored outside the `Node`.
+on_rotate: ?*const fn (old: *Node, new_root: *Node) void = null,
 
 const Color = enum(u1) {
     black,
@@ -683,6 +687,8 @@ fn rotate_node(self: *@This(), node: *Node, side: Side) *Node {
 
     new_subtree_root.resetSide();
     node.resetSide();
+    if (self.on_rotate) |cb|
+        cb(node, new_subtree_root);
     return new_subtree_root;
 }
 

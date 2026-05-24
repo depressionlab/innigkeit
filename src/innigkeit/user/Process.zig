@@ -32,6 +32,11 @@ cleanup_node: std.SinglyLinkedList.Node = .{},
 /// Used for generating thread names.
 next_thread_id: std.atomic.Value(usize) = .init(0),
 
+/// Signalled when this process exits (all threads terminate).
+/// Created by the spawn syscall and inserted into the spawning process's cap table.
+/// May be null for processes created by the kernel (e.g. the initial shell).
+exit_notify: ?*innigkeit.capabilities.Notify = null,
+
 pub const CreateOptions = struct {
     name: Name,
 };
@@ -221,6 +226,13 @@ const ProcessCleanup = struct {
         }
 
         log.debug("destroying {f}", .{process});
+
+        // Signal exit watchers before freeing the process.
+        if (process.exit_notify) |n| {
+            n.signal(1);
+            n.unref();
+            process.exit_notify = null;
+        }
 
         process.threads.clearAndFree(innigkeit.mem.heap.allocator);
         process.address_space.reinitializeAndUnmapAll();

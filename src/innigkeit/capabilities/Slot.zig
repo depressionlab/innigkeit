@@ -9,4 +9,7 @@ pub const Slot = struct {
     ptr_or_next: usize = 0,
     type: ObjectType = .null,
     rights: Rights = .{},
+    /// The object's generation counter at the time this slot was created.
+    /// If the current object generation differs, the capability has been revoked.
+    generation: u32 = 0,
 };

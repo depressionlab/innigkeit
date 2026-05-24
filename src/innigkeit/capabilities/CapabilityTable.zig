@@ -40,6 +40,7 @@ pub fn insertLocked(
         .ptr_or_next = @intFromPtr(ptr),
         .type = cap_type,
         .rights = rights,
+        .generation = objectGeneration(cap_type, ptr),
     };
     return idx;
 }
@@ -121,20 +122,59 @@ pub const SlotInfo = struct {
     rights: Rights,
 };
 
-/// Look up slot `idx`, bump its object's reference count, and return a snapshot.
+/// Look up slot `idx`, validate it has not been revoked, bump its reference count,
+/// and return a snapshot.
 ///
-/// Caller must hold the table lock. Returns null if the slot is empty or out of range.
+/// Caller must hold the table lock. Returns null if the slot is empty, out of range,
+/// or revoked (object generation differs from the stored generation).
 /// The caller is responsible for calling `unrefObject` on the returned info.
 pub fn getAndRefLocked(self: *CapabilityTable, idx: u32) ?SlotInfo {
     if (core.is_debug) std.debug.assert(self.lock.isLockedByCurrent());
     const slot = self.getLocked(idx) orelse return null;
-    const info = SlotInfo{
-        .cap_type = slot.type,
-        .ptr = @ptrFromInt(slot.ptr_or_next),
-        .rights = slot.rights,
-    };
+    const ptr: *anyopaque = @ptrFromInt(slot.ptr_or_next);
+    if (slot.generation != objectGeneration(slot.type, ptr)) return null;
+    const info = SlotInfo{ .cap_type = slot.type, .ptr = ptr, .rights = slot.rights };
     refObject(info.cap_type, info.ptr);
     return info;
+}
+
+/// Revoke the capability at `idx` by incrementing the underlying object's generation.
+///
+/// After this call every slot in every table that points to the same object — regardless
+/// of which process holds it — will fail `getAndRefLocked` with null (EBADF).
+/// The slot itself is NOT removed: it stays in place with stale generation so the
+/// process can still see it exists (and optionally delete it). Requires the slot to
+/// have `.revoke` rights.
+///
+/// Caller must hold the table lock.
+pub fn revokeLocked(self: *CapabilityTable, idx: u32) error{ NotFound, NoRevokeRight }!void {
+    if (core.is_debug) std.debug.assert(self.lock.isLockedByCurrent());
+    const slot = self.getLocked(idx) orelse return error.NotFound;
+    if (!slot.rights.revoke) return error.NoRevokeRight;
+    incrementObjectGeneration(slot.type, @ptrFromInt(slot.ptr_or_next));
+}
+
+/// Read the current generation counter of a capability object.
+fn objectGeneration(cap_type: ObjectType, ptr: *anyopaque) u32 {
+    return switch (cap_type) {
+        .null => unreachable,
+        .frame => @as(*@import("types/Frame.zig"), @ptrCast(@alignCast(ptr))).generation.load(.acquire),
+        .notify => @as(*@import("types/Notify.zig"), @ptrCast(@alignCast(ptr))).generation.load(.acquire),
+        .endpoint => @as(*@import("types/Endpoint.zig"), @ptrCast(@alignCast(ptr))).generation.load(.acquire),
+        .reply => @as(*@import("types/Reply.zig"), @ptrCast(@alignCast(ptr))).generation.load(.acquire),
+    };
+}
+
+/// Atomically increment the generation counter, invalidating all existing slots
+/// that point to this object (they will see a generation mismatch on next lookup).
+fn incrementObjectGeneration(cap_type: ObjectType, ptr: *anyopaque) void {
+    switch (cap_type) {
+        .null => unreachable,
+        .frame => _ = @as(*@import("types/Frame.zig"), @ptrCast(@alignCast(ptr))).generation.fetchAdd(1, .acq_rel),
+        .notify => _ = @as(*@import("types/Notify.zig"), @ptrCast(@alignCast(ptr))).generation.fetchAdd(1, .acq_rel),
+        .endpoint => _ = @as(*@import("types/Endpoint.zig"), @ptrCast(@alignCast(ptr))).generation.fetchAdd(1, .acq_rel),
+        .reply => _ = @as(*@import("types/Reply.zig"), @ptrCast(@alignCast(ptr))).generation.fetchAdd(1, .acq_rel),
+    }
 }
 
 fn rightsSubset(sub: Rights, sup: Rights) bool {
@@ -161,4 +201,100 @@ pub fn unrefObject(cap_type: ObjectType, ptr: *anyopaque) void {
         .endpoint => (@as(*@import("types/Endpoint.zig"), @ptrCast(@alignCast(ptr)))).unref(),
         .reply => (@as(*@import("types/Reply.zig"), @ptrCast(@alignCast(ptr)))).unref(),
     }
+}
+
+const Notify = @import("types/Notify.zig");
+
+test "capability: fresh slot passes generation check" {
+    const notify = try Notify.create();
+    defer notify.unref();
+
+    var table: CapabilityTable = undefined;
+    table.init();
+    table.lock.lock();
+    defer table.lock.unlock();
+
+    notify.ref();
+    const slot_idx = try table.insertLocked(.notify, notify, .all);
+
+    const info = table.getAndRefLocked(slot_idx);
+    try std.testing.expect(info != null);
+    unrefObject(info.?.cap_type, info.?.ptr);
+}
+
+test "capability: revoke invalidates all slots pointing to the same object" {
+    const notify = try Notify.create();
+    defer notify.unref();
+
+    var table: CapabilityTable = undefined;
+    table.init();
+    table.lock.lock();
+    defer table.lock.unlock();
+
+    // Insert the same object twice (two independent capability slots).
+    notify.ref();
+    const slot_a = try table.insertLocked(.notify, notify, .all);
+    notify.ref();
+    const slot_b = try table.insertLocked(.notify, notify, .{ .read = true });
+
+    // Both valid before revocation.
+    {
+        const a = table.getAndRefLocked(slot_a);
+        try std.testing.expect(a != null);
+        unrefObject(a.?.cap_type, a.?.ptr);
+        const b = table.getAndRefLocked(slot_b);
+        try std.testing.expect(b != null);
+        unrefObject(b.?.cap_type, b.?.ptr);
+    }
+
+    // Revoke via slot_a (has .revoke right).
+    try table.revokeLocked(slot_a);
+
+    // Both slots now return null — object generation has advanced.
+    try std.testing.expect(table.getAndRefLocked(slot_a) == null);
+    try std.testing.expect(table.getAndRefLocked(slot_b) == null);
+}
+
+test "capability: revoke requires revoke right" {
+    const notify = try Notify.create();
+    defer notify.unref();
+
+    var table: CapabilityTable = undefined;
+    table.init();
+    table.lock.lock();
+    defer table.lock.unlock();
+
+    notify.ref();
+    const slot = try table.insertLocked(.notify, notify, .{ .read = true, .write = true });
+
+    try std.testing.expectError(error.NoRevokeRight, table.revokeLocked(slot));
+    // Slot still valid after a failed revoke attempt.
+    const info = table.getAndRefLocked(slot);
+    try std.testing.expect(info != null);
+    unrefObject(info.?.cap_type, info.?.ptr);
+}
+
+test "capability: double revoke uses the new generation (second revoke works)" {
+    const notify = try Notify.create();
+    defer notify.unref();
+
+    var table: CapabilityTable = undefined;
+    table.init();
+    table.lock.lock();
+    defer table.lock.unlock();
+
+    notify.ref();
+    const slot_a = try table.insertLocked(.notify, notify, .all);
+    try table.revokeLocked(slot_a);
+
+    // Re-insert the same object into a new slot — it picks up the current generation.
+    notify.ref();
+    const slot_b = try table.insertLocked(.notify, notify, .all);
+    const info_b = table.getAndRefLocked(slot_b);
+    try std.testing.expect(info_b != null);
+    unrefObject(info_b.?.cap_type, info_b.?.ptr);
+
+    // Revoke again through slot_b.
+    try table.revokeLocked(slot_b);
+    try std.testing.expect(table.getAndRefLocked(slot_b) == null);
 }

@@ -199,11 +199,24 @@ pub fn initializePhysicalMemory(pages_range: innigkeit.KernelVirtualRange) void 
             }
         }
 
-        var current_free_index: usize = @as(usize, @intFromEnum(bootstrap_region.start_physical_page)) + @as(usize, bootstrap_region.first_free_page_index);
-        const last_free_index: usize = @as(usize, @intFromEnum(bootstrap_region.start_physical_page)) + @as(usize, bootstrap_region.page_count) - 1;
+        var current_free_index: u32 = @as(u32, @intCast(@as(usize, @intFromEnum(bootstrap_region.start_physical_page)) + @as(usize, bootstrap_region.first_free_page_index)));
+        const end_free_index: u32 = @as(u32, @intCast(@as(usize, @intFromEnum(bootstrap_region.start_physical_page)) + @as(usize, bootstrap_region.page_count)));
 
-        while (current_free_index <= last_free_index) : (current_free_index += 1) {
-            globals.free_page_list.prepend(@enumFromInt(@as(u32, @intCast(current_free_index))));
+        // Populate the buddy allocator using the largest naturally-aligned
+        // blocks that fit within each contiguous free range.
+        while (current_free_index < end_free_index) {
+            // Find the highest order whose alignment and size both fit.
+            var order: u4 = innigkeit.mem.PhysicalPage.BuddyAllocator.max_order;
+            while (order > 0) : (order -= 1) {
+                const pages_in_block: u32 = @as(u32, 1) << order;
+                // Block must be naturally aligned.
+                if ((current_free_index & (pages_in_block - 1)) != 0) continue;
+                // Block must not exceed the remaining free range.
+                if (current_free_index + pages_in_block > end_free_index) continue;
+                break;
+            }
+            globals.buddy.addBlock(@enumFromInt(current_free_index), order);
+            current_free_index += @as(u32, 1) << order;
         }
     }
 

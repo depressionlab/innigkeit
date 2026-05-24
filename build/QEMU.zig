@@ -153,7 +153,11 @@ pub fn buildTestQemuStep(
     image: std.Build.LazyPath,
     options: Options,
 ) !*std.Build.Step.Run {
-    const run = try buildQemuCommand(b, arch, image, options);
+    var test_opts = options;
+    test_opts.emulator.cpus = 1;
+    test_opts.emulator.memory = 256;
+
+    const run = try buildQemuCommand(b, arch, image, test_opts);
     run.addArgs(&.{ "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04" });
     run.addArg("-no-reboot");
     // buildQemuCommand sets stdio = .inherit; reset it so expectExitCode works.

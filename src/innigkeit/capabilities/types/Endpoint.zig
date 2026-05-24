@@ -13,6 +13,8 @@ const std = @import("std");
 const innigkeit = @import("innigkeit");
 const Message = @import("../Message.zig").Message;
 
+/// Revocation generation counter. See `Notify.generation` for semantics.
+generation: std.atomic.Value(u32) = .init(0),
 refcount: std.atomic.Value(usize) = .init(1),
 lock: innigkeit.sync.TicketSpinLock = .{},
 
@@ -281,3 +283,17 @@ pub const Op = enum(u64) {
     /// rax = reply_handle (>= 0) for call-mode; rax = invalid_handle for fire-and-forget.
     recv_call = 5,
 };
+
+const testing = @import("std").testing;
+
+test "endpoint: reply with no pending call-mode sender returns NoPendingSender" {
+    const ep = try Endpoint.create();
+    defer ep.unref();
+    try testing.expectError(error.NoPendingSender, ep.reply(.{}));
+}
+
+test "endpoint: generation starts at zero" {
+    const ep = try Endpoint.create();
+    defer ep.unref();
+    try testing.expectEqual(@as(u32, 0), ep.generation.load(.acquire));
+}

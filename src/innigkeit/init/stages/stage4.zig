@@ -20,8 +20,8 @@ pub fn start() !void {
         while (true) asm volatile ("hlt");
     }
 
-    // log.info("running scheduler benchmark", .{});
-    // try sched_bench.run();
+    log.info("running scheduler benchmark", .{});
+    try sched_bench.run();
 
     log.debug("initializing PCI ECAM", .{});
     try innigkeit.pci.init.initializeECAM();

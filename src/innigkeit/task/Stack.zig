@@ -95,8 +95,12 @@ fn createStackWithSize(usable_size: core.Size) !Stack {
     errdefer globals.stack_arena.deallocate(stack_range);
 
     const range = stack_range.toVirtualRange();
+    // The guard page sits at range.address (unmapped, no physical backing).
+    // The usable stack begins one page above it and grows downward from the top.
+    // A stack overflow past usable_range.address hits the unmapped guard page
+    // and faults immediately rather than silently corrupting adjacent memory.
     const usable_range: innigkeit.KernelVirtualRange = .{
-        .address = range.address,
+        .address = range.address.moveForward(architecture.paging.standard_page_size),
         .size = usable_size,
     };
 
@@ -165,3 +169,40 @@ pub const init = struct {
         };
     }
 };
+
+// Tests
+test "stack: guard page occupies the bottom of the virtual range" {
+    // Verify that the usable stack starts exactly one page above range.address.
+    // The page at range.address is intentionally left unmapped so that a
+    // downward stack overflow produces a page fault instead of silent corruption.
+    const page_size = architecture.paging.standard_page_size;
+    const stack = try createStack();
+    defer destroyStack(stack);
+
+    try std.testing.expectEqual(
+        stack.range.address.moveForward(page_size),
+        stack.usable_range.address,
+    );
+    // The usable region ends flush with the top of the full allocation.
+    try std.testing.expectEqual(
+        stack.range.after(),
+        stack.usable_range.after(),
+    );
+    // The usable region is strictly smaller than the full range (guard page gap).
+    try std.testing.expect(
+        stack.usable_range.size.lessThan(stack.range.size),
+    );
+}
+
+test "stack: initial stack pointer is inside the usable range" {
+    const stack = try createStack();
+    defer destroyStack(stack);
+
+    // After reset(), top_stack_pointer must be within [usable_range.address, usable_range.after()).
+    try std.testing.expect(
+        !stack.top_stack_pointer.lessThan(stack.usable_range.address),
+    );
+    try std.testing.expect(
+        stack.top_stack_pointer.lessThan(stack.usable_range.after()),
+    );
+}
