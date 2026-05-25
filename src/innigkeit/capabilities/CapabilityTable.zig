@@ -140,8 +140,8 @@ pub fn getAndRefLocked(self: *CapabilityTable, idx: u32) ?SlotInfo {
 
 /// Revoke the capability at `idx` by incrementing the underlying object's generation.
 ///
-/// After this call every slot in every table that points to the same object — regardless
-/// of which process holds it — will fail `getAndRefLocked` with null (EBADF).
+/// After this call every slot in every table that points to the same object (regardless
+/// of which process holds it) will fail `getAndRefLocked` with null (EBADF).
 /// The slot itself is NOT removed: it stays in place with stale generation so the
 /// process can still see it exists (and optionally delete it). Requires the slot to
 /// have `.revoke` rights.
@@ -250,7 +250,7 @@ test "capability: revoke invalidates all slots pointing to the same object" {
     // Revoke via slot_a (has .revoke right).
     try table.revokeLocked(slot_a);
 
-    // Both slots now return null — object generation has advanced.
+    // Both slots now return null, so object generation has advanced.
     try std.testing.expect(table.getAndRefLocked(slot_a) == null);
     try std.testing.expect(table.getAndRefLocked(slot_b) == null);
 }
@@ -287,7 +287,8 @@ test "capability: double revoke uses the new generation (second revoke works)" {
     const slot_a = try table.insertLocked(.notify, notify, .all);
     try table.revokeLocked(slot_a);
 
-    // Re-insert the same object into a new slot — it picks up the current generation.
+    // Re-insert the same object into a new slot.
+    // It picks up the current generation.
     notify.ref();
     const slot_b = try table.insertLocked(.notify, notify, .all);
     const info_b = table.getAndRefLocked(slot_b);

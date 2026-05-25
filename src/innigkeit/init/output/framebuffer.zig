@@ -3,6 +3,23 @@ const c = @import("flanterm");
 const innigkeit = @import("innigkeit");
 const Output = @import("Output.zig");
 
+/// Physical layout of the bootloader framebuffer.
+/// Filled on first successful framebuffer init; null if no framebuffer.
+pub const PhysInfo = struct {
+    phys_base: innigkeit.PhysicalAddress,
+    width: u32,
+    height: u32,
+    pitch: u32, // bytes per row
+    bpp: u8, // bits per pixel (always 32 for BGRX)
+};
+
+var phys_info: ?PhysInfo = null;
+
+/// Return the physical framebuffer info, or null if not initialised.
+pub fn getPhysInfo() ?PhysInfo {
+    return phys_info;
+}
+
 const init_log = innigkeit.debug.log.scoped(.output_init);
 
 pub fn tryGetFramebufferOutput(memory_system_available: bool) ?Output {
@@ -46,6 +63,15 @@ fn tryGetFramebufferOutputInner(memory_system_available: bool) !?Output {
     if (!memory_system_available) return null;
 
     const framebuffer = boot.framebuffer() orelse return null;
+
+    // Store physical info for the vmem_framebuffer_map syscall.
+    phys_info = .{
+        .phys_base = .fromDirectMap(.fromPtr(framebuffer.ptr)),
+        .width = @intCast(framebuffer.width),
+        .height = @intCast(framebuffer.height),
+        .pitch = @intCast(framebuffer.pitch),
+        .bpp = 32,
+    };
 
     const virtual_range = try innigkeit.mem.heap.allocateSpecial(
         .{

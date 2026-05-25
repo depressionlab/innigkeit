@@ -32,6 +32,10 @@
             .url = "git+https://github.com/leecannon/zig-sbi#82c2376f13dda5034f1fcfbcbfa15788d5b35ec9",
             .hash = "sbi-7.0.0-Muvb-gLyAQDyO6WOzpLCZ7EXPlL48WR-t4aaDkM1SSyb",
         },
+        .doomgeneric = .{
+            .url = "git+https://github.com/ozkl/doomgeneric#dcb7a8dbc7a16ce3dda29382ac9aae9d77d21284",
+            .hash = "N-V-__8AAJMtRADYgnFFWaSNURiX55QppO-9EWd4mUF8BoQG",
+        },
     },
     .paths = .{
         "build.zig",

@@ -130,7 +130,7 @@ pub fn initExecutor(executor: *innigkeit.Executor) void {
     per_executor.gdt.load();
     per_executor.gdt.setTss(&per_executor.tss);
 
-    // Point RSP0 at the dedicated IRQ stack so ring3→ring0 interrupts land
+    // Point RSP0 at the dedicated IRQ stack so ring3->ring0 interrupts land
     // there instead of the task stack. This is a fixed per-executor value;
     // it does not change on task switches.
     per_executor.tss.setPrivilegeStack(.ring0, per_executor.irq_stack.top_stack_pointer);

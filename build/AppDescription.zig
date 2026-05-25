@@ -18,10 +18,12 @@ name: []const u8,
 ///
 /// Each name must correspond to an entry in `Library.Collection`; the build
 /// system panics at configuration time for any unresolvable name.
-dependencies: []const []const u8 = &.{},
+dependencies: []const []const u8 = &.{"innigkeit"},
 
 /// Extra build configuration applied after the root module is created.
 configuration: Configuration = .simple,
+
+use_llvm: bool = false,
 
 pub const Configuration = union(enum) {
     /// No additional configuration needed.

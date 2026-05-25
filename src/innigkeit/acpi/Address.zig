@@ -41,9 +41,9 @@ pub const Address = extern struct {
         ///
         /// Highest Word Reserved (must be 0)
         ///
-        /// — PCI Device number on bus 0
+        /// - PCI Device number on bus 0
         ///
-        /// — PCI Function number
+        /// - PCI Function number
         ///
         /// Longest Word Offset in the configuration space header
         ///

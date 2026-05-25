@@ -28,10 +28,10 @@ wait_queue: innigkeit.sync.WaitQueue = .{},
 /// Called from the PS/2 IRQ handler (interrupts already disabled on entry).
 ///
 /// Line discipline:
-///   printable byte  → append to in-progress line; echo the character.
-///   backspace/DEL   → remove last character; echo visual erase.
-///   CR or LF        → submit line to the completed ring; wake any reader.
-///   Ctrl-C (0x03)   → discard in-progress line; echo "^C".
+///   printable byte  -> append to in-progress line; echo the character.
+///   backspace/DEL   -> remove last character; echo visual erase.
+///   CR or LF        -> submit line to the completed ring; wake any reader.
+///   Ctrl-C (0x03)   -> discard in-progress line; echo "^C".
 pub fn push(self: *KeyboardInputBuffer, byte: u8) void {
     self.lock.lock();
     defer self.lock.unlock();

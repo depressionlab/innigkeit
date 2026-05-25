@@ -116,7 +116,7 @@ pub fn buildTestImageStep(
         kernel,
         arch,
         limine_dep,
-        false, // no KASLR for tests — deterministic load address
+        false,
     );
 
     const assemble = b.addRunArtifact(image_builder);

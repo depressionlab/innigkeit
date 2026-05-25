@@ -7,7 +7,7 @@ const core = @import("core");
 pub const elf = @import("elf/root.zig");
 pub const Process = @import("Process.zig");
 pub const Thread = @import("Thread.zig");
-pub const spawn = @import("spawn.zig");
+pub const handlers = @import("handlers/root.zig");
 
 const log = innigkeit.debug.log.scoped(.user);
 
@@ -198,7 +198,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         },
 
         // ------------------------------------------------------------------ //
-        // cap_invoke(handle: u32, op: u64, arg: usize) → usize|error         //
+        // cap_invoke(handle: u32, op: u64, arg: usize) -> usize|error         //
         //   Invoke a capability-specific operation.                          //
         // ------------------------------------------------------------------ //
         .cap_invoke => {
@@ -467,7 +467,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         },
 
         // ------------------------------------------------------------------ //
-        // cap_copy(handle: u32, rights: u16) → new_handle|error              //
+        // cap_copy(handle: u32, rights: u16) -> new_handle|error              //
         // ------------------------------------------------------------------ //
         .cap_copy => {
             const handle: u32 = @truncate(syscall_frame.arg(.one));
@@ -491,7 +491,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         },
 
         // ------------------------------------------------------------------ //
-        // cap_move(handle: u32) → new_handle|error                           //
+        // cap_move(handle: u32) -> new_handle|error                           //
         //   Moves the capability to a new slot and invalidates the old one.  //
         // ------------------------------------------------------------------ //
         .cap_move => {
@@ -527,7 +527,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         },
 
         // ------------------------------------------------------------------ //
-        // cap_delete(handle: u32) → 0|error                                  //
+        // cap_delete(handle: u32) -> 0|error                                  //
         // ------------------------------------------------------------------ //
         .cap_delete => {
             const handle: u32 = @truncate(syscall_frame.arg(.one));
@@ -545,7 +545,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         },
 
         // ------------------------------------------------------------------ //
-        // cap_create(type: u8) → handle|error                                //
+        // cap_create(type: u8) -> handle|error                                //
         //   type 2 = Notify, type 3 = Endpoint                               //
         // ------------------------------------------------------------------ //
         .cap_create => {
@@ -612,7 +612,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         },
 
         // ------------------------------------------------------------------ //
-        // mmap(size: usize, prot: u32) → addr|error                         //
+        // mmap(size: usize, prot: u32) -> addr|error                         //
         //   Maps `size` bytes of anonymous zero-fill memory.                 //
         //   prot bits: 0=read, 1=write, 2=exec.                             //
         //   Size is rounded up to page granularity.                          //
@@ -666,7 +666,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         },
 
         // ------------------------------------------------------------------ //
-        // munmap(addr: usize, size: usize) → 0|error                         //
+        // munmap(addr: usize, size: usize) -> 0|error                         //
         //   Unmaps the region [addr, addr+size).                             //
         //   addr and size must be page-aligned.                              //
         // ------------------------------------------------------------------ //
@@ -711,7 +711,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         },
 
         // ------------------------------------------------------------------ //
-        // futex_wait(addr: usize, expected: u32) → 0|error                   //
+        // futex_wait(addr: usize, expected: u32) -> 0|error                   //
         //   Block until *addr != expected or a matching futex_wake arrives.  //
         //   Returns 0 on wake or if the value already differed.              //
         // ------------------------------------------------------------------ //
@@ -729,7 +729,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         },
 
         // ------------------------------------------------------------------ //
-        // futex_wake(addr: usize, max_wake: u32) → woken_count|error         //
+        // futex_wake(addr: usize, max_wake: u32) -> woken_count|error         //
         //   Wake up to max_wake threads blocked on addr.                     //
         //   Returns the number of threads actually woken.                    //
         // ------------------------------------------------------------------ //
@@ -747,7 +747,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         },
 
         // ------------------------------------------------------------------ //
-        // spawn(spec_ptr: usize) → notify_handle|error                       //
+        // spawn(spec_ptr: usize) -> notify_handle|error                       //
         //   Reads a SpawnSpec from user memory, loads the named ELF from     //
         //   initfs, creates a new process, and returns a Notify handle that  //
         //   is signalled when the child exits.                               //
@@ -755,11 +755,11 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .spawn => {
             const spec_ptr = syscall_frame.arg(.one);
             const current_task: innigkeit.Task.Current = .get();
-            arch_frame.rax = spawn.syscallSpawn(spec_ptr, current_task);
+            arch_frame.rax = handlers.spawn.syscallSpawn(spec_ptr, current_task);
         },
 
         // ------------------------------------------------------------------ //
-        // wait_process(notify_handle: u32) → 0|error                         //
+        // wait_process(notify_handle: u32) -> 0|error                         //
         //   Blocks until the Notify at the given handle has bit 1 set.       //
         //   Convenience wrapper over cap_invoke(.notify, .wait, 1).          //
         // ------------------------------------------------------------------ //
@@ -793,7 +793,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         },
 
         // ------------------------------------------------------------------ //
-        // cap_revoke(handle: u32) → 0|error                                   //
+        // cap_revoke(handle: u32) -> 0|error                                   //
         //   Increments the object's generation counter, instantly invalidating  //
         //   every slot in every process that points to the same object.        //
         //   Requires .revoke rights on the calling slot.                       //
@@ -814,6 +814,84 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 return;
             };
             arch_frame.rax = 0;
+        },
+
+        // ------------------------------------------------------------------ //
+        // vmem_map(handle: u32) -> addr|error                                 //
+        //   Maps the Frame at `handle` into the calling process's address    //
+        //   space. Returns the virtual base address of the new mapping.      //
+        // ------------------------------------------------------------------ //
+        .vmem_map => {
+            const handle: u32 = @truncate(syscall_frame.arg(.one));
+            const current_task: innigkeit.Task.Current = .get();
+            arch_frame.rax = handlers.vmem.syscallVmemMap(handle, current_task);
+        },
+
+        // ------------------------------------------------------------------ //
+        // vmem_unmap(addr: usize, size: usize) -> 0|error                     //
+        //   Unmaps the region [addr, addr+size) from the calling process.    //
+        //   addr and size must be page-aligned.                              //
+        // ------------------------------------------------------------------ //
+        .vmem_unmap => {
+            const addr_raw = syscall_frame.arg(.one);
+            const size_bytes = syscall_frame.arg(.two);
+            const current_task: innigkeit.Task.Current = .get();
+            arch_frame.rax = handlers.vmem.syscallVmemUnmap(addr_raw, size_bytes, current_task);
+        },
+
+        // ------------------------------------------------------------------ //
+        // framebuffer_map(info_ptr: usize) -> va|error                        //
+        //   Maps the bootloader framebuffer (write-combining) into the       //
+        //   calling process's VA. Fills FramebufferInfo at info_ptr.         //
+        //   Returns the virtual base address of the mapping.                 //
+        // ------------------------------------------------------------------ //
+        .framebuffer_map => {
+            const info_ptr = syscall_frame.arg(.one);
+            const current_task: innigkeit.Task.Current = .get();
+            arch_frame.rax = handlers.framebuffer.syscallFramebufferMap(info_ptr, current_task);
+        },
+
+        // ------------------------------------------------------------------ //
+        // initfs_read(spec_ptr: usize) -> bytes|error                         //
+        //   spec_ptr -> InitfsReadSpec{name_ptr, name_len, buf_ptr, buf_len}  //
+        //   Read a file from the embedded initfs archive into a user buffer. //
+        //   buf_len==0 returns the file size without copying (stat mode).    //
+        // ------------------------------------------------------------------ //
+        .initfs_read => {
+            const spec_ptr = syscall_frame.arg(.one);
+            const current_task: innigkeit.Task.Current = .get();
+            arch_frame.rax = handlers.framebuffer.syscallInitfsRead(spec_ptr, current_task);
+        },
+
+        // ------------------------------------------------------------------ //
+        // uptime_ms() -> ms:usize                                             //
+        //   Returns milliseconds elapsed since kernel boot.                  //
+        // ------------------------------------------------------------------ //
+        .uptime_ms => {
+            arch_frame.rax = handlers.framebuffer.syscallUptimeMs();
+        },
+
+        // ----------------------------------------------------------------------- //
+        // blk_read(spec_ptr: usize) -> bytes|error                                 //
+        //   spec_ptr -> BlkReadSpec{byte_offset:u64, buf_ptr:usize, buf_len:usize} //
+        //   Reads bytes from the data disk (virtio-blk device 1).                 //
+        // ----------------------------------------------------------------------- //
+        .blk_read => {
+            const spec_ptr = syscall_frame.arg(.one);
+            const current_task: innigkeit.Task.Current = .get();
+            arch_frame.rax = handlers.framebuffer.syscallBlkRead(spec_ptr, current_task);
+        },
+
+        // ------------------------------------------------------------------ //
+        // kbd_read(buf_ptr: usize, buf_len: usize) -> count                   //
+        //   Non-blocking drain of raw PS/2 bytes (incl. 0xE0 prefix and      //
+        //   break bit) into a user buffer. Returns 0 when no keys pending.   //
+        // ------------------------------------------------------------------ //
+        .kbd_read => {
+            const buf_ptr = syscall_frame.arg(.one);
+            const buf_len = syscall_frame.arg(.two);
+            const current_task: innigkeit.Task.Current = .get();
+            arch_frame.rax = handlers.framebuffer.syscallKbdRead(buf_ptr, buf_len, current_task);
         },
     }
 }

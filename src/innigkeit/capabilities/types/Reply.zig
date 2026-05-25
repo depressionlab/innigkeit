@@ -58,7 +58,40 @@ pub fn send(self: *Reply, msg: Message) error{AlreadyReplied}!void {
     const ptr = self.sender.swap(0, .acq_rel);
     if (ptr == 0) return error.AlreadyReplied;
     const task: *innigkeit.Task = @ptrFromInt(ptr);
-    task.ipc_message = msg;
+    // Transfer caps from current replier to the original caller.
+    const current_task: innigkeit.Task.Current = .get();
+    var reply_msg = msg;
+    if (current_task.task.type == .user and task.type == .user) {
+        const replier_process = innigkeit.user.Process.from(current_task.task);
+        const caller_process = innigkeit.user.Process.from(task);
+        const src_table = replier_process.cap_table;
+        const dst_table = caller_process.cap_table;
+        const CapabilityTable = innigkeit.capabilities.CapabilityTable;
+        for (&reply_msg.caps) |*cap_handle| {
+            if (cap_handle.* == 0) continue;
+            src_table.lock.lock();
+            const slot = src_table.getLocked(cap_handle.*) orelse {
+                src_table.lock.unlock();
+                cap_handle.* = 0;
+                continue;
+            };
+            const cap_type = slot.type;
+            const rights = slot.rights;
+            const obj_ptr: *anyopaque = @ptrFromInt(slot.ptr_or_next);
+            CapabilityTable.refObject(cap_type, obj_ptr);
+            src_table.lock.unlock();
+            dst_table.lock.lock();
+            const new_idx = dst_table.insertLocked(cap_type, obj_ptr, rights) catch {
+                dst_table.lock.unlock();
+                CapabilityTable.unrefObject(cap_type, obj_ptr);
+                cap_handle.* = 0;
+                continue;
+            };
+            dst_table.lock.unlock();
+            cap_handle.* = @intCast(new_idx);
+        }
+    }
+    task.ipc_message = reply_msg;
     task.wakeFromBlocked();
 }
 

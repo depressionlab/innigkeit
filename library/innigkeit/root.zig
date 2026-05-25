@@ -7,3 +7,10 @@ pub const thread = @import("thread.zig");
 pub const interop = @import("interop/root.zig");
 pub const futex = @import("futex.zig");
 pub const process = @import("process.zig");
+pub const block = @import("block.zig");
+pub const storage = @import("storage.zig");
+pub const display = @import("display.zig");
+pub const fs = @import("fs.zig");
+
+/// Handle type alias for convenience in storage/block protocol code.
+pub const Handle = capabilities.Handle;

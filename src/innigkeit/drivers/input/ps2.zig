@@ -20,6 +20,37 @@ const KEYBOARD_GSI: u32 = 1;
 /// The keyboard input buffer, fed by the IRQ handler and consumed by read().
 pub var keyboard_buffer: innigkeit.init.KeyboardInputBuffer = .{};
 
+/// SPSC ring buffer of raw PS/2 bytes (incl. 0xE0 prefix and break bit) for games.
+pub const RawKeyBuffer = struct {
+    buf: [256]u8 = .{0} ** 256,
+    read_pos: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
+    write_pos: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
+
+    /// Called from IRQ handler (interrupts disabled). Non-blocking.
+    pub fn push(self: *RawKeyBuffer, byte: u8) void {
+        const w = self.write_pos.load(.monotonic);
+        const next = (w + 1) % self.buf.len;
+        if (next == self.read_pos.load(.monotonic)) return;
+        self.buf[w] = byte;
+        self.write_pos.store(next, .release);
+    }
+
+    /// Called from syscall context. Non-blocking drain into caller's slice.
+    pub fn drain(self: *RawKeyBuffer, out: []u8) usize {
+        var count: usize = 0;
+        while (count < out.len) {
+            const r = self.read_pos.load(.acquire);
+            if (r == self.write_pos.load(.acquire)) break;
+            out[count] = self.buf[r];
+            self.read_pos.store((r + 1) % self.buf.len, .release);
+            count += 1;
+        }
+        return count;
+    }
+};
+
+pub var raw_kb: RawKeyBuffer = .{};
+
 /// Modifier state tracked across interrupts.
 var shift_held: bool = false;
 var ctrl_held: bool = false;
@@ -62,6 +93,9 @@ fn onInterrupt(
     if (status_port.read(u8) & STATUS_OUTPUT_FULL == 0) return;
     const scancode = data_port.read(u8);
 
+    // Feed raw byte to the game keyboard ring buffer (includes 0xE0 prefix and break bit).
+    raw_kb.push(scancode);
+
     // Extended-key prefix: set flag and wait for the real scan code.
     if (scancode == 0xE0) {
         extended = true;
@@ -91,7 +125,7 @@ fn onInterrupt(
 
     if (is_break) return;
 
-    // Ctrl+C → push ASCII ETX.
+    // Ctrl+C -> push ASCII ETX.
     if (ctrl_held and make == 0x2E) {
         keyboard_buffer.push('\x03');
         return;
@@ -101,11 +135,8 @@ fn onInterrupt(
     if (ascii != 0) keyboard_buffer.push(ascii);
 }
 
-// ---------------------------------------------------------------------------
-// Scan-code set 1 → ASCII translation tables (make codes 0x00–0x7F).
+// Scan-code set 1 -> ASCII translation tables (make codes 0x00–0x7F).
 // A zero entry means "no character" (modifier, function key, etc.).
-// ---------------------------------------------------------------------------
-
 const sc_normal: [128]u8 = buildNormal();
 const sc_shifted: [128]u8 = buildShifted();
 

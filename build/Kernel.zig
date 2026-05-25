@@ -208,15 +208,12 @@ fn buildInitfs(
     const run = b.addRunArtifact(initfs_builder);
     const bundle: Bundle = .{ .architecture = arch, .context = .internal };
 
-    const hello_world = apps.get("hello_world") orelse
-        @panic("no hello_world app!");
-    run.addArg("hello_world");
-    run.addFileArg(hello_world.executables.get(bundle).?.getEmittedBin());
-
-    const shell = apps.get("shell") orelse
-        @panic("no shell app!");
-    run.addArg("shell");
-    run.addFileArg(shell.executables.get(bundle).?.getEmittedBin());
+    var it = apps.iterator();
+    while (it.next()) |entry| {
+        const exe = entry.value_ptr.executables.get(bundle) orelse continue;
+        run.addArg(entry.key_ptr.*);
+        run.addFileArg(exe.getEmittedBin());
+    }
 
     return run.captureStdOut(.{});
 }

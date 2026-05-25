@@ -9,7 +9,7 @@ var line_buf: [256]u8 = undefined;
 
 pub fn main() void {
     innigkeit.io.stdout.print(
-        "\nInnigkeit shell:  type 'help' for commands\n",
+        "\nwelcome to innigkeit shell: type 'help' for commands\n",
         .{},
     ) catch return;
     prompt();
@@ -51,7 +51,7 @@ fn runCommand(line: []const u8) void {
     } else if (std.mem.eql(u8, verb, "echo")) {
         innigkeit.io.stdout.print("{s}\n", .{args}) catch {};
     } else if (std.mem.eql(u8, verb, "uname")) {
-        innigkeit.io.stdout.print("Innigkeit OS  x86_64\n", .{}) catch {};
+        innigkeit.io.stdout.print("Innigkeit x86_64\n", .{}) catch {};
     } else if (std.mem.eql(u8, verb, "clear")) {
         innigkeit.io.stdout.print("\x1b[2J\x1b[H", .{}) catch {};
     } else if (std.mem.eql(u8, verb, "exit")) {

@@ -22,15 +22,15 @@
 //!
 //! ## Panic
 //!
-//! `@panic("literal message")` — use for unreachable invariant violations.
-//! `std.debug.panic("fmt {}", .{args})` — use when formatting is needed.
+//! `@panic("literal message")`: use for unreachable invariant violations.
+//! `std.debug.panic("fmt {}", .{args})`: use when formatting is needed.
 //! Both route through `pub const panic` below, which writes to stderr and exits.
 //!
 //! ## I/O
 //!
-//! `innigkeit.io.stdout` / `.stderr` — direct write syscall wrappers.
-//! `.stdWriter()` on either returns a `std.Io.Writer` for stdlib APIs.
-//! `std.fs` is not supported for `.os = .other`; use initfs for read-only
+//! `innigkeit.io.stdout` / `.stderr`: direct write syscall wrappers.
+//! `.stdWriter()`: on either returns a `std.Io.Writer` for stdlib APIs.
+//! `std.fs`: is not supported for `.os = .other`; use initfs for read-only
 //! init-time files and future VFS capability for general file I/O.
 const std = @import("std");
 const innigkeit = @import("innigkeit");

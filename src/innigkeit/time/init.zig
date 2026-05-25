@@ -1,5 +1,6 @@
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
+const core = @import("core");
 const wallclock = @import("wallclock.zig");
 const per_executor_periodic = @import("per_executor_periodic.zig");
 
@@ -206,3 +207,11 @@ const globals = struct {
     /// tick is captured from the selected wallclock and is stored as variant `.time_system_start`.
     var kernel_start_time: StartTime = undefined;
 };
+
+/// Returns milliseconds elapsed since kernel boot, using the wallclock.
+pub fn getUptimeMs() u64 {
+    const start_tick = globals.kernel_start_time.getTick();
+    const now = wallclock.read();
+    const dur = wallclock.elapsed(start_tick, now);
+    return dur.value / @intFromEnum(core.Duration.Unit.millisecond);
+}

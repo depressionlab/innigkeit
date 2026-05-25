@@ -91,6 +91,7 @@ fn resolveApp(
                 .name = description.name,
                 .root_module = module,
             });
+            if (description.use_llvm) exe.use_llvm = true;
             try executables.putNoClobber(b.allocator, bundle, exe);
 
             const install = b.addInstallArtifact(exe, .{
@@ -119,6 +120,7 @@ fn resolveApp(
                     deps,
                 ),
             });
+            if (description.use_llvm) test_exe.use_llvm = true;
             const test_install = b.addInstallArtifact(test_exe, .{
                 .dest_dir = .{ .override = .{ .custom = b.pathJoin(&.{
                     @tagName(architecture), "application", "tests", "external",
@@ -156,6 +158,7 @@ fn resolveApp(
                 .name = description.name,
                 .root_module = module,
             });
+            if (description.use_llvm) exe.use_llvm = true;
             try executables.putNoClobber(b.allocator, bundle, exe);
 
             const install = b.addInstallArtifact(exe, .{ .dest_dir = .{
@@ -189,6 +192,7 @@ fn resolveApp(
                 }),
             } },
         });
+        if (description.use_llvm) host_exe.use_llvm = true;
         const run = b.addRunArtifact(host_exe);
         run.step.dependOn(&install.step);
         b.step(description.name, b.fmt(

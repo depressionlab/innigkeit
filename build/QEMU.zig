@@ -15,6 +15,12 @@ pub fn registerQemuSteps(
 ) !void {
     for (architectures) |arch| {
         const qemu = try buildQemuCommand(b, arch, image_steps.get(arch).?.image_file, options);
+        if (options.emulator.wad_path) |wad| {
+            qemu.addArgs(&.{
+                "-device", "virtio-blk-pci,drive=drive1,disable-modern=on,disable-legacy=off",
+                "-drive",  b.fmt("file={s},format=raw,if=none,id=drive1,readonly=on", .{wad}),
+            });
+        }
         b.step(
             b.fmt("run_{s}", .{@tagName(arch)}),
             b.fmt("Run the {s} image in QEMU", .{@tagName(arch)}),
@@ -57,6 +63,7 @@ fn buildQemuCommand(
     if (emu.remote_debug) run.addArgs(&.{ "-s", "-S" });
 
     // Display and console routing.
+    const host_os = b.graph.host.result.os.tag;
     if (emu.display) {
         run.addArgs(&.{ "-monitor", "vc" });
         switch (arch) {
@@ -67,10 +74,18 @@ fn buildQemuCommand(
                 run.addArgs(&.{ "-serial", "vc", "-device", "virtio-vga-gl" });
             },
             .x64 => {
-                run.addArgs(&.{ "-debugcon", "vc", "-device", "virtio-vga-gl" });
+                // virtio-vga-gl on Linux/GTK, plain virtio-vga on macOS/Cocoa.
+                const vga_device = if (host_os == .macos) "virtio-vga" else "virtio-vga-gl";
+                run.addArgs(&.{ "-debugcon", "vc", "-device", vga_device });
             },
         }
-        run.addArgs(&.{ "-display", "gtk,gl=on,show-tabs=on,zoom-to-fit=off" });
+        // macOS: use the native Cocoa window (install QEMU via `brew install qemu`).
+        // Linux: use GTK with OpenGL for smooth rendering.
+        const display_backend: []const u8 = if (host_os == .macos)
+            "cocoa"
+        else
+            "gtk,gl=on,show-tabs=on,zoom-to-fit=off";
+        run.addArgs(&.{ "-display", display_backend });
     } else {
         const console_flag: []const u8 = if (arch == .x64) "-debugcon" else "-serial";
         run.addArgs(&.{ console_flag, if (emu.qemu_monitor) "mon:stdio" else "stdio" });

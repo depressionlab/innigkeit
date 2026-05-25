@@ -1,10 +1,8 @@
 //! virtio-blk driver (legacy PCI transport, poll mode).
 //!
-//! Supports the legacy virtio-blk device (vendor=0x1AF4, device=0x1001) as
-//! exposed by QEMU with disable-modern=on. Uses I/O port BAR0 registers.
-//!
-//! Only one device is supported. After `init()`, call `readSectors()` to
-//! read 512-byte sectors from the disk.
+//! Supports up to two legacy virtio-blk devices (vendor=0x1AF4, device=0x1001).
+//! Device 0 is the boot disk; device 1 is an optional data disk (e.g. WAD).
+//! Uses I/O port BAR0 registers (disable-modern=on, disable-legacy=off).
 
 const std = @import("std");
 const innigkeit = @import("innigkeit");
@@ -53,6 +51,7 @@ const PAGE_SIZE: usize = 4096;
 //   Page 1 (PFN+1): available ring: starts at offset 4096 from PFN
 //   Page 2 (PFN+2): used ring: align(avail_end, PAGE_SIZE) = 8192
 const DMA_PAGES: usize = 3;
+const MAX_DEVICES: usize = 2;
 
 // Virtqueue data structures (sized for QUEUE_SIZE_MAX)
 const VringDesc = extern struct {
@@ -69,46 +68,42 @@ const BlkReqHeader = extern struct {
     sector: u64,
 };
 
-// Driver state (single device)
-var initialized: bool = false;
-var io_base: u16 = 0;
-var capacity_sectors: u64 = 0;
-var queue_num: u16 = 0; // actual queue size from device
+const Device = struct {
+    io_base: u16,
+    capacity_sectors: u64,
+    queue_num: u16,
+    dma_pages: [DMA_PAGES]innigkeit.mem.PhysicalPage.Index,
+    avail_idx: u16,
+    used_last_seen: u16,
 
-// Three physically contiguous DMA pages for the virtqueue.
-// dma_pages[0] = lowest physical page (PFN, contains descriptor table)
-// dma_pages[1] = PFN+1 (available ring)
-// dma_pages[2] = PFN+2 (used ring)
-var dma_pages: [DMA_PAGES]innigkeit.mem.PhysicalPage.Index = undefined;
+    inline fn ior8(d: *const Device, offset: u16) u8 {
+        const port = architecture.io.Port.from(d.io_base + offset) catch unreachable;
+        return port.read(u8);
+    }
+    inline fn ior16(d: *const Device, offset: u16) u16 {
+        const port = architecture.io.Port.from(d.io_base + offset) catch unreachable;
+        return port.read(u16);
+    }
+    inline fn ior32(d: *const Device, offset: u16) u32 {
+        const port = architecture.io.Port.from(d.io_base + offset) catch unreachable;
+        return port.read(u32);
+    }
+    inline fn iow8(d: *const Device, offset: u16, v: u8) void {
+        const port = architecture.io.Port.from(d.io_base + offset) catch unreachable;
+        port.write(u8, v);
+    }
+    inline fn iow16(d: *const Device, offset: u16, v: u16) void {
+        const port = architecture.io.Port.from(d.io_base + offset) catch unreachable;
+        port.write(u16, v);
+    }
+    inline fn iow32(d: *const Device, offset: u16, v: u32) void {
+        const port = architecture.io.Port.from(d.io_base + offset) catch unreachable;
+        port.write(u32, v);
+    }
+};
 
-var avail_idx: u16 = 0;
-var used_last_seen: u16 = 0;
-
-// Convenience: read/write I/O port at (io_base + offset).
-inline fn ior8(offset: u16) u8 {
-    const port = architecture.io.Port.from(io_base + offset) catch unreachable;
-    return port.read(u8);
-}
-inline fn ior16(offset: u16) u16 {
-    const port = architecture.io.Port.from(io_base + offset) catch unreachable;
-    return port.read(u16);
-}
-inline fn ior32(offset: u16) u32 {
-    const port = architecture.io.Port.from(io_base + offset) catch unreachable;
-    return port.read(u32);
-}
-inline fn iow8(offset: u16, v: u8) void {
-    const port = architecture.io.Port.from(io_base + offset) catch unreachable;
-    port.write(u8, v);
-}
-inline fn iow16(offset: u16, v: u16) void {
-    const port = architecture.io.Port.from(io_base + offset) catch unreachable;
-    port.write(u16, v);
-}
-inline fn iow32(offset: u16, v: u32) void {
-    const port = architecture.io.Port.from(io_base + offset) catch unreachable;
-    port.write(u32, v);
-}
+var devices: [MAX_DEVICES]?Device = .{ null, null };
+var device_count: usize = 0;
 
 pub fn init() void {
     innigkeit.pci.forEachFunction(tryInit);
@@ -116,7 +111,7 @@ pub fn init() void {
 
 fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
     _ = addr;
-    if (initialized) return;
+    if (device_count >= MAX_DEVICES) return;
 
     const vendor = func.read(u16, 0x00);
     const device = func.read(u16, 0x02);
@@ -132,78 +127,75 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
         log.warn("virtio-blk BAR0 is not an I/O BAR ({x}), skipping", .{bar0});
         return;
     }
-    io_base = @truncate(bar0 & 0xFFFC);
-    log.debug("virtio-blk found: I/O base=0x{x}", .{io_base});
+    const io_base: u16 = @truncate(bar0 & 0xFFFC);
+    log.debug("virtio-blk[{}] found: I/O base=0x{x}", .{ device_count, io_base });
 
-    // Reset device.
-    iow8(REG_DEVICE_STATUS, 0);
+    var dev: Device = .{
+        .io_base = io_base,
+        .capacity_sectors = 0,
+        .queue_num = 0,
+        .dma_pages = undefined,
+        .avail_idx = 0,
+        .used_last_seen = 0,
+    };
 
-    // Acknowledge and claim the device.
-    iow8(REG_DEVICE_STATUS, STATUS_ACKNOWLEDGE);
-    iow8(REG_DEVICE_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER);
+    dev.iow8(REG_DEVICE_STATUS, 0);
+    dev.iow8(REG_DEVICE_STATUS, STATUS_ACKNOWLEDGE);
+    dev.iow8(REG_DEVICE_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER);
 
-    // Feature negotiation: accept all device features.
-    const dev_features = ior32(REG_DEVICE_FEATURES);
-    iow32(REG_DRIVER_FEATURES, dev_features);
+    const dev_features = dev.ior32(REG_DEVICE_FEATURES);
+    dev.iow32(REG_DRIVER_FEATURES, dev_features);
 
-    // Read disk capacity.
-    const cap_lo = ior32(REG_CONFIG_CAPACITY_LO);
-    const cap_hi = ior32(REG_CONFIG_CAPACITY_HI);
-    capacity_sectors = (@as(u64, cap_hi) << 32) | cap_lo;
-    log.info("virtio-blk capacity: {} sectors ({} MiB)", .{
-        capacity_sectors,
-        capacity_sectors / 2048,
+    const cap_lo = dev.ior32(REG_CONFIG_CAPACITY_LO);
+    const cap_hi = dev.ior32(REG_CONFIG_CAPACITY_HI);
+    dev.capacity_sectors = (@as(u64, cap_hi) << 32) | cap_lo;
+    log.info("virtio-blk[{}] capacity: {} sectors ({} MiB)", .{
+        device_count,
+        dev.capacity_sectors,
+        dev.capacity_sectors / 2048,
     });
 
-    // Set up virtqueue 0.
-    if (!setupQueue()) return;
-
-    // Signal driver ready.
-    iow8(REG_DEVICE_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER | STATUS_DRIVER_OK);
-
-    initialized = true;
-    log.info("virtio-blk ready", .{});
+    if (!setupQueue(&dev)) return;
+    dev.iow8(REG_DEVICE_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER | STATUS_DRIVER_OK);
+    devices[device_count] = dev;
+    device_count += 1;
+    log.info("virtio-blk[{}] ready", .{device_count - 1});
 }
 
-fn setupQueue() bool {
-    // Select queue 0.
-    iow16(REG_QUEUE_SEL, 0);
-
-    // Read the device-reported queue size. In QEMU's legacy virtio-pci the
-    // QUEUE_NUM register is read-only; writes are silently ignored. We must
-    // use the value the device reports for all ring offset calculations.
-    queue_num = ior16(REG_QUEUE_SIZE);
-    if (queue_num == 0 or queue_num > QUEUE_SIZE_MAX) {
-        log.err("virtio-blk queue size {} out of range (max {})", .{ queue_num, QUEUE_SIZE_MAX });
+fn setupQueue(dev: *Device) bool {
+    dev.iow16(REG_QUEUE_SEL, 0);
+    dev.queue_num = dev.ior16(REG_QUEUE_SIZE);
+    if (dev.queue_num == 0 or dev.queue_num > QUEUE_SIZE_MAX) {
+        log.err("virtio-blk queue size {} out of range (max {})", .{ dev.queue_num, QUEUE_SIZE_MAX });
         return false;
     }
-    log.debug("virtio-blk device queue_num={}", .{queue_num});
+    log.debug("virtio-blk device queue_num={}", .{dev.queue_num});
 
     // Allocate DMA_PAGES contiguous physical pages for the virtqueue.
     // The ring layout (with queue_num=256) spans exactly 3 pages:
     //   Page 0: descriptor table (256*16=4096 bytes)
     //   Page 1: available ring  (starts at offset 4096)
     //   Page 2: used ring       (starts at offset 8192)
-    if (!allocContiguousPages()) {
+    if (!allocContiguousPages(&dev.dma_pages)) {
         log.err("virtio-blk: could not find {} contiguous DMA pages", .{DMA_PAGES});
         return false;
     }
 
     // Zero all DMA pages.
-    for (dma_pages) |pg| {
+    for (dev.dma_pages) |pg| {
         const virt = pg.baseAddress().toDirectMap().toPtr([*]u8);
         @memset(virt[0..PAGE_SIZE], 0);
     }
 
     // The virtqueue base is dma_pages[0] (lowest PFN).
-    const queue_phys = dma_pages[0].baseAddress().value;
-    iow32(REG_QUEUE_PFN, @intCast(queue_phys / PAGE_SIZE));
+    const queue_phys = dev.dma_pages[0].baseAddress().value;
+    dev.iow32(REG_QUEUE_PFN, @intCast(queue_phys / PAGE_SIZE));
 
-    avail_idx = 0;
-    used_last_seen = 0;
+    dev.avail_idx = 0;
+    dev.used_last_seen = 0;
 
-    log.debug("virtio-blk queue 0 at phys=0x{x} (PFN={}), pages={d}", .{
-        queue_phys, queue_phys / PAGE_SIZE, DMA_PAGES,
+    log.debug("virtio-blk queue 0 at phys=0x{x} (PFN={})", .{
+        queue_phys, queue_phys / PAGE_SIZE,
     });
     return true;
 }
@@ -214,7 +206,7 @@ fn setupQueue() bool {
 /// The free list inserts pages via prepend() in ascending PFN order, so
 /// popFirst() returns pages in descending order within a contiguous region.
 /// We therefore accept consecutive pages in either direction and sort at the end.
-fn allocContiguousPages() bool {
+fn allocContiguousPages(dma_pages: *[DMA_PAGES]innigkeit.mem.PhysicalPage.Index) bool {
     var run: [DMA_PAGES]innigkeit.mem.PhysicalPage.Index = undefined;
     var run_len: usize = 0;
     var spares: innigkeit.mem.PhysicalPage.List = .{};
@@ -234,7 +226,7 @@ fn allocContiguousPages() bool {
                 run_len += 1;
                 if (run_len == DMA_PAGES) {
                     // Sort ascending so dma_pages[0] has the lowest PFN.
-                    dma_pages = run;
+                    dma_pages.* = run;
                     for (0..DMA_PAGES) |i| {
                         for (i + 1..DMA_PAGES) |j| {
                             if (@intFromEnum(dma_pages[j]) < @intFromEnum(dma_pages[i])) {
@@ -264,11 +256,12 @@ fn allocContiguousPages() bool {
 
 pub const ReadError = error{ NotInitialized, OutOfRange, DeviceError };
 
-/// Read `count` 512-byte sectors starting at `lba` into `buf`.
-/// `buf` must be at least `count * 512` bytes.
-pub fn readSectors(lba: u64, buf: []u8, count: u32) ReadError!void {
-    if (!initialized) return error.NotInitialized;
-    if (lba + count > capacity_sectors) return error.OutOfRange;
+/// Read up to 8 sectors (4 KiB) from `dev_idx` starting at `lba` into `buf`.
+/// `buf` must be at least `count * 512` bytes; count must be ≤ 8.
+pub fn readSectors(dev_idx: usize, lba: u64, buf: []u8, count: u32) ReadError!void {
+    if (count == 0 or count > 8) return error.OutOfRange;
+    const dev: *Device = if (devices[dev_idx]) |*d| d else return error.NotInitialized;
+    if (lba + count > dev.capacity_sectors) return error.OutOfRange;
     if (buf.len < @as(usize, count) * 512) return error.OutOfRange;
 
     // Allocate scratch page (data buffer) and request page (header + status).
@@ -291,18 +284,14 @@ pub fn readSectors(lba: u64, buf: []u8, count: u32) ReadError!void {
     const req_virt = req_page.baseAddress().toDirectMap().toPtr([*]u8);
 
     // Write the block request header at offset 0 of req_page.
-    const header: BlkReqHeader = .{
-        .type_ = BLK_T_IN,
-        .ioprio = 0,
-        .sector = lba,
-    };
+    const header: BlkReqHeader = .{ .type_ = BLK_T_IN, .ioprio = 0, .sector = lba };
     @memcpy(req_virt[0..@sizeOf(BlkReqHeader)], std.mem.asBytes(&header));
     req_virt[@sizeOf(BlkReqHeader)] = 0xFF; // status sentinel
 
     // Virtual addresses of the three DMA pages.
-    const pg0 = dma_pages[0].baseAddress().toDirectMap().toPtr([*]u8); // descriptor table
-    const pg1 = dma_pages[1].baseAddress().toDirectMap().toPtr([*]u8); // available ring
-    const pg2 = dma_pages[2].baseAddress().toDirectMap().toPtr([*]u8); // used ring
+    const pg0 = dev.dma_pages[0].baseAddress().toDirectMap().toPtr([*]u8); // descriptor table
+    const pg1 = dev.dma_pages[1].baseAddress().toDirectMap().toPtr([*]u8); // available ring
+    const pg2 = dev.dma_pages[2].baseAddress().toDirectMap().toPtr([*]u8); // used ring
 
     // Descriptor table at pg0.
     const descs: *[QUEUE_SIZE_MAX]VringDesc = @ptrCast(@alignCast(pg0));
@@ -317,56 +306,36 @@ pub fn readSectors(lba: u64, buf: []u8, count: u32) ReadError!void {
     // Used ring at pg2: flags(u16) + idx(u16) + ring[queue_num]({id:u32, len:u32}[]).
     const used_idx_ptr: *u16 = @ptrCast(@alignCast(pg2 + 2));
 
-    // Use descriptor slots 0, 1, 2.
-    const d0: u16 = 0;
-    const d1: u16 = 1;
-    const d2: u16 = 2;
-
-    descs[d0] = .{
-        .addr = req_phys,
-        .len = @sizeOf(BlkReqHeader),
-        .flags = VRING_DESC_F_NEXT,
-        .next = d1,
-    };
-    descs[d1] = .{
-        .addr = scratch_phys,
-        .len = @as(u32, count) * 512,
-        .flags = VRING_DESC_F_WRITE | VRING_DESC_F_NEXT,
-        .next = d2,
-    };
-    descs[d2] = .{
-        .addr = req_phys + @sizeOf(BlkReqHeader),
-        .len = 1,
-        .flags = VRING_DESC_F_WRITE,
-        .next = 0,
-    };
+    descs[0] = .{ .addr = req_phys, .len = @sizeOf(BlkReqHeader), .flags = VRING_DESC_F_NEXT, .next = 1 };
+    descs[1] = .{ .addr = scratch_phys, .len = @as(u32, count) * 512, .flags = VRING_DESC_F_WRITE | VRING_DESC_F_NEXT, .next = 2 };
+    descs[2] = .{ .addr = req_phys + @sizeOf(BlkReqHeader), .len = 1, .flags = VRING_DESC_F_WRITE, .next = 0 };
 
     // Post descriptor chain to the available ring.
-    const avail_ring_idx = avail_idx % queue_num;
-    @atomicStore(u16, &avail_ring_base[avail_ring_idx], d0, .monotonic);
+    const avail_ring_idx = dev.avail_idx % dev.queue_num;
+    @atomicStore(u16, &avail_ring_base[avail_ring_idx], 0, .monotonic);
     @atomicStore(u16, avail_idx_ptr, avail_idx_ptr.* +% 1, .release);
-    avail_idx +%= 1;
+    dev.avail_idx +%= 1;
 
     // Kick queue 0.
-    iow16(REG_QUEUE_NOTIFY, 0);
+    dev.iow16(REG_QUEUE_NOTIFY, 0);
 
     // Poll used ring until the device completes the request.
-    const expected_used_idx = used_last_seen +% 1;
+    const expected = dev.used_last_seen +% 1;
     var timeout: u32 = 1_000_000;
     while (timeout > 0) : (timeout -= 1) {
-        if (@atomicLoad(u16, used_idx_ptr, .acquire) == expected_used_idx) break;
+        if (@atomicLoad(u16, used_idx_ptr, .acquire) == expected) break;
         architecture.spinLoopHint();
     }
     if (timeout == 0) {
-        log.err("virtio-blk: timeout (used.idx={}, expected={})", .{ @atomicLoad(u16, used_idx_ptr, .monotonic), expected_used_idx });
+        log.err("virtio-blk[{}]: timeout waiting for used ring", .{dev_idx});
         return error.DeviceError;
     }
-    used_last_seen = expected_used_idx;
+    dev.used_last_seen = expected;
 
     // Check status byte (0 = success).
     const status = req_virt[@sizeOf(BlkReqHeader)];
     if (status != 0) {
-        log.err("virtio-blk: I/O error, status={}", .{status});
+        log.err("virtio-blk[{}]: I/O error, status={}", .{ dev_idx, status });
         return error.DeviceError;
     }
 
@@ -374,10 +343,51 @@ pub fn readSectors(lba: u64, buf: []u8, count: u32) ReadError!void {
     @memcpy(buf[0 .. @as(usize, count) * 512], scratch_virt[0 .. @as(usize, count) * 512]);
 }
 
-pub fn sectorCount() u64 {
-    return capacity_sectors;
+/// Read bytes from device `dev_idx` at byte offset `byte_offset` into `buf`.
+/// Handles unaligned offsets and chunking (max 8 sectors = 4 KiB per transaction).
+pub fn readBytes(dev_idx: usize, byte_offset: u64, buf: []u8) ReadError!void {
+    if (buf.len == 0) return;
+    var tmp: [8 * 512]u8 = undefined;
+    var cur_byte: u64 = byte_offset;
+    var out_pos: usize = 0;
+    var remaining: usize = buf.len;
+
+    while (remaining > 0) {
+        const sector: u64 = cur_byte / 512;
+        const off_in_sector: usize = @intCast(cur_byte % 512);
+        const sectors_needed: u32 = @intCast(@min(8, (off_in_sector + remaining + 511) / 512));
+        const chunk_bytes: usize = @as(usize, sectors_needed) * 512;
+        try readSectors(dev_idx, sector, tmp[0..chunk_bytes], sectors_needed);
+        const copy_len: usize = @min(remaining, chunk_bytes - off_in_sector);
+        @memcpy(buf[out_pos..][0..copy_len], tmp[off_in_sector..][0..copy_len]);
+        out_pos += copy_len;
+        remaining -= copy_len;
+        cur_byte += copy_len;
+    }
 }
 
-pub fn isReady() bool {
-    return initialized;
+pub fn bootDiskSectorCount() u64 {
+    if (devices[0]) |d| return d.capacity_sectors;
+    return 0;
+}
+
+pub fn dataDiskSectorCount() u64 {
+    if (devices[1]) |d| return d.capacity_sectors;
+    return 0;
+}
+
+pub fn isBootReady() bool {
+    return devices[0] != null;
+}
+
+/// Returns true if a data disk is available (device 1, or device 0 in single-drive setups).
+pub fn isDataReady() bool {
+    return devices[1] != null or device_count == 1;
+}
+
+/// Returns the device index to use for data (WAD) reads.
+/// In single-drive setups (e.g. UTM with only the WAD attached), use device 0.
+pub fn dataDeviceIndex() usize {
+    if (devices[1] != null) return 1;
+    return 0;
 }

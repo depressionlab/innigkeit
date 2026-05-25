@@ -94,7 +94,7 @@ pub fn decrementEnableAccessToUserMemory(self: Current) void {
 /// Tick the scheduler and set needs_resched if preemption is warranted.
 ///
 /// Safe to call from interrupt context (IRQ stack): does NOT switch tasks.
-/// Actual preemption is deferred to the next decrementInterruptDisable(1→0).
+/// Actual preemption is deferred to the next decrementInterruptDisable(1->0).
 pub fn tickAndRequestPreemptIfNeeded(self: Current) void {
     const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
     defer scheduler_handle.unlock();

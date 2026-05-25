@@ -32,9 +32,9 @@ pub fn start() !void {
     log.debug("initializing virtio-blk driver", .{});
     innigkeit.drivers.virtio.blk.init();
 
-    if (innigkeit.drivers.virtio.blk.isReady()) {
+    if (innigkeit.drivers.virtio.blk.isBootReady()) {
         var sector: [512]u8 = undefined;
-        innigkeit.drivers.virtio.blk.readSectors(0, &sector, 1) catch |err| {
+        innigkeit.drivers.virtio.blk.readSectors(0, 0, &sector, 1) catch |err| {
             log.err("virtio-blk sector read failed: {t}", .{err});
         };
         log.info("virtio-blk sector 0 [0..8]: {x}", .{sector[0..8]});
@@ -63,7 +63,7 @@ pub fn start() !void {
     defer scheduler_handle.unlock();
     scheduler_handle.queueTask(&shell_main_thread.task, .{ .initial = true });
 
-    try innigkeit.init.Output.experimentalRegister(.full);
+    // try innigkeit.init.Output.experimentalRegister(.full);
 }
 
 fn loadShell() !void {

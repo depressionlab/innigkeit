@@ -5,7 +5,7 @@ const innigkeit = @import("innigkeit");
 const core = @import("core");
 
 const devicetree = @import("../devicetree.zig");
-const framebuffer = @import("framebuffer.zig");
+pub const framebuffer = @import("framebuffer.zig");
 pub const uart = @import("uart/root.zig");
 
 const log = innigkeit.debug.log.scoped(.output_init);

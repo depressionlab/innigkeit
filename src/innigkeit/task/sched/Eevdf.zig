@@ -615,7 +615,7 @@ test "vruntimeEligible: task at the weighted average is eligible" {
     try std.testing.expect(!erq.vruntimeEligible(1001)); // overserved
 }
 
-test "vruntimeEligible: two equal-weight tasks — average is their mean" {
+test "vruntimeEligible: two equal-weight tasks (average is their mean)" {
     // Two queued tasks at vruntime 500 and 1500, weight 1024 each.
     // sum_w_vruntime = (500 + 1500) * 1024 = 2048000, sum_weight = 2048.
     // Weighted avg = 2048000 / 2048 = 1000.
@@ -632,7 +632,7 @@ test "vruntimeEligible: two equal-weight tasks — average is their mean" {
 //
 // These tests build RbTree instances directly with stack-allocated SchedEntity
 // fixtures; no Task/wallclock/scheduler state is needed. SchedEntity.task()
-// is intentionally not dereferenced — we only compare its address as an opaque
+// is intentionally not dereferenced, we only compare its address as an opaque
 // pointer value when checking pickBest results.
 
 /// Verify augmentation after an INSERT operation: `fixupAugmentationUp` gives
@@ -732,7 +732,7 @@ test "augmentation: remove leaf, parent correctly updated" {
     if (tree.root) |_| _ = try auditSubtreeConservative(tree.root);
 }
 
-test "augmentation: remove two-child node — on_rotate fixes stale-high smin" {
+test "augmentation: remove two-child node (on_rotate fixes stale-high smin)" {
     // Removing a two-child node swaps it with its in-order successor. The
     // successor carries its old (small) smin into the new position. With
     // on_rotate active during rebalanceAfterRemove the conservative smin ≤

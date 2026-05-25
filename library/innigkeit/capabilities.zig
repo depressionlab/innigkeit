@@ -19,9 +19,14 @@ pub const Rights = packed struct(u16) {
 };
 
 /// ABI-stable IPC message. Layout must match the kernel's `capabilities.Message`.
+/// Total size: 8 (tag) + 32 (words) + 16 (caps) = 56 bytes
 pub const Message = extern struct {
     tag: u64 = 0,
-    words: [6]u64 = [_]u64{0} ** 6,
+    words: [4]u64 = [_]u64{0} ** 4,
+    /// Capability handles to transfer. 0 = none.
+    /// During IPC handoff the kernel copies each non-zero handle from the
+    /// sender's cap table into the receiver's cap table and updates the field.
+    caps: [4]u32 = [_]u32{0} ** 4,
 };
 
 /// Invoke a capability operation.
@@ -187,4 +192,21 @@ pub fn frameClone(handle: Handle) Syscall.Error!Handle {
 /// Requires read rights.
 pub fn framePhysAddr(handle: Handle) Syscall.Error!usize {
     return try invoke(handle, @intFromEnum(FrameOp.phys_addr), 0);
+}
+
+/// Map a Frame capability into the calling process's address space.
+///
+/// Returns the virtual base address of the mapped region on success.
+/// The frame is mapped with read+write protection.
+pub fn vmemMap(handle: Handle) Syscall.Error!usize {
+    const result = Syscall.invoke(.vmem_map, .{@as(usize, handle)});
+    return Syscall.decode(result);
+}
+
+/// Unmap a virtual address range from the calling process's address space.
+///
+/// `addr` and `size` must be page-aligned.
+pub fn vmemUnmap(addr: usize, size: usize) Syscall.Error!void {
+    const result = Syscall.invoke(.vmem_unmap, .{ addr, size });
+    _ = try Syscall.decode(result);
 }

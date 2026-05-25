@@ -56,6 +56,55 @@ pub fn unref(self: *Endpoint) void {
     innigkeit.mem.heap.allocator.destroy(self);
 }
 
+/// Transfer capability handles embedded in `msg` from `sender_task` to `receiver_task`.
+///
+/// For each non-zero caps[i]: copies the cap from sender's cap table into receiver's
+/// cap table with the same rights, then updates caps[i] to the new handle.
+/// If the copy fails (table full, cap not found, or revoked), caps[i] is set to 0.
+/// Skips transfer if either task is a kernel task (no process/cap table).
+///
+/// Holds both tables' locks for the duration to avoid TOCTOU races.
+fn transferCaps(msg: *Message, sender_task: *innigkeit.Task, receiver_task: *innigkeit.Task) void {
+    if (sender_task.type != .user or receiver_task.type != .user) return;
+
+    const CapabilityTable = innigkeit.capabilities.CapabilityTable;
+    const src_table = innigkeit.user.Process.from(sender_task).cap_table;
+    const dst_table = innigkeit.user.Process.from(receiver_task).cap_table;
+
+    // Lock in ascending pointer order to prevent deadlock.
+    const same = @intFromPtr(src_table) == @intFromPtr(dst_table);
+    if (!same) {
+        if (@intFromPtr(src_table) < @intFromPtr(dst_table)) {
+            src_table.lock.lock();
+            dst_table.lock.lock();
+        } else {
+            dst_table.lock.lock();
+            src_table.lock.lock();
+        }
+    } else {
+        src_table.lock.lock();
+    }
+
+    for (&msg.caps) |*handle| {
+        if (handle.* == 0) continue;
+        // getAndRefLocked validates generation (revocation) and bumps refcount for dst.
+        const info = src_table.getAndRefLocked(handle.*) orelse {
+            handle.* = 0;
+            continue;
+        };
+        // info.ptr is already ref'd; that ref is transferred to dst_table.insertLocked.
+        const new_handle = dst_table.insertLocked(info.cap_type, info.ptr, info.rights) catch {
+            CapabilityTable.unrefObject(info.cap_type, info.ptr);
+            handle.* = 0;
+            continue;
+        };
+        handle.* = new_handle;
+    }
+
+    src_table.lock.unlock();
+    if (!same) dst_table.lock.unlock();
+}
+
 /// Send a message and block until the receiver calls recv().
 ///
 /// The sender is unblocked only after the message has been picked up.
@@ -68,13 +117,15 @@ pub fn send(self: *Endpoint, msg: Message) void {
 
     // If a receiver is already waiting, hand off via pending_msg and wake it.
     if (self.recv_queue.popFirst()) |r| {
-        self.pending_msg = msg;
+        var transferred = msg;
+        transferCaps(&transferred, current_task.task, r);
+        self.pending_msg = transferred;
         self.lock.unlock();
         r.wakeFromBlocked();
         return;
     }
 
-    // No receiver yet, so we park ourselves on the send queue. recv() reads ipc_message
+    // No receiver yet, so we park ourselves on the send queue. recv() reads ipc_message.
     self.send_queue.wait(&self.lock);
 }
 
@@ -84,11 +135,13 @@ pub fn send(self: *Endpoint, msg: Message) void {
 /// When a call-mode sender is dequeued, `pending_sender` is set and the sender
 /// remains parked; the caller should eventually call `reply` or `replyRecv`.
 pub fn recv(self: *Endpoint) Message {
+    const current_task: innigkeit.Task.Current = .get();
     self.lock.lock();
 
     // Prefer call-mode senders (they are waiting for a reply).
     if (self.call_queue.popFirst()) |caller| {
-        const msg = caller.ipc_message;
+        var msg = caller.ipc_message;
+        transferCaps(&msg, caller, current_task.task);
         self.pending_msg = msg;
         self.pending_sender = caller;
         self.lock.unlock();
@@ -98,14 +151,16 @@ pub fn recv(self: *Endpoint) Message {
 
     // Fall back to fire-and-forget senders.
     if (self.send_queue.popFirst()) |s| {
-        const msg = s.ipc_message;
+        var msg = s.ipc_message;
+        transferCaps(&msg, s, current_task.task);
         self.lock.unlock();
         s.wakeFromBlocked();
         return msg;
     }
 
     // No sender yet, park on the recv queue.
-    // The sender that wakes us will have written pending_msg before calling wakeFromBlocked.
+    // The sender that wakes us will have written pending_msg
+    // (with transferred caps) before calling wakeFromBlocked.
     self.recv_queue.wait(&self.lock);
     self.lock.lock();
     const msg = self.pending_msg;
@@ -127,14 +182,10 @@ pub fn call(self: *Endpoint, msg: Message) Message {
     self.lock.lock();
 
     if (self.recv_queue.popFirst()) |receiver| {
-        // Receiver is already waiting. Set pending_sender and wake the receiver
-        // while still holding the endpoint lock (so the receiver cannot call
-        // reply/replyRecv before we finish setting up).
-        // IMPORTANT: do NOT put this task in call_queue here. pending_sender is
-        // the only reference: reply/replyRecv will wake us via wakeFromBlocked
-        // directly. Putting ourselves in call_queue AND setting pending_sender
-        // would cause replyRecv to pop us from call_queue a second time.
-        self.pending_msg = msg;
+        // Receiver is already waiting. Transfer caps and set up reply handoff.
+        var transferred = msg;
+        transferCaps(&transferred, current_task.task, receiver);
+        self.pending_msg = transferred;
         self.pending_sender = current_task.task;
         receiver.wakeFromBlocked();
         // Park directly via the scheduler (not call_queue) so the node is clean.
@@ -173,13 +224,16 @@ fn parkAndUnlock(spinlock: *innigkeit.sync.TicketSpinLock) void {
 /// Must only be called after `recv` returned a message from a call-mode sender
 /// (i.e. `pending_sender != null`). Asserts this is the case.
 pub fn reply(self: *Endpoint, msg: Message) error{NoPendingSender}!void {
+    const current_task: innigkeit.Task.Current = .get();
     self.lock.lock();
     const sender = self.pending_sender orelse {
         self.lock.unlock();
         return error.NoPendingSender;
     };
     self.pending_sender = null;
-    sender.ipc_message = msg;
+    var transferred = msg;
+    transferCaps(&transferred, current_task.task, sender);
+    sender.ipc_message = transferred;
     // wakeFromBlocked takes the scheduler lock (not self.lock), safe to call here.
     sender.wakeFromBlocked();
     self.lock.unlock();
@@ -191,19 +245,22 @@ pub fn reply(self: *Endpoint, msg: Message) error{NoPendingSender}!void {
 /// This is the hot-path for server tasks: one call handles the previous request
 /// and re-arms for the next without releasing the server's timeslice.
 pub fn replyRecv(self: *Endpoint, reply_msg: Message) Message {
+    const current_task: innigkeit.Task.Current = .get();
     self.lock.lock();
 
-    // Reply to the pending sender (if any).
-    // wakeFromBlocked takes the scheduler lock (not self.lock), safe to call here.
+    // Reply to the pending sender (if any), transferring caps from server to caller.
     if (self.pending_sender) |sender| {
         self.pending_sender = null;
-        sender.ipc_message = reply_msg;
+        var transferred = reply_msg;
+        transferCaps(&transferred, current_task.task, sender);
+        sender.ipc_message = transferred;
         sender.wakeFromBlocked();
     }
 
     // Now behave exactly like recv().
     if (self.call_queue.popFirst()) |caller| {
-        const msg = caller.ipc_message;
+        var msg = caller.ipc_message;
+        transferCaps(&msg, caller, current_task.task);
         self.pending_msg = msg;
         self.pending_sender = caller;
         self.lock.unlock();
@@ -211,7 +268,8 @@ pub fn replyRecv(self: *Endpoint, reply_msg: Message) Message {
     }
 
     if (self.send_queue.popFirst()) |s| {
-        const msg = s.ipc_message;
+        var msg = s.ipc_message;
+        transferCaps(&msg, s, current_task.task);
         self.lock.unlock();
         s.wakeFromBlocked();
         return msg;
@@ -242,17 +300,20 @@ pub const RecvCallResult = struct {
 /// returned `sender` pointer is wrapped in a Reply cap, allowing correct cleanup
 /// if the receiver dies before calling reply.
 pub fn recvCall(self: *Endpoint) RecvCallResult {
+    const current_task: innigkeit.Task.Current = .get();
     self.lock.lock();
 
     if (self.call_queue.popFirst()) |caller| {
-        const msg = caller.ipc_message;
+        var msg = caller.ipc_message;
+        transferCaps(&msg, caller, current_task.task);
         // Do NOT set pending_sender: ownership goes to the Reply cap.
         self.lock.unlock();
         return .{ .msg = msg, .sender = caller };
     }
 
     if (self.send_queue.popFirst()) |s| {
-        const msg = s.ipc_message;
+        var msg = s.ipc_message;
+        transferCaps(&msg, s, current_task.task);
         self.lock.unlock();
         s.wakeFromBlocked();
         return .{ .msg = msg, .sender = null };

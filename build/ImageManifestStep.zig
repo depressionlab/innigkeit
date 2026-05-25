@@ -106,7 +106,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 return step.fail("unable to write manifest to '{f}{s}': {t}", .{ self.b.cache_root, tmp, e });
 
             self.b.cache_root.handle.rename(tmp, self.b.cache_root.handle, sub_path, io) catch |e|
-                return step.fail("unable to rename '{f}{s}' → '{f}{s}': {t}", .{
+                return step.fail("unable to rename '{f}{s}' -> '{f}{s}': {t}", .{
                     self.b.cache_root, tmp,
                     self.b.cache_root, sub_path,
                     e,

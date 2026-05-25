@@ -112,6 +112,9 @@ pub fn reinitializeAndUnmapAll(self: *AddressSpace) void {
         error.RangeNotPageAligned => unreachable, // the entire address space range is page aligned
     };
 
+    self.entries.deinit(innigkeit.mem.heap.allocator);
+    self.entries = .empty;
+
     self.entries_version = 0;
 }
 

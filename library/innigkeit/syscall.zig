@@ -6,40 +6,60 @@ pub const Syscall = enum(usize) {
     exit_thread = 0,
     /// Spawn a new thread
     spawn_thread = 1,
-    /// Write to the standard output: (fd: Fd, ptr: usize, len: usize) → buf_len|error
+    /// Write to the standard output: (fd: Fd, ptr: usize, len: usize) -> buf_len|error
     write = 2,
-    /// Read from the standard input: (fd: Fd, ptr: usize, len: usize) → bytes_read|error
+    /// Read from the standard input: (fd: Fd, ptr: usize, len: usize) -> bytes_read|error
     read = 3,
-    /// Voluntarily yield the CPU to another runnable thread. () → void
+    /// Voluntarily yield the CPU to another runnable thread. () -> void
     yield = 4,
-    /// Spawn a new process from initfs: (spec_ptr: usize) → notify_handle|error
+    /// Spawn a new process from initfs: (spec_ptr: usize) -> notify_handle|error
     spawn = 5,
     /// Exit an existing process
     exit_process = 6,
-    /// Wait for a spawned process to exit: (notify_handle: u32) → 0|error
+    /// Wait for a spawned process to exit: (notify_handle: u32) -> 0|error
     wait_process = 7,
-    /// Invoke a capability operation: (handle: u32, op: u64, arg: usize) → usize|error
+    /// Invoke a capability operation: (handle: u32, op: u64, arg: usize) -> usize|error
     cap_invoke = 8,
-    /// Copy a capability with optional rights restriction: (handle: u32, rights: u16) → new_handle|error
+    /// Copy a capability with optional rights restriction: (handle: u32, rights: u16) -> new_handle|error
     cap_copy = 9,
-    /// Move a capability to a new slot (copy + delete original): (handle: u32) → new_handle|error
+    /// Move a capability to a new slot (copy + delete original): (handle: u32) -> new_handle|error
     cap_move = 10,
-    /// Delete a capability: (handle: u32) → 0|error
+    /// Delete a capability: (handle: u32) -> 0|error
     cap_delete = 11,
-    /// Create a new kernel capability object: (type: u8) → handle|error
+    /// Create a new kernel capability object: (type: u8) -> handle|error
     cap_create = 12,
-    /// Revoke a capability for all holders: (handle: u32) → 0|error
+    /// Revoke a capability for all holders: (handle: u32) -> 0|error
     /// Requires the slot to carry .revoke rights. Increments the object's generation
     /// counter; every other slot pointing to the same object returns EBADF on next use.
     cap_revoke = 13,
-    /// Map anonymous zero-fill memory: (size: usize, prot: u32) → addr|error
+    /// Map anonymous zero-fill memory: (size: usize, prot: u32) -> addr|error
     mmap = 14,
-    /// Unmap a previously mapped range: (addr: usize, size: usize) → 0|error
+    /// Unmap a previously mapped range: (addr: usize, size: usize) -> 0|error
     munmap = 15,
-    /// Block until futex word at addr != expected: (addr: usize, expected: u32) → 0|error
+    /// Block until futex word at addr != expected: (addr: usize, expected: u32) -> 0|error
     futex_wait = 16,
-    /// Wake up to max_wake tasks on addr: (addr: usize, max_wake: u32) → woken_count|error
+    /// Wake up to max_wake tasks on addr: (addr: usize, max_wake: u32) -> woken_count|error
     futex_wake = 17,
+    /// Map a Frame capability into the calling process's address space: (handle: u32) -> addr|error
+    vmem_map = 18,
+    /// Unmap a virtual address range from the calling process's address space: (addr: usize, size: usize) -> 0|error
+    vmem_unmap = 19,
+    /// Map the bootloader framebuffer (write-combining) into the calling process's VA.
+    /// (info_ptr: usize) -> va|error  Fills FramebufferInfo at info_ptr.
+    framebuffer_map = 20,
+    /// Read a file from the embedded initfs archive.
+    /// (spec_ptr: usize) -> bytes|error  spec_ptr -> InitfsReadSpec
+    initfs_read = 21,
+    /// Return milliseconds elapsed since kernel boot.
+    /// () -> ms:u64
+    uptime_ms = 22,
+    /// Read bytes from the data disk (virtio-blk device 1) into a user buffer.
+    /// (spec_ptr: usize) -> bytes_read|error  spec_ptr -> BlkReadSpec{byte_offset:u64, buf_ptr:usize, buf_len:usize}
+    blk_read = 23,
+    /// Non-blocking drain of raw PS/2 scancode bytes into a user buffer.
+    /// Includes 0xE0 extended prefix and break bit (bit 7 = release).
+    /// (buf_ptr: usize, buf_len: usize) -> count
+    kbd_read = 24,
 
     /// Decode a raw syscall return value into a success count or a `SyscallError`.
     ///
