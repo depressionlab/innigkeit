@@ -59,18 +59,20 @@ fn runCommand(line: []const u8) void {
     } else {
         // Try to launch the verb as a program in initfs.
         var path_buf: [256]u8 = undefined;
-        if (verb.len < path_buf.len) {
-            @memcpy(path_buf[0..verb.len], verb);
-            path_buf[verb.len] = 0;
-            const path: [:0]const u8 = path_buf[0..verb.len :0];
-            const handle = innigkeit.process.spawn(path, &.{}) catch {
-                innigkeit.io.stdout.print("not found: '{s}'\n", .{verb}) catch {};
-                return;
-            };
-            innigkeit.process.waitProcess(handle) catch {};
-        } else {
+        if (verb.len >= path_buf.len) {
             innigkeit.io.stdout.print("command too long\n", .{}) catch {};
+            return;
         }
+
+        @memcpy(path_buf[0..verb.len], verb);
+        path_buf[verb.len] = 0;
+        const path: [:0]const u8 = path_buf[0..verb.len :0];
+        const handle = innigkeit.process.spawn(path, &.{}) catch |err| {
+            const msg = if (err == error.NotFound) "command not found" else "spawn failed";
+            innigkeit.io.stdout.print("{s}: {s}\n", .{ msg, verb }) catch {};
+            return;
+        };
+        innigkeit.process.waitProcess(handle) catch {};
     }
 }
 

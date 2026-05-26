@@ -215,7 +215,13 @@ fn buildInitfs(
         run.addFileArg(exe.getEmittedBin());
     }
 
-    return run.captureStdOut(.{});
+    const archive = run.captureStdOut(.{});
+    const archive_gen_file: *std.Build.GeneratedFile = @constCast(switch (archive) {
+        .generated => |g| g.file,
+        else => unreachable,
+    });
+    archive_gen_file.path = "__initfs_zls_placeholder__";
+    return archive;
 }
 
 const BuildMode = enum { check, release };

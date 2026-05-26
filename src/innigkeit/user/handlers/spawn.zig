@@ -203,7 +203,7 @@ fn loadAndStart(path_ptr: [*]u8, path_len: usize, child_process: *innigkeit.user
 
     const elf_data = innigkeit.fs.initfs.findFile(path) orelse {
         log.err("spawn: '{s}' not found in initfs", .{path});
-        return; // thread exits; process cleanup runs and signals exit_notify
+        return error.NotFound; // thread exits; process cleanup runs and signals exit_notify
     };
 
     const current_task: innigkeit.Task.Current = .get();
