@@ -76,7 +76,7 @@ fn logFn(
 ) void {
     const prefix = comptime level.asText() ++
         (if (scope == .default) ": " else " (" ++ @tagName(scope) ++ "): ");
-    var buf: [512]u8 = undefined;
+    var buf: [4096]u8 = undefined;
     // bufPrint fails only on truncation; write whatever fit in the buffer.
     const msg = std.fmt.bufPrint(&buf, prefix ++ format ++ "\n", args) catch blk: {
         buf[buf.len - 1] = '\n';

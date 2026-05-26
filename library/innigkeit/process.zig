@@ -1,5 +1,34 @@
 const innigkeit = @import("innigkeit");
 
+/// Parsed argc from the ELF initial stack. Set by `callMainAndExit` before
+/// `main` is called; zero until then.
+pub var _argc: usize = 0;
+
+/// Parsed argv pointer from the ELF initial stack. Valid when `_argc > 0`.
+pub var _argv: [*][*:0]u8 = undefined;
+
+/// Sentinel-terminated envp pointer. Valid when `_envp_count > 0`.
+pub var _envp: [*:null]?[*:0]u8 = undefined;
+
+/// Number of environment variables parsed from the initial stack. Zero until
+/// `callMainAndExit` runs.
+pub var _envp_count: usize = 0;
+
+/// Returns the process argument vector as set by the kernel on startup.
+/// The slice is valid for the lifetime of the process.
+pub fn args() []const [*:0]const u8 {
+    return @ptrCast(_argv[0.._argc]);
+}
+
+/// Returns the environment variable array as set by the kernel on startup.
+/// Each entry is a null-terminated "KEY=value" string.
+/// The slice is valid for the lifetime of the process.
+pub fn environ() []const [*:0]const u8 {
+    if (_envp_count == 0) return &.{};
+    // All entries in [0.._envp_count] are non-null (we stopped counting at the null sentinel).
+    return @ptrCast(_envp[0.._envp_count]);
+}
+
 /// Exit the process.
 ///
 /// The kernel will terminate all threads in the process and release all
@@ -21,6 +50,9 @@ pub const SpawnSpec = extern struct {
     cap_grants: usize,
     cap_grant_count: u32,
     _pad: u32 = 0,
+    envp: usize = 0,
+    envc: u32 = 0,
+    _pad2: u32 = 0,
 };
 
 /// Transfer a capability from the spawning process to the child.
@@ -34,28 +66,66 @@ pub const CapGrant = extern struct {
     _pad: u16 = 0,
 };
 
-/// Spawn a new process from the embedded initfs.
+/// A single argument passed to the spawned process.
+/// Matches the kernel ABI in spawn.zig.
 ///
-/// `path` is a null-terminated path string (max 255 chars) naming the ELF
-/// binary inside initfs.  `grants` is an optional slice of capabilities to
-/// copy into the child's table before the child starts executing.
+/// `ptr` points to the string bytes (not necessarily null-terminated);
+/// `len` is the byte count.
+pub const Arg = extern struct {
+    ptr: usize,
+    len: u32,
+    _pad: u32 = 0,
+
+    /// Convenience constructor from a Zig slice.
+    pub fn fromSlice(s: []const u8) Arg {
+        return .{ .ptr = @intFromPtr(s.ptr), .len = @intCast(s.len) };
+    }
+};
+
+/// A single environment variable passed to the spawned process.
+/// Same memory layout as `Arg`; the string should be `KEY=VALUE` formatted.
+pub const EnvVar = Arg;
+
+/// Spawn a new process from the embedded initfs with no arguments.
+pub fn spawn(path: [:0]const u8, grants: []const CapGrant) innigkeit.Syscall.Error!u32 {
+    return spawnWithArgs(path, &.{}, grants);
+}
+
+/// Spawn a new process from the embedded initfs, passing argument strings.
+///
+/// `argv` is a slice of `Arg` entries; the kernel copies each string before
+/// the child starts. `grants` transfers capabilities into the child.
 ///
 /// Returns a Notify handle in the caller's capability table.  The Notify is
 /// signalled (bit 1) when the child process terminates.  Pass the handle to
 /// `waitProcess` to block until the child exits, or drop it with
 /// `cap_delete` if you do not need to observe the exit.
-pub fn spawn(path: [:0]const u8, grants: []const CapGrant) innigkeit.Syscall.Error!u32 {
+pub fn spawnWithArgs(
+    path: [:0]const u8,
+    argv: []const Arg,
+    grants: []const CapGrant,
+) innigkeit.Syscall.Error!u32 {
     const spec = SpawnSpec{
         .path = @intFromPtr(path.ptr),
         .path_len = @intCast(path.len),
-        .argv = 0,
-        .argc = 0,
+        .argv = @intFromPtr(argv.ptr),
+        .argc = @intCast(argv.len),
         .cap_grants = @intFromPtr(grants.ptr),
         .cap_grant_count = @intCast(grants.len),
     };
     const ret = innigkeit.Syscall.invoke(.spawn, .{@intFromPtr(&spec)});
     const handle = try innigkeit.Syscall.decode(ret);
     return @truncate(handle);
+}
+
+/// Convenience wrapper: spawn with a slice of string slices (no CapGrants).
+///
+/// Builds the `Arg` array on the stack (max 64 entries).
+pub fn spawnArgs(path: [:0]const u8, argv: []const []const u8) innigkeit.Syscall.Error!u32 {
+    var args_buf: [64]Arg = undefined;
+    const argc = @min(argv.len, args_buf.len);
+    for (argv[0..argc], 0..) |a, i| args_buf[i] = Arg.fromSlice(a);
+    return spawnWithArgs(path, args_buf[0..argc], &.{});
 }
 
 /// Block until the process associated with `notify_handle` exits.

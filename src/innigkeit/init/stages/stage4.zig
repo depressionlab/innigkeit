@@ -143,6 +143,25 @@ fn loadElfFromInitfs(name: []const u8) !noreturn {
         }
     }
 
-    try thread.start(entry_point, 0);
+    // Compute AT_PHDR: the virtual address of the phdr table in the loaded image.
+    const phdr_vaddr: usize = blk: {
+        var iter = header.iterateProgramHeaders(program_header_table);
+        while (iter.next()) |phdr| {
+            if (phdr.type != .load) continue;
+            if (phdr.offset <= header.program_header_offset and
+                header.program_header_offset < phdr.offset + phdr.file_size)
+            {
+                break :blk @intCast(phdr.virtual_address +
+                    (header.program_header_offset - phdr.offset));
+            }
+        }
+        break :blk 0;
+    };
+
+    try thread.startProcess(entry_point, .{
+        .phdr_vaddr = phdr_vaddr,
+        .phnum = header.program_header_entry_count,
+        .entry = header.entry,
+    });
     unreachable;
 }

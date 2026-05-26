@@ -11,8 +11,9 @@
 const std = @import("std");
 const innigkeit = @import("innigkeit");
 
-// Per-task cancel protection. Single-threaded, so a plain global suffices.
-var g_cancel_protection: std.Io.CancelProtection = .unblocked;
+// Per-thread cancel protection. Must be threadlocal so that each OS thread has its own
+// independent protection state.
+threadlocal var g_cancel_protection: std.Io.CancelProtection = .unblocked;
 
 // A File.Writer whose interface drain calls rawWrite(stderr).
 // io and file are set to undefined because our drain never accesses them,
@@ -53,6 +54,10 @@ fn futexWaitUncancelable(_: ?*anyopaque, ptr: *const u32, expected: u32) void {
     }
 }
 
+fn futexWake(_: ?*anyopaque, ptr: *const u32, max_waiters: u32) void {
+    _ = innigkeit.Syscall.invoke(.futex_wake, .{ @intFromPtr(ptr), max_waiters });
+}
+
 fn lockStderr(_: ?*anyopaque, _: ?std.Io.Terminal.Mode) std.Io.Cancelable!std.Io.LockedStderr {
     return .{
         .file_writer = &g_stderr_fw,
@@ -69,6 +74,12 @@ fn tryLockStderr(_: ?*anyopaque, _: ?std.Io.Terminal.Mode) std.Io.Cancelable!?st
 
 fn unlockStderr(_: ?*anyopaque) void {
     g_stderr_fw.interface.flush() catch {};
+}
+
+fn ioNow(_: ?*anyopaque, _: std.Io.Clock) std.Io.Timestamp {
+    const result = innigkeit.Syscall.invoke(.uptime_ms, .{});
+    const ms = innigkeit.Syscall.decode(result) catch return .zero;
+    return .fromNanoseconds(@as(i96, @intCast(ms)) * std.time.ns_per_ms);
 }
 
 // --- VTable ---
@@ -94,7 +105,7 @@ const vtable: std.Io.VTable = .{
 
     .futexWait = std.Io.noFutexWait,
     .futexWaitUncancelable = futexWaitUncancelable,
-    .futexWake = std.Io.noFutexWake,
+    .futexWake = futexWake,
 
     .operate = std.Io.failingOperate,
     .batchAwaitAsync = std.Io.unreachableBatchAwaitAsync,
@@ -178,7 +189,7 @@ const vtable: std.Io.VTable = .{
     .random = std.Io.noRandom,
     .randomSecure = std.Io.failingRandomSecure,
 
-    .now = std.Io.noNow,
+    .now = ioNow,
     .clockResolution = std.Io.failingClockResolution,
     .sleep = std.Io.noSleep,
 

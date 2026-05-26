@@ -3,6 +3,7 @@ const innigkeit = @import("innigkeit");
 
 pub const std_options = innigkeit.interop.std_options;
 pub const std_options_debug_io = innigkeit.interop.debug_io;
+pub const std_options_thread_impl = innigkeit.thread.InnigkeitThreadImpl;
 pub const panic = innigkeit.interop.panic;
 
 var line_buf: [256]u8 = undefined;
@@ -67,7 +68,21 @@ fn runCommand(line: []const u8) void {
         @memcpy(path_buf[0..verb.len], verb);
         path_buf[verb.len] = 0;
         const path: [:0]const u8 = path_buf[0..verb.len :0];
-        const handle = innigkeit.process.spawn(path, &.{}) catch |err| {
+
+        // Split trailing args string into whitespace-separated tokens (max 63).
+        var argv_strs: [63][]const u8 = undefined;
+        var argc: usize = 0;
+        var rest = args;
+        while (rest.len > 0 and argc < argv_strs.len) {
+            rest = trimLeft(rest);
+            if (rest.len == 0) break;
+            const end = std.mem.indexOfScalar(u8, rest, ' ') orelse rest.len;
+            argv_strs[argc] = rest[0..end];
+            argc += 1;
+            rest = rest[end..];
+        }
+
+        const handle = innigkeit.process.spawnArgs(path, argv_strs[0..argc]) catch |err| {
             const msg = if (err == error.NotFound) "command not found" else "spawn failed";
             innigkeit.io.stdout.print("{s}: {s}\n", .{ msg, verb }) catch {};
             return;

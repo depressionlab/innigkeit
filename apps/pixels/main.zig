@@ -6,6 +6,7 @@ const innigkeit = @import("innigkeit");
 
 pub const std_options = innigkeit.interop.std_options;
 pub const std_options_debug_io = innigkeit.interop.debug_io;
+pub const std_options_thread_impl = innigkeit.thread.InnigkeitThreadImpl;
 pub const panic = innigkeit.interop.panic;
 
 pub fn main() void {

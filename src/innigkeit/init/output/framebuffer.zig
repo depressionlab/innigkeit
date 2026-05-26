@@ -59,6 +59,7 @@ pub fn tryGetExtendedFramebuffer(memory_system_available: bool) !?boot.Framebuff
     return framebuffer;
 }
 
+// TODO: make this more dynamic
 fn tryGetFramebufferOutputInner(memory_system_available: bool) !?Output {
     if (!memory_system_available) return null;
 
@@ -117,8 +118,8 @@ fn tryGetFramebufferOutputInner(memory_system_available: bool) !?Output {
         8,
         16,
         1,
-        1,
-        1,
+        2,
+        2,
         0,
         0,
     ) orelse return error.FailedToInitializeFramebuffer;

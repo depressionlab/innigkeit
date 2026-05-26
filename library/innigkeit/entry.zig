@@ -3,6 +3,8 @@ const builtin = @import("builtin");
 const root = @import("root");
 const innigkeit = @import("innigkeit");
 
+// TODO: align this more with zig's standard library: `start.zig`!!!
+
 /// Exports the Innigkeit entry point.
 ///
 /// ```zig
@@ -68,16 +70,46 @@ fn _innigkeit_entry() callconv(.naked) noreturn {
 }
 
 fn callMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
-    _ = argc_argv_ptr;
-
     // We're not ready to panic until thread local storage is initialized.
     @setRuntimeSafety(false);
     // Code coverage instrumentation might try to use thread local variables.
     @disableInstrumentation();
 
-    // TODO: perform relocation `std.pie.relocate`
+    // Parse the ELF-ABI initial stack written by the kernel:
+    //   [argc] [argv[0]..argv[argc-1]] [null] [envp[0]..] [null] [auxv..] [AT_NULL,0]
+    // On os=.other, std.process.Args.Vector = void and cannot carry argv, so
+    // we stash the parsed values in innigkeit.process globals instead.
+    // TODO: make it so we can use std.process.Args somehow
+    const argc = argc_argv_ptr[0];
+    const argv: [*][*:0]u8 = @ptrCast(argc_argv_ptr + 1);
+
+    // Use a sentinel-typed pointer for envp so the null-terminator is type-checked.
+    const envp_optional: [*:null]?[*:0]u8 = @ptrCast(@alignCast(argv + argc + 1));
+    var envp_count: usize = 0;
+    while (envp_optional[envp_count]) |_| : (envp_count += 1) {}
+    const envp = envp_optional[0..envp_count :null];
+
+    // Auxv immediately follows the null envp terminator.
+    const auxv: [*]const std.elf.Auxv = @ptrCast(@alignCast(envp.ptr + envp_count + 1));
+
+    // For static PIE binaries: find AT_PHDR/AT_PHNUM in the auxv and apply ELF
+    // relocations before touching any global state.  Must be always_inline so the
+    // call itself does not go through the (not yet relocated) PLT/GOT.
     if (builtin.link_mode == .static and builtin.position_independent_executable) {
-        @panic("position independent executables are not supported!");
+        const phdrs = init: {
+            var i: usize = 0;
+            var at_phdr: usize = 0;
+            var at_phnum: usize = 0;
+            while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
+                switch (auxv[i].a_type) {
+                    std.elf.AT_PHDR => at_phdr = @intCast(auxv[i].a_un.a_val),
+                    std.elf.AT_PHNUM => at_phnum = @intCast(auxv[i].a_un.a_val),
+                    else => {},
+                }
+            }
+            break :init @as([*]const std.elf.Phdr, @ptrFromInt(at_phdr))[0..at_phnum];
+        };
+        @call(.always_inline, std.pie.relocate, .{phdrs});
     }
 
     const opt_init_array_start = @extern([*]const *const fn () callconv(.c) void, .{
@@ -94,30 +126,26 @@ fn callMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
         for (slice) |func| func();
     }
 
-    // TODO: environment variables are not supported for `.os = .other`.
+    // Store parsed argv and envp in process globals (safe after PIE relocation).
+    innigkeit.process._argc = argc;
+    innigkeit.process._argv = argv;
+    innigkeit.process._envp = envp_optional;
+    innigkeit.process._envp_count = envp_count;
+
     const env_block: std.process.Environ.Block = .empty;
-
-    // TODO: support threaded IO
-    // if (std.Options.debug_threaded_io) |t| {
-    //     if (@sizeOf(std.Io.Threaded.Argv0) != 0) t.argv0.value = argv[0];
-    //     t.environ = .{ .process_environ = .{ .block = env_block } };
-    //     t.environ_initialized = env_block.isEmpty();
-    // }
-
-    // TODO: std.Thread.maybeAttachSignalStack();
-    // TODO: std.debug.maybeEnableSegfaultHandler();
-
-    const return_value = callMain(
-        {}, // TODO: args aren't supported for `.os = .other`
-        env_block,
-    );
-    // _ = return_value; // TODO: don't just throw this away
-
-    // // TODO: exit the process rather than just the current thread.
-    // innigkeit.thread.exitCurrent();
-
-    innigkeit.process.exit(return_value);
+    innigkeit.process.exit(@call(.always_inline, callMain, .{ {}, env_block }));
 }
+
+const use_debug_allocator = switch (builtin.mode) {
+    .Debug => true,
+    .ReleaseSafe => !builtin.link_libc,
+    .ReleaseFast, .ReleaseSmall => !builtin.link_libc and builtin.single_threaded,
+};
+
+// Module-level so that its backing memory is in BSS rather than on the call stack.
+var debug_allocator: std.heap.DebugAllocator(.{}) = .{
+    .backing_allocator = innigkeit.mem.page_allocator,
+};
 
 inline fn callMain(args: std.process.Args.Vector, environ: std.process.Environ.Block) u8 {
     const fn_info = @typeInfo(@TypeOf(root.main)).@"fn";
@@ -127,19 +155,10 @@ inline fn callMain(args: std.process.Args.Vector, environ: std.process.Environ.B
         .environ = .{ .block = environ },
     }));
 
-    // TODO: support all the stuff below
-    // @compileError("juicy main is unsupported");
-
-    const use_debug_allocator = switch (builtin.mode) {
-        .Debug, .ReleaseSafe => true,
-        .ReleaseFast, .ReleaseSmall => false,
-    };
-    var debug_allocator: std.heap.DebugAllocator(.{}) = .{
-        .backing_allocator = innigkeit.mem.page_allocator,
-    };
-
     const gpa = if (use_debug_allocator)
         debug_allocator.allocator()
+    else if (builtin.link_libc)
+        std.heap.c_allocator
     else
         innigkeit.mem.page_allocator;
     // else if (builtin.link_libc)
@@ -169,25 +188,16 @@ inline fn callMain(args: std.process.Args.Vector, environ: std.process.Environ.B
     //     std.process.fatal("failed to parse environment variables: {t}", .{err});
     // defer environ_map.deinit();
 
-    var environ_map = std.process.Environ.Map.init(gpa);
+    var environ_map: std.process.Environ.Map = .init(gpa);
     defer environ_map.deinit();
 
-    // TODO: populate environ_map once the kernel exposes env vars on the stack.
-
-    // const preopens = std.process.Preopens.init(arena_allocator.allocator()) catch |err|
-    //     std.process.fatal("failed to init preopens: {t}", .{err});
-
-    // return wrapMain(root.main(.{
-    //     .minimal = .{
-    //         .args = .{ .vector = args },
-    //         .environ = .{ .block = environ },
-    //     },
-    //     .arena = &arena_allocator,
-    //     .gpa = gpa,
-    //     .io = threaded.io(),
-    //     .environ_map = &environ_map,
-    //     .preopens = preopens,
-    // }));
+    // Populate environ_map from kernel-provided envp.
+    for (innigkeit.process._envp[0..innigkeit.process._envp_count]) |maybe_entry| {
+        const env_str: [*:0]const u8 = maybe_entry orelse continue;
+        const env_slice = std.mem.span(env_str);
+        const eq_pos = std.mem.indexOfScalar(u8, env_slice, '=') orelse continue;
+        environ_map.put(env_slice[0..eq_pos], env_slice[eq_pos + 1 ..]) catch {};
+    }
 
     return wrapMain(root.main(.{
         .minimal = .{
@@ -213,12 +223,19 @@ inline fn wrapMain(result: anytype) u8 {
     if (@typeInfo(ReturnType) != .error_union) @compileError(bad_main_ret);
 
     const unwrapped_result = result catch |err| {
-        // std.log.err("{t}", .{err});
-
-        // TODO: need to implement some io stuff
-        // if (@errorReturnTrace()) |trace| std.debug.dumpErrorReturnTrace(trace);
-
-        innigkeit.io.stderr.print("error: {t}\n", .{err}) catch {};
+        std.log.err("{t}", .{err});
+        if (@errorReturnTrace()) |trace| {
+            switch (builtin.os.tag) {
+                .freestanding, .other => {
+                    // No DWARF symbolication yet; print raw instruction addresses.
+                    std.log.err("error return trace ({d} frames):", .{trace.index});
+                    for (trace.instruction_addresses[0..trace.index]) |addr| {
+                        std.log.err("  0x{x}", .{addr});
+                    }
+                },
+                else => std.debug.dumpErrorReturnTrace(trace),
+            }
+        }
 
         return 1;
     };

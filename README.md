@@ -1,5 +1,29 @@
 # innigkeit
 
+## 27-05-2026 reflection
+
+- it went well! i think i learned a lot of how Zig works internally
+- See [ATTRIBUTION.md](./ATTRIBUTION.md)
+
+### important functions & types
+
+| name | file | role |
+| --- | --- | --- |
+| `InnigkeitThreadImpl` | `library/innigkeit/thread.zig` | `std.Thread` backend with 3-state atomic join/detach, futex-based blocking |
+| `Thread.startProcess` | `src/innigkeit/user/Thread.zig` | Writes full ELF-ABI initial stack (argc/argv/envp/auxv) into userspace |
+| `spawnFull` | `library/innigkeit/process.zig` | Syscall wrapper that passes argv + envp via `SpawnSpec` |
+| `callMainAndExit` | `library/innigkeit/entry.zig` | Parses ELF initial stack, populates `innigkeit.process._argv/_envp` globals |
+| `App.createModule` | `build/App.zig` | Build-system function — now creates a two-module tree (wrapper root + app sub-module) |
+
+### most recent failure example
+
+```zig
+// Missing the leading argc word: was (argc + envc + 2) instead of (argc + envc + 3)
+const metadata_size = (argc + envc + 2) * S + 4 * @sizeOf(std.elf.Auxv);
+```
+
+This caused the envp pointer table to overlap the string data region, corrupting the first environment string. The correct count is `argc + envc + 3` (one for argc, one for argv null, one for envp null).
+
 ## goals
 
 - it boots
