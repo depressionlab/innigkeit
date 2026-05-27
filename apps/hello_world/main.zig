@@ -18,11 +18,15 @@ pub fn main() void {
 
 fn testIpc() void {
     const ep: capabilities.Handle = capabilities.create(.endpoint) catch {
-        innigkeit.io.stdout.print("cap_create failed \n", .{}) catch {};
+        innigkeit.io.stdout.print("cap_create failed\n", .{}) catch {};
         return;
     };
 
-    innigkeit.thread.spawn(&serverEntry, ep) catch {};
+    const server = innigkeit.Thread.spawn(serverEntry, .{ep}) catch {
+        innigkeit.io.stdout.print("thread spawn failed\n", .{}) catch {};
+        return;
+    };
+    server.detach();
 
     var i: usize = 0;
     while (i < 3) : (i += 1) {
@@ -63,46 +67,22 @@ fn testAllocator() void {
     std.log.info("page_allocator: alloc+write {s}", .{if (ok) "ok" else "FAIL"});
 }
 
-// A simple futex-based mutex: 0=unlocked, 1=locked, 2=locked+waiters.
-const Mutex = struct {
-    state: u32 = 0,
-
-    fn lock(self: *Mutex) void {
-        // CAS 0 -> 1 (fast path: uncontended).
-        if (@cmpxchgStrong(u32, &self.state, 0, 1, .acquire, .monotonic) == null) return;
-        // Slow path: mark as contended (state=2) and wait.
-        while (@atomicRmw(u32, &self.state, .Xchg, 2, .acquire) != 0) {
-            innigkeit.futex.wait(&self.state, 2) catch {};
-        }
-    }
-
-    fn unlock(self: *Mutex) void {
-        const prev = @atomicRmw(u32, &self.state, .Xchg, 0, .release);
-        if (prev == 2) {
-            // There are waiters, so wake one.
-            _ = innigkeit.futex.wake(&self.state, 1) catch 0;
-        }
-    }
-};
-
 var shared_counter: u32 = 0;
-var counter_mutex: Mutex = .{};
-var done_count: u32 = 0;
-var done_futex: u32 = 0;
+var counter_mutex: innigkeit.Mutex = .init;
 
 fn testFutex() void {
     shared_counter = 0;
-    done_count = 0;
-    @atomicStore(u32, &done_futex, 0, .release);
-
-    // Spawn two threads that each increment the counter 50 times under the mutex.
-    innigkeit.thread.spawn(&incrementer, 50) catch {};
-    innigkeit.thread.spawn(&incrementer, 50) catch {};
-
-    // Wait for both threads to finish.
-    while (@atomicLoad(u32, &done_count, .acquire) < 2) {
-        innigkeit.futex.wait(&done_futex, 0) catch {};
-    }
+    const t1 = innigkeit.Thread.spawn(incrementer, .{@as(u32, 50)}) catch {
+        innigkeit.io.stdout.print("thread spawn failed\n", .{}) catch {};
+        return;
+    };
+    const t2 = innigkeit.Thread.spawn(incrementer, .{@as(u32, 50)}) catch {
+        innigkeit.io.stdout.print("thread spawn failed\n", .{}) catch {};
+        t1.join();
+        return;
+    };
+    t1.join();
+    t2.join();
 
     const expected: u32 = 100;
     const actual = @atomicLoad(u32, &shared_counter, .acquire);
@@ -112,24 +92,16 @@ fn testFutex() void {
     innigkeit.io.stdout.print("futex test done\n", .{}) catch {};
 }
 
-fn incrementer(n_raw: usize) callconv(.c) noreturn {
-    const n: u32 = @intCast(n_raw);
+fn incrementer(n: u32) void {
     var i: u32 = 0;
     while (i < n) : (i += 1) {
         counter_mutex.lock();
         shared_counter += 1;
         counter_mutex.unlock();
     }
-
-    _ = @atomicRmw(u32, &done_count, .Add, 1, .acq_rel);
-    @atomicStore(u32, &done_futex, 1, .release);
-    _ = innigkeit.futex.wake(&done_futex, 1) catch 0;
-
-    innigkeit.thread.exitCurrent();
 }
 
-fn serverEntry(ep_raw: usize) callconv(.c) noreturn {
-    const ep: capabilities.Handle = @truncate(ep_raw);
+fn serverEntry(ep: capabilities.Handle) void {
     var msg: capabilities.Message = undefined;
 
     capabilities.endpointRecv(ep, &msg) catch {};
@@ -144,6 +116,4 @@ fn serverEntry(ep_raw: usize) callconv(.c) noreturn {
 
     msg.tag += 100;
     capabilities.endpointReply(ep, &msg) catch {};
-
-    innigkeit.thread.exitCurrent();
 }

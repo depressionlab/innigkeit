@@ -15,12 +15,10 @@ const innigkeit = @import("innigkeit");
 // independent protection state.
 threadlocal var g_cancel_protection: std.Io.CancelProtection = .unblocked;
 
-// A File.Writer whose interface drain calls rawWrite(stderr).
-// io and file are set to undefined because our drain never accesses them,
-// but we avoid undefined to prevent UB if any code path ever reads them.
+/// A File.Writer whose interface drain calls rawWrite(stderr).
 var g_stderr_fw: std.Io.File.Writer = .{
     .io = .failing,
-    .file = .{ .handle = 0, .flags = .{ .nonblocking = false } },
+    .file = undefined,
     .interface = .{
         .vtable = &innigkeit.io.stderr_vtable,
         .buffer = &.{},

@@ -10,22 +10,20 @@ comptime {
 
 pub const main = app.main;
 
-pub const std_options = if (@hasDecl(app, "std_options"))
-    app.std_options
-else
-    innigkeit.interop.std_options;
+pub const std_options =
+    if (@hasDecl(app, "std_options"))
+        app.std_options
+    else
+        innigkeit.interop.std_options;
 
-pub const std_options_debug_io = if (@hasDecl(app, "std_options_debug_io"))
-    app.std_options_debug_io
-else
-    innigkeit.interop.debug_io;
+pub const std_options_debug_io =
+    if (@hasDecl(app, "std_options_debug_io"))
+        app.std_options_debug_io
+    else
+        innigkeit.interop.debug_io;
 
-pub const std_options_thread_impl = if (@hasDecl(app, "std_options_thread_impl"))
-    app.std_options_thread_impl
-else
-    innigkeit.thread.InnigkeitThreadImpl;
-
-pub const panic = if (@hasDecl(app, "panic"))
-    app.panic
-else
-    innigkeit.interop.panic;
+pub const panic =
+    if (@hasDecl(app, "panic"))
+        app.panic
+    else
+        innigkeit.interop.panic;

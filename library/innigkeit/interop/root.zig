@@ -53,6 +53,9 @@ pub const std_options: std.Options = .{
     .logFn = logFn,
     .log_level = effective_log_level,
     .networking = false,
+    // TODO: make sure this is correct
+    .page_size_max = 4096,
+    .page_size_min = 4096,
 };
 
 /// Panic handler for Innigkeit userspace apps.

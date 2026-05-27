@@ -30,6 +30,43 @@ pub fn spawn(entry: EntryFn, arg: usize) innigkeit.Syscall.Error!void {
     _ = try innigkeit.Syscall.decode(result);
 }
 
+/// High-level thread handle for Innigkeit userspace.
+pub const Thread = struct {
+    impl: InnigkeitThreadImpl,
+
+    pub fn spawn(comptime f: anytype, args: anytype) std.Thread.SpawnError!Thread {
+        return .{ .impl = try InnigkeitThreadImpl.spawn(.{}, f, args) };
+    }
+
+    pub fn join(self: Thread) void {
+        self.impl.join();
+    }
+
+    pub fn detach(self: Thread) void {
+        self.impl.detach();
+    }
+};
+
+/// A mutex backed by `std.Io.Mutex` with `innigkeit.interop.debug_io` baked in.
+pub const Mutex = struct {
+    inner: std.Io.Mutex = .init,
+
+    pub const init: Mutex = .{};
+
+    pub fn lock(m: *Mutex) void {
+        m.inner.lockUncancelable(innigkeit.interop.debug_io);
+    }
+
+    pub fn unlock(m: *Mutex) void {
+        m.inner.unlock(innigkeit.interop.debug_io);
+    }
+
+    /// Non-blocking acquire; returns `true` if the lock was taken.
+    pub fn tryLock(m: *Mutex) bool {
+        return m.inner.tryLock();
+    }
+};
+
 /// std.Thread Impl for Innigkeit userspace.
 ///
 /// Uses spawn_thread + heap-allocated Instance for join/detach, with a 3-state
@@ -74,7 +111,7 @@ pub const InnigkeitThreadImpl = struct {
         return 1;
     }
 
-    pub fn spawn(config: std.Thread.SpawnConfig, comptime f: anytype, args: anytype) !InnigkeitThreadImpl {
+    pub fn spawn(config: std.Thread.SpawnConfig, comptime f: anytype, args: anytype) std.Thread.SpawnError!InnigkeitThreadImpl {
         _ = config;
         const Args = @TypeOf(args);
         const bad_ret = "thread function must return void, noreturn, !void, or !noreturn";
@@ -109,11 +146,8 @@ pub const InnigkeitThreadImpl = struct {
                 );
                 switch (prev) {
                     .running => {
-                        // join() will free; wake it.
-                        _ = innigkeit.Syscall.invoke(
-                            .futex_wake,
-                            .{ @intFromPtr(&self.completion.state.raw), @as(usize, std.math.maxInt(u32)) },
-                        );
+                        // join() will free; wake it
+                        innigkeit.interop.debug_io.futexWake(u32, &self.completion.state.raw, std.math.maxInt(u32));
                     },
                     .detached => {
                         // detach() already ran; we own the allocation.
@@ -126,13 +160,13 @@ pub const InnigkeitThreadImpl = struct {
 
             fn destroyFn(c: *Completion) void {
                 const self: *@This() = @fieldParentPtr("completion", c);
-                innigkeit.mem.heap.allocator.destroy(self);
+                innigkeit.mem.page_allocator.destroy(self);
             }
         };
 
         const id = next_id.fetchAdd(1, .monotonic);
-        const instance = try innigkeit.mem.heap.allocator.create(Instance);
-        errdefer innigkeit.mem.heap.allocator.destroy(instance);
+        const instance = try innigkeit.mem.page_allocator.create(Instance);
+        errdefer innigkeit.mem.page_allocator.destroy(instance);
 
         instance.* = .{
             .completion = .{
@@ -143,7 +177,11 @@ pub const InnigkeitThreadImpl = struct {
             .fn_args = args,
         };
 
-        try innigkeit.thread.spawn(Instance.entryFn, @intFromPtr(instance));
+        innigkeit.thread.spawn(Instance.entryFn, @intFromPtr(instance)) catch |err|
+            return switch (err) {
+                error.OutOfMemory => error.OutOfMemory,
+                else => error.SystemResources,
+            };
         return .{ .completion = &instance.completion };
     }
 
@@ -166,14 +204,7 @@ pub const InnigkeitThreadImpl = struct {
 
     /// Block until the thread completes, then free its resources.
     pub fn join(self: InnigkeitThreadImpl) void {
-        while (true) {
-            const s: State = @enumFromInt(self.completion.state.load(.seq_cst));
-            if (s != .running) break;
-            _ = innigkeit.Syscall.invoke(
-                .futex_wait,
-                .{ @intFromPtr(&self.completion.state.raw), @intFromEnum(State.running) },
-            );
-        }
+        innigkeit.interop.debug_io.futexWaitUncancelable(u32, &self.completion.state.raw, @intFromEnum(State.running));
         self.completion.destroy(self.completion);
     }
 };
