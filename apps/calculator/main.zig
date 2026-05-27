@@ -1,11 +1,6 @@
 const std = @import("std");
 const innigkeit = @import("innigkeit");
 
-pub const std_options = innigkeit.interop.std_options;
-pub const std_options_debug_io = innigkeit.interop.debug_io;
-pub const std_options_thread_impl = innigkeit.thread.InnigkeitThreadImpl;
-pub const panic = innigkeit.interop.panic;
-
 var buffer: [256]u8 = undefined;
 
 pub fn main() void {
@@ -104,8 +99,3 @@ const Token = union(enum) {
     num: i64,
     op: u8,
 };
-
-pub const _start = void;
-comptime {
-    innigkeit.exportEntry();
-}

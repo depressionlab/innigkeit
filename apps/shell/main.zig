@@ -1,11 +1,6 @@
 const std = @import("std");
 const innigkeit = @import("innigkeit");
 
-pub const std_options = innigkeit.interop.std_options;
-pub const std_options_debug_io = innigkeit.interop.debug_io;
-pub const std_options_thread_impl = innigkeit.thread.InnigkeitThreadImpl;
-pub const panic = innigkeit.interop.panic;
-
 var line_buf: [256]u8 = undefined;
 
 pub fn main() void {
@@ -101,9 +96,4 @@ fn trimLeft(s: []const u8) []const u8 {
     var start: usize = 0;
     while (start < s.len and (s[start] == ' ' or s[start] == '\t')) start += 1;
     return s[start..];
-}
-
-pub const _start = void;
-comptime {
-    innigkeit.exportEntry();
 }

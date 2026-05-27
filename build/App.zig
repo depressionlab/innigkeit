@@ -215,21 +215,23 @@ fn createModule(
     bundle: Bundle,
     dependencies: []const *const Library,
 ) !*std.Build.Module {
-    const module = b.createModule(.{
+    // Sub-module: the app developer's main.zig. All library dependencies and
+    // the self-import live here so the app source is unchanged.
+    const app_module = b.createModule(.{
         .root_source_file = root_source_file,
-        .target = bundle.resolveTarget(b),
+        // .target = bundle.resolveTarget(b),
         .optimize = options.optimize,
         .sanitize_c = .off, // TODO: enable based on whether any C is linked
     });
 
-    module.addImport(desc.name, module);
-    module.addImport("is_internal", switch (bundle.context) {
+    app_module.addImport(desc.name, app_module);
+    app_module.addImport("is_internal", switch (bundle.context) {
         .internal => options.internal_detection_module,
         .external => options.external_detection_module,
     });
 
     for (dependencies) |dep| {
-        module.addImport(dep.name, switch (bundle.context) {
+        app_module.addImport(dep.name, switch (bundle.context) {
             .internal => dep.internal_modules.get(bundle.architecture) orelse unreachable,
             .external => dep.external_modules.get(bundle.architecture) orelse unreachable,
         });
@@ -237,9 +239,33 @@ fn createModule(
 
     switch (desc.configuration) {
         .simple => {},
-        .link_c => module.link_libc = true,
-        .custom => |f| try f(b, bundle, module),
+        .link_c => app_module.link_libc = true,
+        .custom => |f| try f(b, bundle, app_module),
     }
 
-    return module;
+    // Root wrapper module: injects entry boilerplate and std_options defaults.
+    // The app sub-module is imported as "app"; innigkeit is forwarded for the
+    // wrapper's own use.
+    const wrapper = b.createModule(.{
+        .root_source_file = b.path("library/innigkeit/prelude.zig"),
+        .target = bundle.resolveTarget(b),
+        .optimize = options.optimize,
+        .sanitize_c = .off, // TODO: enable based on whether any C is linked
+    });
+    wrapper.addImport("app", app_module);
+    wrapper.addImport("is_internal", switch (bundle.context) {
+        .internal => options.internal_detection_module,
+        .external => options.external_detection_module,
+    });
+    for (dependencies) |dep| {
+        if (std.mem.eql(u8, dep.name, "innigkeit")) {
+            wrapper.addImport("innigkeit", switch (bundle.context) {
+                .internal => dep.internal_modules.get(bundle.architecture) orelse unreachable,
+                .external => dep.external_modules.get(bundle.architecture) orelse unreachable,
+            });
+            break;
+        }
+    }
+
+    return wrapper;
 }

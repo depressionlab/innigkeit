@@ -2,11 +2,6 @@ const std = @import("std");
 const innigkeit = @import("innigkeit");
 const capabilities = innigkeit.capabilities;
 
-pub const std_options = innigkeit.interop.std_options;
-pub const std_options_debug_io = innigkeit.interop.debug_io;
-pub const std_options_thread_impl = innigkeit.thread.InnigkeitThreadImpl;
-pub const panic = innigkeit.interop.panic;
-
 pub fn main() void {
     innigkeit.io.stdout.print("Hello, World!\n", .{}) catch {};
 
@@ -151,10 +146,4 @@ fn serverEntry(ep_raw: usize) callconv(.c) noreturn {
     capabilities.endpointReply(ep, &msg) catch {};
 
     innigkeit.thread.exitCurrent();
-}
-
-// TODO: make this less terrible
-pub const _start = void;
-comptime {
-    innigkeit.exportEntry();
 }
