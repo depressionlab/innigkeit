@@ -58,10 +58,16 @@ pub const InitialStack = struct {
     phnum: usize = 0,
     /// ELF entry point virtual address (e_entry), written as AT_ENTRY.
     entry: usize = 0,
-    /// Kernel-heap flat argv buffer, or empty slice if argc=0.
-    /// - Format: `[argc: usize][len0: usize]...[len(argc-1): usize][str0 bytes][str1 bytes]...`
-    /// - Freed by startProcess on success (noreturn). Caller frees on error.
-    flat_argv: []const u8 = &.{},
+    /// Combined argv+envp buffer, or empty if both argc=0 and envc=0.
+    ///
+    /// Format when non-empty:
+    ///   [argc: usize][envc: usize]
+    ///   [arg_len0..arg_len(argc-1): usize each]
+    ///   [env_len0..env_len(envc-1): usize each]
+    ///   [argv string bytes...][envp string bytes...]
+    ///
+    /// Freed by startProcess on success (noreturn). Caller frees on error.
+    proc_init: []const u8 = &.{},
 };
 
 /// Enter userspace for the first time, writing a full ELF-ABI initial stack.
@@ -70,36 +76,55 @@ pub const InitialStack = struct {
 /// user stack, then jumps to `entry_point` with rsp pointing at argc.
 ///
 /// Stack layout (low → high, rsp points at argc):
-///   [argc][argv[0] ptr]...[argv[N-1] ptr][argv null][envp null]
+///   [argc][argv[0] ptr]...[argv[N-1] ptr][argv null]
+///   [envp[0] ptr]...[envp[M-1] ptr][envp null]
 ///   [AT_PHDR][AT_PHNUM][AT_ENTRY][AT_NULL]
 ///   [argv[0] string\0]...[argv[N-1] string\0]
+///   [envp[0] string\0]...[envp[M-1] string\0]
 ///
-/// On success: frees `initial.flat_argv` before entering userspace.
-/// On error: does NOT free `initial.flat_argv` (caller responsible).
+/// On success: frees `initial.proc_init` before entering userspace.
+/// On error: does NOT free `initial.proc_init` (caller responsible).
 pub fn startProcess(self: *Thread, entry_point: innigkeit.UserVirtualAddress, initial: InitialStack) !noreturn {
     if (core.is_debug) {
         const current_task: innigkeit.Task.Current = .get();
         std.debug.assert(current_task.task == &self.task);
     }
 
-    // Parse flat_argv header: [argc: usize][len0: usize]...[len(argc-1): usize][bytes...]
-    const argc: usize = if (initial.flat_argv.len > 0)
-        std.mem.readInt(usize, initial.flat_argv[0..@sizeOf(usize)], .little)
+    const S = @sizeOf(usize);
+
+    // Parse proc_init header: [argc][envc][arg_lens...][env_lens...]
+    const argc: usize = if (initial.proc_init.len >= S)
+        std.mem.readInt(usize, initial.proc_init[0..S], .little)
+    else
+        0;
+    const envc: usize = if (initial.proc_init.len >= 2 * S)
+        std.mem.readInt(usize, initial.proc_init[S .. 2 * S], .little)
     else
         0;
 
     // Total bytes needed for null-terminated string data in the user stack.
-    var total_str_bytes: usize = argc; // one null byte per string
+    // Each string gets one extra byte for the null terminator.
+    var total_str_bytes: usize = argc + envc;
     for (0..argc) |i| {
         total_str_bytes += std.mem.readInt(
             usize,
-            initial.flat_argv[@sizeOf(usize) + i * @sizeOf(usize) ..][0..@sizeOf(usize)],
+            initial.proc_init[(2 + i) * S ..][0..S],
+            .little,
+        );
+    }
+    for (0..envc) |i| {
+        total_str_bytes += std.mem.readInt(
+            usize,
+            initial.proc_init[(2 + argc + i) * S ..][0..S],
             .little,
         );
     }
 
-    // Metadata: argc + N argv ptrs + argv null + envp null + 4 auxv entries.
-    const metadata_size = (argc + 3) * @sizeOf(usize) + 4 * @sizeOf(std.elf.Auxv);
+    // Metadata:
+    //   1 (argc) + argc (argv ptrs) + 1 (argv null)
+    //   + envc (envp ptrs) + 1 (envp null)
+    //   + 4 auxv entries
+    const metadata_size = (argc + envc + 3) * S + 4 * @sizeOf(std.elf.Auxv);
     const frame_size = std.mem.alignForward(usize, metadata_size + total_str_bytes, 16);
 
     const user_stack = try self.process.address_space.map(.{
@@ -120,17 +145,23 @@ pub fn startProcess(self: *Thread, entry_point: innigkeit.UserVirtualAddress, in
 
         // argc
         @as(*usize, @ptrFromInt(meta)).* = argc;
-        meta += @sizeOf(usize);
+        meta += S;
 
-        // Reserve space for argv pointers; fill in below once we know string addresses.
+        // Reserve space for argv pointers; filled below once string addresses are known.
         const argv_ptrs_base = meta;
-        meta += argc * @sizeOf(usize);
+        meta += argc * S;
 
-        // argv null + envp null
+        // argv null
         @as(*usize, @ptrFromInt(meta)).* = 0;
-        meta += @sizeOf(usize);
+        meta += S;
+
+        // Reserve space for envp pointers; filled below.
+        const envp_ptrs_base = meta;
+        meta += envc * S;
+
+        // envp null
         @as(*usize, @ptrFromInt(meta)).* = 0;
-        meta += @sizeOf(usize);
+        meta += S;
 
         // auxv: AT_PHDR, AT_PHNUM, AT_ENTRY, AT_NULL
         @as(*std.elf.Auxv, @ptrFromInt(meta)).* = .{ .a_type = std.elf.AT_PHDR, .a_un = .{ .a_val = initial.phdr_vaddr } };
@@ -143,39 +174,46 @@ pub fn startProcess(self: *Thread, entry_point: innigkeit.UserVirtualAddress, in
         meta += @sizeOf(std.elf.Auxv);
         // meta == stack_ptr.value + metadata_size; string data follows here.
 
-        // Copy argv strings into user stack and back-fill the pointer table.
-        if (argc > 0) {
-            const lens_base = @sizeOf(usize);
-            var flat_str_offset: usize = @sizeOf(usize) * (1 + argc);
-            var str_ptr: usize = meta;
+        // String data starts here; we walk flat_str_offset through proc_init.
+        var flat_str_offset: usize = (2 + argc + envc) * S;
+        var str_ptr: usize = meta;
 
-            for (0..argc) |i| {
-                const str_len = std.mem.readInt(
-                    usize,
-                    initial.flat_argv[lens_base + i * @sizeOf(usize) ..][0..@sizeOf(usize)],
-                    .little,
+        // Copy argv strings into user stack and back-fill pointer table.
+        for (0..argc) |i| {
+            const str_len = std.mem.readInt(usize, initial.proc_init[(2 + i) * S ..][0..S], .little);
+            @as(*usize, @ptrFromInt(argv_ptrs_base + i * S)).* = str_ptr;
+            if (str_len > 0) {
+                @memcpy(
+                    @as([*]u8, @ptrFromInt(str_ptr))[0..str_len],
+                    initial.proc_init[flat_str_offset..][0..str_len],
                 );
-                // Write argv[i] pointer.
-                @as(*usize, @ptrFromInt(argv_ptrs_base + i * @sizeOf(usize))).* = str_ptr;
-                // Copy string bytes then add null terminator.
-                if (str_len > 0) {
-                    @memcpy(
-                        @as([*]u8, @ptrFromInt(str_ptr))[0..str_len],
-                        initial.flat_argv[flat_str_offset..][0..str_len],
-                    );
-                }
-                @as(*u8, @ptrFromInt(str_ptr + str_len)).* = 0;
-                str_ptr += str_len + 1;
-                flat_str_offset += str_len;
             }
+            @as(*u8, @ptrFromInt(str_ptr + str_len)).* = 0;
+            str_ptr += str_len + 1;
+            flat_str_offset += str_len;
+        }
+
+        // Copy envp strings into user stack and back-fill pointer table.
+        for (0..envc) |i| {
+            const str_len = std.mem.readInt(usize, initial.proc_init[(2 + argc + i) * S ..][0..S], .little);
+            @as(*usize, @ptrFromInt(envp_ptrs_base + i * S)).* = str_ptr;
+            if (str_len > 0) {
+                @memcpy(
+                    @as([*]u8, @ptrFromInt(str_ptr))[0..str_len],
+                    initial.proc_init[flat_str_offset..][0..str_len],
+                );
+            }
+            @as(*u8, @ptrFromInt(str_ptr + str_len)).* = 0;
+            str_ptr += str_len + 1;
+            flat_str_offset += str_len;
         }
     }
 
     log.debug("starting userspace process: {f}", .{self});
 
-    // Free kernel argv buffer before entering userspace; defers in the caller
-    // won't run on the noreturn success path.
-    if (initial.flat_argv.len > 0) innigkeit.mem.heap.allocator.free(initial.flat_argv);
+    // Free combined proc_init buffer before entering userspace; defers in the
+    // caller won't run on the noreturn success path.
+    if (initial.proc_init.len > 0) innigkeit.mem.heap.allocator.free(initial.proc_init);
 
     architecture.user.enterUserspace(.{
         .entry_point = entry_point,

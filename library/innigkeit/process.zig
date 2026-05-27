@@ -88,7 +88,7 @@ pub const EnvVar = Arg;
 
 /// Spawn a new process from the embedded initfs with no arguments.
 pub fn spawn(path: [:0]const u8, grants: []const CapGrant) innigkeit.Syscall.Error!u32 {
-    return spawnWithArgs(path, &.{}, grants);
+    return spawnFull(path, &.{}, &.{}, grants);
 }
 
 /// Spawn a new process from the embedded initfs, passing argument strings.
@@ -97,12 +97,24 @@ pub fn spawn(path: [:0]const u8, grants: []const CapGrant) innigkeit.Syscall.Err
 /// the child starts. `grants` transfers capabilities into the child.
 ///
 /// Returns a Notify handle in the caller's capability table.  The Notify is
-/// signalled (bit 1) when the child process terminates.  Pass the handle to
-/// `waitProcess` to block until the child exits, or drop it with
-/// `cap_delete` if you do not need to observe the exit.
+/// signalled (bit 1) when the child process terminates.
 pub fn spawnWithArgs(
     path: [:0]const u8,
     argv: []const Arg,
+    grants: []const CapGrant,
+) innigkeit.Syscall.Error!u32 {
+    return spawnFull(path, argv, &.{}, grants);
+}
+
+/// Spawn a new process with both argv and envp.
+///
+/// `argv` is a slice of argument `Arg` entries.
+/// `envp` is a slice of `KEY=VALUE` environment `EnvVar` entries.
+/// `grants` transfers capabilities into the child.
+pub fn spawnFull(
+    path: [:0]const u8,
+    argv: []const Arg,
+    envp: []const EnvVar,
     grants: []const CapGrant,
 ) innigkeit.Syscall.Error!u32 {
     const spec = SpawnSpec{
@@ -112,20 +124,22 @@ pub fn spawnWithArgs(
         .argc = @intCast(argv.len),
         .cap_grants = @intFromPtr(grants.ptr),
         .cap_grant_count = @intCast(grants.len),
+        .envp = @intFromPtr(envp.ptr),
+        .envc = @intCast(envp.len),
     };
     const ret = innigkeit.Syscall.invoke(.spawn, .{@intFromPtr(&spec)});
     const handle = try innigkeit.Syscall.decode(ret);
     return @truncate(handle);
 }
 
-/// Convenience wrapper: spawn with a slice of string slices (no CapGrants).
+/// Convenience wrapper: spawn with a slice of string slices (no CapGrants or envp).
 ///
 /// Builds the `Arg` array on the stack (max 64 entries).
 pub fn spawnArgs(path: [:0]const u8, argv: []const []const u8) innigkeit.Syscall.Error!u32 {
     var args_buf: [64]Arg = undefined;
     const argc = @min(argv.len, args_buf.len);
     for (argv[0..argc], 0..) |a, i| args_buf[i] = Arg.fromSlice(a);
-    return spawnWithArgs(path, args_buf[0..argc], &.{});
+    return spawnFull(path, args_buf[0..argc], &.{}, &.{});
 }
 
 /// Block until the process associated with `notify_handle` exits.

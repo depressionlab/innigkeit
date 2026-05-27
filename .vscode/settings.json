@@ -4,4 +4,5 @@
     "zig.path": "zig",
     "zig.zls.path": "zls",
     "clangd.enable": false,
+    "nix.enableLanguageServer": false
 }

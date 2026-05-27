@@ -31,8 +31,14 @@ pub const SpawnSpec = extern struct {
     cap_grants: usize,
     /// Number of entries in the `cap_grants` array
     cap_grant_count: u32,
-    /// Must be zero
+    /// Reserved; must be zero
     _pad: u32,
+    /// Pointer to an array of Arg structs for environment variables (may be 0)
+    envp: usize,
+    /// Number of entries in the `envp` array
+    envc: u32,
+    /// Reserved; must be zero
+    _pad2: u32,
 };
 
 /// A single capability grant: copy cap from slot `src_slot` of the parent's
@@ -66,6 +72,15 @@ const max_single_arg_len: usize = 4095;
 /// Maximum total byte length of all argument strings combined.
 const max_total_arg_len: usize = 8 * 1024;
 
+/// Maximum number of environment variable entries.
+const max_envc: usize = 128;
+
+/// Maximum byte length of a single environment variable string.
+const max_single_env_len: usize = 4095;
+
+/// Maximum total byte length of all environment strings combined.
+const max_total_env_len: usize = 16 * 1024;
+
 /// Execute the `spawn` syscall.
 ///
 /// Returns the raw usize to store in rax (Notify handle on success, negated
@@ -82,7 +97,7 @@ pub fn syscallSpawn(
     const spec = @as(*const SpawnSpec, @ptrFromInt(spec_ptr_raw)).*;
     current_task.decrementEnableAccessToUserMemory();
 
-    if (spec._pad != 0) return errCode(e.EINVAL);
+    if (spec._pad != 0 or spec._pad2 != 0) return errCode(e.EINVAL);
 
     // -- 2. Validate and copy path
     if (spec.path_len == 0 or spec.path_len > max_path_len) return errCode(e.EINVAL);
@@ -99,26 +114,36 @@ pub fn syscallSpawn(
 
     const path: [:0]const u8 = path_buf[0..spec.path_len :0];
 
-    // -- 3. Validate and copy argv into a flat kernel buffer
-    // Format: [argc: usize][len0: usize]...[len(argc-1): usize][str0 bytes][str1 bytes]...
-    var flat_argv: []u8 = &.{};
+    // -- 3. Validate and copy argv + envp into a combined proc_init buffer.
+    //
+    // Buffer format when either argc or envc is non-zero:
+    //   [argc: usize][envc: usize]
+    //   [arg_len0..arg_len(argc-1): usize each]
+    //   [env_len0..env_len(envc-1): usize each]
+    //   [argv string bytes concatenated]
+    //   [envp string bytes concatenated]
+    //
+    // When both argc=0 and envc=0, proc_init is an empty slice.
+    var proc_init: []u8 = &.{};
+
+    // Validate argc/argv
+    if (spec.argc > max_argc) {
+        innigkeit.mem.heap.allocator.free(path_buf);
+        return errCode(e.EINVAL);
+    }
+    var user_args: [max_argc]Arg = undefined;
+    var total_arg_str_len: usize = 0;
     if (spec.argc > 0) {
-        if (spec.argc > max_argc) {
-            innigkeit.mem.heap.allocator.free(path_buf);
-            return errCode(e.EINVAL);
-        }
         const user_args_size = @as(usize, spec.argc) * @sizeOf(Arg);
         if (!validateUserBuffer(spec.argv, user_args_size)) {
             innigkeit.mem.heap.allocator.free(path_buf);
             return errCode(e.EFAULT);
         }
 
-        var user_args: [max_argc]Arg = undefined;
         current_task.incrementEnableAccessToUserMemory();
         @memcpy(user_args[0..spec.argc], @as([*]const Arg, @ptrFromInt(spec.argv))[0..spec.argc]);
         current_task.decrementEnableAccessToUserMemory();
 
-        var total_str_len: usize = 0;
         for (user_args[0..spec.argc]) |ua| {
             if (ua._pad != 0 or ua.len > max_single_arg_len) {
                 innigkeit.mem.heap.allocator.free(path_buf);
@@ -128,40 +153,96 @@ pub fn syscallSpawn(
                 innigkeit.mem.heap.allocator.free(path_buf);
                 return errCode(e.EFAULT);
             }
-            total_str_len += ua.len;
+            total_arg_str_len += ua.len;
         }
-        if (total_str_len > max_total_arg_len) {
+        if (total_arg_str_len > max_total_arg_len) {
             innigkeit.mem.heap.allocator.free(path_buf);
             return errCode(e.EINVAL);
         }
+    }
 
-        // Allocate: 1 usize for argc + argc usizes for lengths + raw string bytes.
-        const flat_size = @sizeOf(usize) * (1 + spec.argc) + total_str_len;
-        const buf = innigkeit.mem.heap.allocator.alloc(u8, flat_size) catch {
+    // Validate envc/envp
+    if (spec.envc > max_envc) {
+        innigkeit.mem.heap.allocator.free(path_buf);
+        return errCode(e.EINVAL);
+    }
+    var user_envs: [max_envc]Arg = undefined;
+    var total_env_str_len: usize = 0;
+    if (spec.envc > 0) {
+        const user_envs_size = @as(usize, spec.envc) * @sizeOf(Arg);
+        if (!validateUserBuffer(spec.envp, user_envs_size)) {
+            innigkeit.mem.heap.allocator.free(path_buf);
+            return errCode(e.EFAULT);
+        }
+        current_task.incrementEnableAccessToUserMemory();
+        @memcpy(user_envs[0..spec.envc], @as([*]const Arg, @ptrFromInt(spec.envp))[0..spec.envc]);
+        current_task.decrementEnableAccessToUserMemory();
+
+        for (user_envs[0..spec.envc]) |ue| {
+            if (ue._pad != 0 or ue.len > max_single_env_len) {
+                innigkeit.mem.heap.allocator.free(path_buf);
+                return errCode(e.EINVAL);
+            }
+            if (!validateUserBuffer(ue.ptr, ue.len)) {
+                innigkeit.mem.heap.allocator.free(path_buf);
+                return errCode(e.EFAULT);
+            }
+            total_env_str_len += ue.len;
+        }
+        if (total_env_str_len > max_total_env_len) {
+            innigkeit.mem.heap.allocator.free(path_buf);
+            return errCode(e.EINVAL);
+        }
+    }
+
+    // Build combined proc_init buffer if either argv or envp is non-empty.
+    if (spec.argc > 0 or spec.envc > 0) {
+        const header_size = @sizeOf(usize) * (2 + spec.argc + spec.envc);
+        const total_size = header_size + total_arg_str_len + total_env_str_len;
+
+        const buf = innigkeit.mem.heap.allocator.alloc(u8, total_size) catch {
             innigkeit.mem.heap.allocator.free(path_buf);
             return errCode(e.ENOMEM);
         };
 
-        std.mem.writeInt(usize, buf[0..@sizeOf(usize)], spec.argc, .little);
-        var str_offset: usize = @sizeOf(usize) * (1 + spec.argc);
+        const S = @sizeOf(usize);
+        std.mem.writeInt(usize, buf[0..S], spec.argc, .little);
+        std.mem.writeInt(usize, buf[S .. 2 * S], spec.envc, .little);
 
-        current_task.incrementEnableAccessToUserMemory();
+        // Write arg length table
         for (user_args[0..spec.argc], 0..) |ua, i| {
-            std.mem.writeInt(usize, buf[@sizeOf(usize) * (1 + i) ..][0..@sizeOf(usize)], ua.len, .little);
+            std.mem.writeInt(usize, buf[(2 + i) * S ..][0..S], ua.len, .little);
+        }
+        // Write env length table
+        for (user_envs[0..spec.envc], 0..) |ue, i| {
+            std.mem.writeInt(usize, buf[(2 + spec.argc + i) * S ..][0..S], ue.len, .little);
+        }
+
+        // Copy argv string bytes
+        var str_off: usize = header_size;
+        current_task.incrementEnableAccessToUserMemory();
+        for (user_args[0..spec.argc]) |ua| {
             if (ua.len > 0) {
-                @memcpy(buf[str_offset..][0..ua.len], @as([*]const u8, @ptrFromInt(ua.ptr))[0..ua.len]);
+                @memcpy(buf[str_off..][0..ua.len], @as([*]const u8, @ptrFromInt(ua.ptr))[0..ua.len]);
             }
-            str_offset += ua.len;
+            str_off += ua.len;
+        }
+        // Copy envp string bytes
+        for (user_envs[0..spec.envc]) |ue| {
+            if (ue.len > 0) {
+                @memcpy(buf[str_off..][0..ue.len], @as([*]const u8, @ptrFromInt(ue.ptr))[0..ue.len]);
+            }
+            str_off += ue.len;
         }
         current_task.decrementEnableAccessToUserMemory();
 
-        flat_argv = buf;
+        proc_init = buf;
     }
 
     // -- 4. Validate and copy capability grants
     if (spec.cap_grant_count > max_cap_grants) {
         innigkeit.mem.heap.allocator.free(path_buf);
-        if (flat_argv.len > 0) innigkeit.mem.heap.allocator.free(flat_argv);
+        if (proc_init.len > 0) innigkeit.mem.heap.allocator.free(proc_init);
         return errCode(e.EINVAL);
     }
     const grants_size = spec.cap_grant_count *| @sizeOf(CapGrant);
@@ -170,7 +251,7 @@ pub fn syscallSpawn(
     if (spec.cap_grant_count > 0) {
         if (!validateUserBuffer(spec.cap_grants, grants_size)) {
             innigkeit.mem.heap.allocator.free(path_buf);
-            if (flat_argv.len > 0) innigkeit.mem.heap.allocator.free(flat_argv);
+            if (proc_init.len > 0) innigkeit.mem.heap.allocator.free(proc_init);
             return errCode(e.EFAULT);
         }
         current_task.incrementEnableAccessToUserMemory();
@@ -185,7 +266,7 @@ pub fn syscallSpawn(
     // -- 5. Create the exit Notify
     const exit_notify = innigkeit.capabilities.Notify.create() catch {
         innigkeit.mem.heap.allocator.free(path_buf);
-        if (flat_argv.len > 0) innigkeit.mem.heap.allocator.free(flat_argv);
+        if (proc_init.len > 0) innigkeit.mem.heap.allocator.free(proc_init);
         return errCode(e.ENOMEM);
     };
     // Give an extra ref to the process (so it can signal on exit).
@@ -200,7 +281,7 @@ pub fn syscallSpawn(
         exit_notify.unref(); // process ref
         exit_notify.unref(); // caller ref
         innigkeit.mem.heap.allocator.free(path_buf);
-        if (flat_argv.len > 0) innigkeit.mem.heap.allocator.free(flat_argv);
+        if (proc_init.len > 0) innigkeit.mem.heap.allocator.free(proc_init);
         return errCode(e.ENOMEM);
     };
     // Process.create adds 1 reference; we hold it until we spawn the thread.
@@ -240,22 +321,22 @@ pub fn syscallSpawn(
 
     // -- 8. Create kernel thread that will load the ELF
     // TypeErasedCall fits up to 5 usize args: path ptr+len, child_process,
-    // flat_argv ptr+len. Ownership of path_buf and flat_argv transfers to
+    // proc_init ptr+len. Ownership of path_buf and proc_init transfers to
     // loadAndStart (it frees them on all exit paths).
     const load_thread = child_process.createThread(.{
         .entry = .prepare(loadAndStart, .{
             path_buf.ptr,
             path_buf.len,
             child_process,
-            @as(usize, if (flat_argv.len > 0) @intFromPtr(flat_argv.ptr) else 0),
-            flat_argv.len,
+            @as(usize, if (proc_init.len > 0) @intFromPtr(proc_init.ptr) else 0),
+            proc_init.len,
         }),
     }) catch {
         innigkeit.mem.heap.allocator.free(path_buf);
-        if (flat_argv.len > 0) innigkeit.mem.heap.allocator.free(flat_argv);
+        if (proc_init.len > 0) innigkeit.mem.heap.allocator.free(proc_init);
         return errCode(e.ENOMEM);
     };
-    // loadAndStart owns path_buf and flat_argv now.
+    // loadAndStart owns path_buf and proc_init now.
 
     const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
     defer scheduler_handle.unlock();
@@ -282,19 +363,19 @@ pub fn syscallSpawn(
 
 /// Kernel thread entry: load ELF from initfs and jump to userspace.
 ///
-/// Owns path_ptr[0..path_len] and (when non-zero) flat_argv_ptr[0..flat_argv_len].
-/// On success (noreturn): startProcess frees flat_argv; path_buf freed explicitly.
-/// On any return path: defers free path_buf and flat_argv, decrement child_process ref.
+/// Owns path_ptr[0..path_len] and (when non-zero) proc_init_ptr[0..proc_init_len].
+/// On success (noreturn): startProcess frees proc_init; path_buf freed explicitly.
+/// On any return path: defers free path_buf and proc_init, decrement child_process ref.
 fn loadAndStart(
     path_ptr: [*]u8,
     path_len: usize,
     child_process: *innigkeit.user.Process,
-    flat_argv_ptr: usize,
-    flat_argv_len: usize,
+    proc_init_ptr: usize,
+    proc_init_len: usize,
 ) !void {
     const path_buf = path_ptr[0..path_len];
-    const flat_argv: []u8 = if (flat_argv_len > 0)
-        (@as([*]u8, @ptrFromInt(flat_argv_ptr)))[0..flat_argv_len]
+    const proc_init: []u8 = if (proc_init_len > 0)
+        (@as([*]u8, @ptrFromInt(proc_init_ptr)))[0..proc_init_len]
     else
         &.{};
 
@@ -302,8 +383,8 @@ fn loadAndStart(
     // path_buf is freed explicitly before startProcess; defer handles early returns.
     var path_freed = false;
     defer if (!path_freed) innigkeit.mem.heap.allocator.free(path_buf);
-    // flat_argv: freed by startProcess on noreturn success; defer handles error returns.
-    defer if (flat_argv.len > 0) innigkeit.mem.heap.allocator.free(flat_argv);
+    // proc_init: freed by startProcess on noreturn success; defer handles error returns.
+    defer if (proc_init.len > 0) innigkeit.mem.heap.allocator.free(proc_init);
 
     const path = path_buf[0 .. std.mem.indexOfScalar(u8, path_buf, 0) orelse path_buf.len];
 
@@ -405,13 +486,13 @@ fn loadAndStart(
     innigkeit.mem.heap.allocator.free(path_buf);
     path_freed = true;
 
-    // flat_argv ownership transfers to startProcess; it frees on noreturn success.
+    // proc_init ownership transfers to startProcess; it frees on noreturn success.
     // The defer above handles it if startProcess returns an error.
     thread.startProcess(entry_point, .{
         .phdr_vaddr = phdr_vaddr,
         .phnum = header.program_header_entry_count,
         .entry = header.entry,
-        .flat_argv = flat_argv,
+        .proc_init = proc_init,
     }) catch |err| {
         log.err("spawn: thread.startProcess failed: {t}", .{err});
         return;
