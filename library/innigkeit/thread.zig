@@ -30,6 +30,17 @@ pub fn spawn(entry: EntryFn, arg: usize) innigkeit.Syscall.Error!void {
     _ = try innigkeit.Syscall.decode(result);
 }
 
+/// Sleep for at least `nanoseconds` using the kernel's sleep queue.
+///
+/// Precision is bounded by the scheduler tick period (5 ms by default).
+pub fn sleep(nanoseconds: u64) void {
+    const duration: std.Io.Clock.Duration = .{
+        .raw = std.Io.Duration.fromNanoseconds(@intCast(nanoseconds)),
+        .clock = .awake,
+    };
+    duration.sleep(innigkeit.interop.debug_io) catch {};
+}
+
 /// High-level thread handle for Innigkeit userspace.
 pub const Thread = struct {
     impl: InnigkeitThreadImpl,
@@ -64,6 +75,42 @@ pub const Mutex = struct {
     /// Non-blocking acquire; returns `true` if the lock was taken.
     pub fn tryLock(m: *Mutex) bool {
         return m.inner.tryLock();
+    }
+};
+
+/// A condition variable backed by `std.Io.Condition` with `innigkeit.interop.debug_io` baked in.
+///
+/// Must always be used with a matching `innigkeit.Mutex`.
+///
+///   var cv: Condition = .init;
+///   var mu: Mutex = .init;
+///   // waiter:
+///   mu.lock();
+///   while (!ready) cv.wait(&mu);
+///   mu.unlock();
+///   // signaler:
+///   mu.lock();
+///   ready = true;
+///   cv.signal();
+///   mu.unlock();
+pub const Condition = struct {
+    inner: std.Io.Condition = .init,
+
+    pub const init: Condition = .{};
+
+    /// Atomically unlock `m`, block until signaled, then re-lock `m`.
+    pub fn wait(c: *Condition, m: *Mutex) void {
+        c.inner.waitUncancelable(innigkeit.interop.debug_io, &m.inner);
+    }
+
+    /// Wake one thread blocked in `wait`.
+    pub fn signal(c: *Condition) void {
+        c.inner.signal(innigkeit.interop.debug_io);
+    }
+
+    /// Wake all threads blocked in `wait`.
+    pub fn broadcast(c: *Condition) void {
+        c.inner.broadcast(innigkeit.interop.debug_io);
     }
 };
 

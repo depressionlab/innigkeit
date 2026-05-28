@@ -88,6 +88,7 @@ pub fn perExecutorPeriodicHandler(
     // saved RSP (irq_stack_top - 8), corrupting the first task's stack on resume.
     // Instead, just tick and set needs_resched; actual preemption happens at the next
     // safe point in decrementInterruptDisable() when we're back on the task stack.
+    innigkeit.sync.nanosleep.tick();
     innigkeit.Task.Current.get().tickAndRequestPreemptIfNeeded();
 }
 

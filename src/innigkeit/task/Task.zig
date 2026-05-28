@@ -101,6 +101,9 @@ ipc_message: innigkeit.capabilities.Message = .{},
 /// Zero when not blocked in a futex bucket.
 futex_addr: usize = 0,
 
+/// Uptime-ms deadline set by nanosleep; zero when not sleeping.
+sleep_deadline_ms: u64 = 0,
+
 pub const State = union(enum) {
     ready,
     /// Do not access the executor directly, use `known_executor` instead.

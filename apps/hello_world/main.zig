@@ -11,6 +11,8 @@ pub fn main() void {
     testMmap();
     testAllocator();
     testFutex();
+    testCondition();
+    testSleep();
 
     std.log.info("all tests passed", .{});
     innigkeit.io.stdout.print("all tests passed\n", .{}) catch {};
@@ -99,6 +101,66 @@ fn incrementer(n: u32) void {
         shared_counter += 1;
         counter_mutex.unlock();
     }
+}
+
+var cond_count: u32 = 0;
+var cond_mutex: innigkeit.Mutex = .init;
+var cond_cv: innigkeit.Condition = .init;
+
+fn testCondition() void {
+    cond_count = 0;
+
+    const producer = innigkeit.Thread.spawn(condProducer, .{}) catch {
+        innigkeit.io.stdout.print("thread spawn failed\n", .{}) catch {};
+        return;
+    };
+    const consumer = innigkeit.Thread.spawn(condConsumer, .{}) catch {
+        innigkeit.io.stdout.print("thread spawn failed\n", .{}) catch {};
+        producer.join();
+        return;
+    };
+    producer.join();
+    consumer.join();
+    innigkeit.io.stdout.print("condition test done\n", .{}) catch {};
+}
+
+fn condProducer() void {
+    var i: u32 = 0;
+    while (i < 5) : (i += 1) {
+        cond_mutex.lock();
+        cond_count += 1;
+        cond_cv.signal();
+        cond_mutex.unlock();
+    }
+}
+
+fn condConsumer() void {
+    var observed: u32 = 0;
+    while (observed < 5) {
+        cond_mutex.lock();
+        while (cond_count == observed) cond_cv.wait(&cond_mutex);
+        observed = cond_count;
+        cond_mutex.unlock();
+    }
+    innigkeit.io.stdout.print("condition: observed {} increments (expected 5){s}\n", .{
+        observed, if (observed >= 5) "" else " FAIL",
+    }) catch {};
+}
+
+fn testSleep() void {
+    const before = innigkeit.Syscall.invoke(.uptime_ms, .{});
+    const before_ms = innigkeit.Syscall.decode(before) catch 0;
+
+    innigkeit.sleep(50 * std.time.ns_per_ms);
+
+    const after = innigkeit.Syscall.invoke(.uptime_ms, .{});
+    const after_ms = innigkeit.Syscall.decode(after) catch 0;
+
+    const elapsed = after_ms -| before_ms;
+    innigkeit.io.stdout.print("sleep: elapsed {}ms (expected ~50ms){s}\n", .{
+        elapsed, if (elapsed >= 40) "" else " FAIL",
+    }) catch {};
+    innigkeit.io.stdout.print("sleep test done\n", .{}) catch {};
 }
 
 fn serverEntry(ep: capabilities.Handle) void {

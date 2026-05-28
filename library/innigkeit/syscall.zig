@@ -60,6 +60,9 @@ pub const Syscall = enum(usize) {
     /// Includes 0xE0 extended prefix and break bit (bit 7 = release).
     /// (buf_ptr: usize, buf_len: usize) -> count
     kbd_read = 24,
+    /// Block until uptime_ms >= deadline_ms.
+    /// (deadline_ms: u64) -> 0
+    nanosleep_ms = 25,
 
     /// Decode a raw syscall return value into a success count or a `SyscallError`.
     ///

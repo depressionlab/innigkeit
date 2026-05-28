@@ -46,14 +46,62 @@ fn swapCancelProtection(_: ?*anyopaque, new: std.Io.CancelProtection) std.Io.Can
 
 fn checkCancel(_: ?*anyopaque) std.Io.Cancelable!void {}
 
+fn uptimeMsNow() u64 {
+    const r = innigkeit.Syscall.invoke(.uptime_ms, .{});
+    return innigkeit.Syscall.decode(r) catch 0;
+}
+
 fn futexWaitUncancelable(_: ?*anyopaque, ptr: *const u32, expected: u32) void {
     while (@atomicLoad(u32, ptr, .acquire) == expected) {
         _ = innigkeit.Syscall.invoke(.futex_wait, .{ @intFromPtr(ptr), expected });
     }
 }
 
+fn futexWait(_: ?*anyopaque, ptr: *const u32, expected: u32, timeout: std.Io.Timeout) std.Io.Cancelable!void {
+    const deadline_ms: ?u64 = switch (timeout) {
+        .none => null,
+        .duration => |d| blk: {
+            const ns = d.raw.nanoseconds;
+            if (ns <= 0) return;
+            const ms: u64 = @intCast(@divTrunc(ns, std.time.ns_per_ms));
+            break :blk uptimeMsNow() + ms;
+        },
+        .deadline => |ts| blk: {
+            const ns = ts.raw.nanoseconds;
+            if (ns <= 0) return;
+            break :blk @intCast(@divTrunc(ns, std.time.ns_per_ms));
+        },
+    };
+    while (@atomicLoad(u32, ptr, .acquire) == expected) {
+        if (deadline_ms) |dl| {
+            if (uptimeMsNow() >= dl) return;
+            _ = innigkeit.Syscall.invoke(.yield, .{});
+        } else {
+            _ = innigkeit.Syscall.invoke(.futex_wait, .{ @intFromPtr(ptr), expected });
+        }
+    }
+}
+
 fn futexWake(_: ?*anyopaque, ptr: *const u32, max_waiters: u32) void {
     _ = innigkeit.Syscall.invoke(.futex_wake, .{ @intFromPtr(ptr), max_waiters });
+}
+
+fn sleep(_: ?*anyopaque, timeout: std.Io.Timeout) std.Io.Cancelable!void {
+    const deadline_ms: u64 = switch (timeout) {
+        .none => return,
+        .duration => |d| blk: {
+            const ns = d.raw.nanoseconds;
+            if (ns <= 0) return;
+            const ms: u64 = @intCast(@divTrunc(ns, std.time.ns_per_ms));
+            break :blk uptimeMsNow() + ms;
+        },
+        .deadline => |ts| blk: {
+            const ns = ts.raw.nanoseconds;
+            if (ns <= 0) return;
+            break :blk @intCast(@divTrunc(ns, std.time.ns_per_ms));
+        },
+    };
+    _ = innigkeit.Syscall.invoke(.nanosleep_ms, .{deadline_ms});
 }
 
 fn lockStderr(_: ?*anyopaque, _: ?std.Io.Terminal.Mode) std.Io.Cancelable!std.Io.LockedStderr {
@@ -101,7 +149,7 @@ const vtable: std.Io.VTable = .{
     .swapCancelProtection = swapCancelProtection,
     .checkCancel = checkCancel,
 
-    .futexWait = std.Io.noFutexWait,
+    .futexWait = futexWait,
     .futexWaitUncancelable = futexWaitUncancelable,
     .futexWake = futexWake,
 
@@ -189,7 +237,7 @@ const vtable: std.Io.VTable = .{
 
     .now = ioNow,
     .clockResolution = std.Io.failingClockResolution,
-    .sleep = std.Io.noSleep,
+    .sleep = sleep,
 
     .netListenIp = std.Io.failingNetListenIp,
     .netAccept = std.Io.failingNetAccept,
