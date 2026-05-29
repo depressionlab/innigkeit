@@ -1,6 +1,7 @@
 pub const exportEntry = @import("entry.zig").exportEntry;
 pub const Syscall = @import("syscall.zig").Syscall;
 pub const capabilities = @import("capabilities.zig");
+pub const Handle = capabilities.Handle;
 pub const io = @import("io.zig");
 pub const mem = @import("mem.zig");
 pub const thread = @import("thread.zig");
@@ -16,5 +17,7 @@ pub const storage = @import("storage.zig");
 pub const display = @import("display.zig");
 pub const fs = @import("fs.zig");
 
-/// Handle type alias for convenience in storage/block protocol code.
-pub const Handle = capabilities.Handle;
+const std = @import("std");
+comptime {
+    std.testing.refAllDecls(@This());
+}

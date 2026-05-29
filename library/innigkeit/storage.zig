@@ -294,20 +294,15 @@ pub const FsClient = struct {
         dst_off: u64,
         len: u64,
     ) !u64 {
-        // Encode 5 arguments across 4 words: pack dst_inode+dst_off+len.
-        // words[0]=src_inode, words[1]=src_off, words[2]=dst_inode, words[3]=dst_off
-        // len is passed in a second message word pair (not supported in 4 words).
-        // Use words[2] = dst_inode (low 32) | dst_off (high 32) packing, or
-        // since all are u64, we need a different encoding. Use caps[0] = 0 and
-        // encode len in words[3] by overloading. Real XFS impl would use a frame.
+        // 5 u64 args don't fit in 4 message words; `len` is passed in caps[0]
+        // as a raw integer (misuse of the caps field) until the server side
+        // switches to a Frame-based encoding for full XFS/btrfs support.
+        // words: src_inode, src_off, dst_inode, dst_off
         var msg: innigkeit.capabilities.Message = .{
             .tag = @intFromEnum(FsOp.copy_file_range),
-            .words = .{ src_inode, src_off, dst_inode, src_off },
+            .words = .{ src_inode, src_off, dst_inode, dst_off },
+            .caps = .{ @truncate(len), 0, 0, 0 },
         };
-        // Encode dst_off and len in a second call (simplified; production would
-        // use a Frame or extended message). For protocol completeness:
-        _ = dst_off;
-        _ = len;
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
         if (msg.tag != @intFromEnum(FsError.none)) return error.FsError;
         return msg.words[0];

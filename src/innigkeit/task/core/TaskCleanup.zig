@@ -65,6 +65,9 @@ fn cleanupTask(task: *innigkeit.Task) void {
     }
 
     task.state.terminated.queued_for_cleanup.store(false, .release);
+    // Remove from the nanosleep queue before freeing; prevents UAF in tick()
+    // if the task was force-terminated while sleeping.
+    innigkeit.sync.nanosleep.cancel(task);
 
     switch (task.type) {
         .kernel => {

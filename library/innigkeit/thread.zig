@@ -15,7 +15,7 @@ pub fn exitCurrent() noreturn {
 
 /// Voluntarily yield the CPU to another runnable thread.
 pub fn yield() void {
-    innigkeit.Syscall.invoke(.yield, .{});
+    _ = innigkeit.Syscall.invoke(.yield, .{});
 }
 
 /// Spawn a new thread in the current process.
@@ -250,8 +250,83 @@ pub const InnigkeitThreadImpl = struct {
     }
 
     /// Block until the thread completes, then free its resources.
+    ///
+    /// May only be called once per handle. A second call is a programming
+    /// error; in this implementation it silently returns without double-freeing.
     pub fn join(self: InnigkeitThreadImpl) void {
         innigkeit.interop.debug_io.futexWaitUncancelable(u32, &self.completion.state.raw, @intFromEnum(State.running));
-        self.completion.destroy(self.completion);
+        // CAS completed -> detached claims the destroy right atomically.
+        // A racing second join() loses the CAS and returns without double-freeing.
+        if (self.completion.state.cmpxchgStrong(
+            @intFromEnum(State.completed),
+            @intFromEnum(State.detached),
+            .acq_rel,
+            .acquire,
+        ) == null) {
+            self.completion.destroy(self.completion);
+        }
     }
 };
+
+test "Mutex.tryLock fast path" {
+    var m: Mutex = .init;
+    try std.testing.expect(m.tryLock()); // unlocked → locked_once
+    try std.testing.expect(!m.tryLock()); // already held
+    m.unlock(); // locked_once → unlocked, no futex wake
+    try std.testing.expect(m.tryLock()); // can re-acquire
+    m.unlock();
+}
+
+test "Condition.signal and broadcast with no waiters" {
+    var cv: Condition = .init;
+    // Both are no-ops when nobody is waiting (early-out before futex).
+    cv.signal();
+    cv.broadcast();
+}
+
+test "Thread.join waits for completion" {
+    if (@import("builtin").os.tag != .freestanding) return error.SkipZigTest;
+    var flag: std.atomic.Value(u32) = .init(0);
+    const t = try Thread.spawn(setFlag, .{&flag});
+    t.join();
+    try std.testing.expectEqual(@as(u32, 1), flag.load(.acquire));
+}
+
+test "Thread.detach does not crash" {
+    if (@import("builtin").os.tag != .freestanding) return error.SkipZigTest;
+    // Detach before the thread has a chance to finish; kernel frees resources.
+    const t = try Thread.spawn(justYield, .{});
+    t.detach();
+}
+
+test "Mutex serializes concurrent increments" {
+    if (@import("builtin").os.tag != .freestanding) return error.SkipZigTest;
+    var counter: u32 = 0;
+    var mu: Mutex = .init;
+    const State = struct { counter: *u32, mu: *Mutex };
+    var s: State = .{ .counter = &counter, .mu = &mu };
+    const t1 = try Thread.spawn(lockedIncrement, .{&s});
+    const t2 = try Thread.spawn(lockedIncrement, .{&s});
+    t1.join();
+    t2.join();
+    try std.testing.expectEqual(@as(u32, 200), @atomicLoad(u32, &counter, .acquire));
+}
+
+fn setFlag(flag: *std.atomic.Value(u32)) void {
+    flag.store(1, .release);
+}
+
+fn justYield() void {
+    innigkeit.thread.yield();
+}
+
+const MutexState = struct { counter: *u32, mu: *Mutex };
+
+fn lockedIncrement(s: *MutexState) void {
+    var i: u32 = 0;
+    while (i < 100) : (i += 1) {
+        s.mu.lock();
+        s.counter.* += 1;
+        s.mu.unlock();
+    }
+}
