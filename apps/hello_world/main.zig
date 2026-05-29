@@ -307,11 +307,11 @@ fn testSpawnWait() void {
         innigkeit.io.stdout.print("spawn: failed to spawn child: {s}\n", .{@errorName(err)}) catch {};
         return;
     };
-    innigkeit.process.waitProcess(notify) catch |err| {
+    const status = innigkeit.process.waitProcess(notify) catch |err| {
         innigkeit.io.stdout.print("spawn: waitProcess failed: {s}\n", .{@errorName(err)}) catch {};
         return;
     };
-    innigkeit.io.stdout.print("spawn+wait: child exited ok\n", .{}) catch {};
+    innigkeit.io.stdout.print("spawn+wait: child exited with status {d}\n", .{status}) catch {};
     innigkeit.io.stdout.print("spawn+wait test done\n", .{}) catch {};
 }
 

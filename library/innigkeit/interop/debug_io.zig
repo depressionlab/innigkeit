@@ -74,10 +74,8 @@ fn futexWait(_: ?*anyopaque, ptr: *const u32, expected: u32, timeout: std.Io.Tim
     };
     while (@atomicLoad(u32, ptr, .acquire) == expected) {
         if (deadline_ms) |dl| {
-            const now = uptimeMsNow();
-            if (now >= dl) return;
-            // futex_wait has no timeout; sleep up to one tick (5ms) then re-check.
-            _ = innigkeit.Syscall.invoke(.nanosleep_ms, .{@min(dl, now +| 5)});
+            if (uptimeMsNow() >= dl) return;
+            _ = innigkeit.Syscall.invoke(.futex_wait_timeout, .{ @intFromPtr(ptr), expected, dl });
         } else {
             _ = innigkeit.Syscall.invoke(.futex_wait, .{ @intFromPtr(ptr), expected });
         }

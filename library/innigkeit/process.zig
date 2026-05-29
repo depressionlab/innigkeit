@@ -142,11 +142,11 @@ pub fn spawnArgs(path: [:0]const u8, argv: []const []const u8) innigkeit.Syscall
     return spawnFull(path, args_buf[0..argc], &.{}, &.{});
 }
 
-/// Block until the process associated with `notify_handle` exits.
+/// Block until the process associated with `notify_handle` exits; returns its exit status.
 ///
-/// `notify_handle` must be the value returned by `spawn`.  Returns as soon as
+/// `notify_handle` must be the value returned by `spawn`. Returns as soon as
 /// the child process's exit Notify is signalled.
-pub fn waitProcess(notify_handle: u32) innigkeit.Syscall.Error!void {
+pub fn waitProcess(notify_handle: u32) innigkeit.Syscall.Error!u8 {
     const ret = innigkeit.Syscall.invoke(.wait_process, .{@as(usize, notify_handle)});
-    _ = try innigkeit.Syscall.decode(ret);
+    return @truncate(try innigkeit.Syscall.decode(ret));
 }

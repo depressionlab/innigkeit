@@ -82,13 +82,9 @@ pub fn perExecutorPeriodicHandler(
     _: architecture.interrupts.InterruptFrame,
     _: innigkeit.Task.Current.StateBeforeInterrupt,
 ) void {
-    // Do NOT call maybePreempt() here: we're on the shared IRQ stack, and calling
-    // switchTask() from here would save the IRQ stack RSP into old_task.stack_pointer.
-    // A subsequent ring0 -> ring0 interrupt on another task would then overwrite that
-    // saved RSP (irq_stack_top - 8), corrupting the first task's stack on resume.
-    // Instead, just tick and set needs_resched; actual preemption happens at the next
-    // safe point in decrementInterruptDisable() when we're back on the task stack.
+    // TODO: make sure this is correct
     innigkeit.sync.nanosleep.tick();
+    innigkeit.sync.futex.tick();
     innigkeit.Task.Current.get().tickAndRequestPreemptIfNeeded();
 }
 

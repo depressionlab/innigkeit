@@ -43,10 +43,88 @@ pub fn wait(addr: usize, expected: u32) void {
     }
 
     current_task.task.futex_addr = addr;
+    current_task.task.block_reason = .futex;
     // WaitQueue.wait() appends the task and atomically blocks + unlocks bucket.lock.
     bucket.queue.wait(&bucket.lock);
     // On return, bucket.lock is already unlocked.
     current_task.task.futex_addr = 0;
+}
+
+/// Block the calling task until futex_wake is called on `addr` or `deadline_ms` passes.
+///
+/// Same as wait() but with a millisecond deadline. Sets futex_timeout_ms and block_reason.
+/// Caller must have validated that [addr, addr+4) lies inside user space.
+pub fn waitTimeout(addr: usize, expected: u32, deadline_ms: u64) void {
+    const bucket = bucketOf(addr);
+    bucket.lock.lock();
+
+    const current_task: innigkeit.Task.Current = .get();
+    current_task.incrementEnableAccessToUserMemory();
+    const current_val = @as(*const std.atomic.Value(u32), @ptrFromInt(addr)).load(.acquire);
+    current_task.decrementEnableAccessToUserMemory();
+
+    if (current_val != expected) {
+        bucket.lock.unlock();
+        return;
+    }
+
+    current_task.task.futex_addr = addr;
+    current_task.task.futex_timeout_ms = deadline_ms;
+    current_task.task.block_reason = .futex_timeout;
+    // WaitQueue.wait() appends the task and atomically blocks + unlocks bucket.lock.
+    bucket.queue.wait(&bucket.lock);
+    // On return, bucket.lock is already unlocked.
+    current_task.task.futex_addr = 0;
+    current_task.task.futex_timeout_ms = 0;
+}
+
+/// Called from the periodic interrupt handler.
+/// Wakes tasks whose futex_timeout_ms deadline has passed.
+pub fn tick() void {
+    const now_ms = innigkeit.time.init.getUptimeMs();
+    for (&buckets) |*bucket| {
+        bucket.lock.lock();
+        var unmatched: core.containers.FIFO = .{};
+        while (bucket.queue.popFirst()) |task| {
+            if (task.futex_timeout_ms != 0 and task.futex_timeout_ms <= now_ms) {
+                task.futex_timeout_ms = 0;
+                task.futex_addr = 0;
+                task.wakeFromBlocked();
+            } else {
+                unmatched.append(&task.next_task_node);
+            }
+        }
+        bucket.queue.waiting_tasks = unmatched;
+        bucket.lock.unlock();
+    }
+}
+
+/// Remove `task` from its futex bucket without waking it.
+///
+/// Must be called before freeing any task whose futex_addr is non-zero (i.e. one
+/// that may be blocked in a futex bucket with a timeout).
+/// Safe to call if the task is not in any bucket (no-op).
+pub fn cancel(task: *innigkeit.Task) void {
+    if (task.futex_addr == 0) return;
+    for (&buckets) |*bucket| {
+        bucket.lock.lock();
+        var unmatched: core.containers.FIFO = .{};
+        var found = false;
+        while (bucket.queue.popFirst()) |t| {
+            if (t == task) {
+                found = true;
+            } else {
+                unmatched.append(&t.next_task_node);
+            }
+        }
+        bucket.queue.waiting_tasks = unmatched;
+        bucket.lock.unlock();
+        if (found) {
+            task.futex_addr = 0;
+            task.futex_timeout_ms = 0;
+            return;
+        }
+    }
 }
 
 /// Wake up to `max_wake` tasks blocked on `addr`.

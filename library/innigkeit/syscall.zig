@@ -38,31 +38,34 @@ pub const Syscall = enum(usize) {
     munmap = 15,
     /// Block until futex word at addr != expected: (addr: usize, expected: u32) -> 0|error
     futex_wait = 16,
+    /// Block until futex word at addr != expected OR uptime_ms >= deadline_ms.
+    /// (addr: usize, expected: u32, deadline_ms: u64) -> 0|error
+    futex_wait_timeout = 17,
     /// Wake up to max_wake tasks on addr: (addr: usize, max_wake: u32) -> woken_count|error
-    futex_wake = 17,
+    futex_wake = 18,
     /// Map a Frame capability into the calling process's address space: (handle: u32) -> addr|error
-    vmem_map = 18,
+    vmem_map = 19,
     /// Unmap a virtual address range from the calling process's address space: (addr: usize, size: usize) -> 0|error
-    vmem_unmap = 19,
+    vmem_unmap = 20,
     /// Map the bootloader framebuffer (write-combining) into the calling process's VA.
     /// (info_ptr: usize) -> va|error  Fills FramebufferInfo at info_ptr.
-    framebuffer_map = 20,
+    framebuffer_map = 21,
     /// Read a file from the embedded initfs archive.
     /// (spec_ptr: usize) -> bytes|error  spec_ptr -> InitfsReadSpec
-    initfs_read = 21,
+    initfs_read = 22,
     /// Return milliseconds elapsed since kernel boot.
     /// () -> ms:u64
-    uptime_ms = 22,
+    uptime_ms = 23,
     /// Read bytes from the data disk (virtio-blk device 1) into a user buffer.
     /// (spec_ptr: usize) -> bytes_read|error  spec_ptr -> BlkReadSpec{byte_offset:u64, buf_ptr:usize, buf_len:usize}
-    blk_read = 23,
+    blk_read = 24,
     /// Non-blocking drain of raw PS/2 scancode bytes into a user buffer.
     /// Includes 0xE0 extended prefix and break bit (bit 7 = release).
     /// (buf_ptr: usize, buf_len: usize) -> count
-    kbd_read = 24,
+    kbd_read = 25,
     /// Block until uptime_ms >= deadline_ms.
     /// (deadline_ms: u64) -> 0
-    nanosleep_ms = 25,
+    nanosleep_ms = 26,
 
     /// Decode a raw syscall return value into a success count or a `SyscallError`.
     ///

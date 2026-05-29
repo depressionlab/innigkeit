@@ -138,7 +138,9 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         // ------------------------------------------------------------------ //
         .exit_process => {
             const status: u8 = @truncate(syscall_frame.arg(.one));
-            _ = status; // TODO: expose via a future wait() syscall.
+            const current_task: innigkeit.Task.Current = .get();
+            const thread: *innigkeit.user.Thread = .from(current_task.task);
+            thread.process.exit_status = status;
 
             // TODO: For multi-core: send IPIs to CPUs running sibling threads
             //       and force-terminate them before deallocating process state.
@@ -729,6 +731,24 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         },
 
         // ------------------------------------------------------------------ //
+        // futex_wait_timeout(addr: usize, expected: u32, deadline_ms: u64)   //
+        //   -> 0|error                                                       //
+        //   Block until *addr != expected, a matching futex_wake arrives, or //
+        //   uptime_ms >= deadline_ms.                                        //
+        // ------------------------------------------------------------------ //
+        .futex_wait_timeout => {
+            const addr = syscall_frame.arg(.one);
+            const expected: u32 = @truncate(syscall_frame.arg(.two));
+            const deadline_ms: u64 = syscall_frame.arg(.three);
+            if (!validateUserBuffer(addr, @sizeOf(u32))) {
+                arch_frame.rax = errCode(e.EFAULT);
+                return;
+            }
+            innigkeit.sync.futex.waitTimeout(addr, expected, deadline_ms);
+            arch_frame.rax = 0;
+        },
+
+        // ------------------------------------------------------------------ //
         // futex_wake(addr: usize, max_wake: u32) -> woken_count|error        //
         //   Wake up to max_wake threads blocked on addr.                     //
         //   Returns the number of threads actually woken.                    //
@@ -788,8 +808,9 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             }
 
             const notify: *innigkeit.capabilities.Notify = @ptrCast(@alignCast(slot_info.ptr));
-            _ = notify.wait(1);
-            arch_frame.rax = 0;
+            const bits = notify.wait(0xFF_01); // wait for bit 0 (exit), read bits 8..15 (status)
+            const exit_status: u8 = @truncate(bits >> 8);
+            arch_frame.rax = exit_status;
         },
 
         // -------------------------------------------------------------------- //

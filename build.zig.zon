@@ -5,12 +5,12 @@
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .limine_bin = .{
-            .url = "https://github.com/Limine-Bootloader/Limine/releases/download/v12.2.0/limine-binary.tar.xz",
-            .hash = "N-V-__8AAH-7IwFfaBO-KkCtV9V_P9a46mRG9Bx6Dw7aYyKG",
+            .url = "https://github.com/Limine-Bootloader/Limine/releases/download/v12.3.2/limine-binary.tar.xz",
+            .hash = "N-V-__8AAD2-UwDdEuTWV8TVUAMAfVbMLoEPH904Lh_LJ1SO",
         },
         .zuacpi = .{
-            .url = "git+https://github.com/uACPI/zuacpi?ref=main#d3080d8e891bbaaddb163fa42b400e9e7b0f4b87",
-            .hash = "zuacpi-0.0.0--wIHKOn0AAA-8GRNngSrQb06_pf7oobGw4aNkxEB1IUk",
+            .url = "git+https://github.com/uACPI/zuacpi?ref=main#6f88614bc41ed88a57d3653356ba49d3d67cf230",
+            .hash = "zuacpi-0.0.0--wIHKOX0AACbkHtvOdsN2pbw4SW62_40EhLGqRjX0msj",
         },
         .edk2 = .{
             .url = "https://github.com/rust-osdev/ovmf-prebuilt/releases/download/edk2-stable202602-r1/edk2-stable202602-r1-bin.tar.xz",

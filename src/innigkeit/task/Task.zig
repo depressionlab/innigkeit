@@ -22,6 +22,17 @@ const Rt = @import("sched/Rt.zig");
 
 const log = innigkeit.debug.log.scoped(.task);
 
+/// Identifies why this task is currently in the .blocked state.
+/// Undefined when state != .blocked.
+pub const BlockReason = enum(u8) {
+    futex = 0, // blocked in a futex bucket (futex_addr is set)
+    sleep = 1, // blocked in the nanosleep queue (sleep_deadline_ms is set)
+    ipc = 2, // blocked for IPC (endpoint recv or reply)
+    notify = 3, // blocked waiting for a Notify signal
+    futex_timeout = 4, // blocked in futex bucket with a deadline (futex_timeout_ms is set)
+    other = 5,
+};
+
 /// The name of the task.
 ///
 /// For kernel tasks this is always explicitly provided.
@@ -103,6 +114,11 @@ futex_addr: usize = 0,
 
 /// Uptime-ms deadline set by nanosleep; zero when not sleeping.
 sleep_deadline_ms: u64 = 0,
+
+/// Uptime-ms deadline set by futex_wait_timeout; zero when not in a timed futex wait.
+futex_timeout_ms: u64 = 0,
+
+block_reason: BlockReason = .other,
 
 pub const State = union(enum) {
     ready,

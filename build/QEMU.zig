@@ -64,21 +64,15 @@ fn buildQemuCommand(
 
     // Display and console routing.
     const host_os = b.graph.host.result.os.tag;
+    // virtio-vga-gl on Linux/GTK, plain virtio-vga on macOS/Cocoa.
+    const vga_device = if (host_os == .macos) "virtio-vga" else "virtio-vga-gl";
     if (emu.display) {
         run.addArgs(&.{ "-monitor", "vc" });
-        switch (arch) {
-            .arm => {
-                run.addArgs(&.{ "-serial", "vc", "-device", "ramfb" });
-            },
-            .riscv => {
-                run.addArgs(&.{ "-serial", "vc", "-device", "virtio-vga-gl" });
-            },
-            .x64 => {
-                // virtio-vga-gl on Linux/GTK, plain virtio-vga on macOS/Cocoa.
-                const vga_device = if (host_os == .macos) "virtio-vga" else "virtio-vga-gl";
-                run.addArgs(&.{ "-debugcon", "vc", "-device", vga_device });
-            },
-        }
+        run.addArgs(switch (arch) {
+            .arm => &.{ "-serial", "vc", "-device", "ramfb" },
+            .riscv => &.{ "-serial", "vc", "-device", vga_device },
+            .x64 => &.{ "-debugcon", "vc", "-device", vga_device },
+        });
         // macOS: use the native Cocoa window (install QEMU via `brew install qemu`).
         // Linux: use GTK with OpenGL for smooth rendering.
         const display_backend: []const u8 = if (host_os == .macos)
@@ -93,28 +87,27 @@ fn buildQemuCommand(
     }
 
     // CPU model.
-    switch (arch) {
-        .arm => run.addArgs(&.{ "-cpu", "cortex-a76" }),
-        .riscv => run.addArgs(&.{ "-cpu", "max" }),
-        .x64 => run.addArgs(&.{ "-cpu", "max,migratable=no" }),
-    }
+    run.addArgs(&.{ "-cpu", switch (arch) {
+        .arm => "cortex-a76",
+        .riscv => "max",
+        .x64 => "max,migratable=no",
+    } });
 
     // Machine type.
     const acpi_kv: []const u8 = if (emu.acpi) "acpi=on" else "acpi=off";
-    switch (arch) {
-        .arm => run.addArgs(&.{ "-machine", b.fmt("virt,{s}", .{acpi_kv}) }),
-        .riscv => run.addArgs(&.{ "-machine", switch (firmware) {
+    if (!emu.acpi and arch == .x64) {
+        std.debug.print("ACPI cannot be disabled on x64\n", .{});
+        std.process.exit(1);
+    }
+
+    run.addArgs(&.{ "-machine", switch (arch) {
+        .arm => b.fmt("virt,{s}", .{acpi_kv}),
+        .riscv => switch (firmware) {
             .bios => b.fmt("virt,{s}", .{acpi_kv}),
             .uefi => b.fmt("virt,pflash0=pflash0,pflash1=pflash1,{s}", .{acpi_kv}),
-        } }),
-        .x64 => {
-            if (!emu.acpi) {
-                std.debug.print("ACPI cannot be disabled on x64\n", .{});
-                std.process.exit(1);
-            }
-            run.addArgs(&.{ "-machine", "q35" });
         },
-    }
+        .x64 => "q35",
+    } });
 
     // Hardware acceleration.
     if (emu.acceleration and arch.isNative(b)) {

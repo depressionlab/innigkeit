@@ -82,7 +82,10 @@ fn runCommand(line: []const u8) void {
             innigkeit.io.stdout.print("{s}: {s}\n", .{ msg, verb }) catch {};
             return;
         };
-        innigkeit.process.waitProcess(handle) catch {};
+        const status = innigkeit.process.waitProcess(handle) catch 0;
+        if (status != 0) {
+            innigkeit.io.stdout.print("{s}: exited with status {d}\n", .{ verb, status }) catch {};
+        }
     }
 }
 

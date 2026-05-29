@@ -50,6 +50,7 @@ pub fn wait(self: *Notify, clear_mask: u64) u64 {
     while (self.pending & clear_mask == 0) {
         // wait() unlocks the spinlock as a deferred action and blocks us.
         // On wakeup, the spinlock is NOT held so we must re-acquire it.
+        innigkeit.Task.Current.get().task.block_reason = .notify;
         self.wait_queue.wait(&self.lock);
         self.lock.lock();
     }

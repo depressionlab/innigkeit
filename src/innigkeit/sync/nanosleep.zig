@@ -20,6 +20,7 @@ pub fn wait(deadline_ms: u64) void {
 
     const current_task: innigkeit.Task.Current = .get();
     current_task.task.sleep_deadline_ms = deadline_ms;
+    current_task.task.block_reason = .sleep;
     sleep_queue.wait(&sleep_lock);
     current_task.task.sleep_deadline_ms = 0;
 }

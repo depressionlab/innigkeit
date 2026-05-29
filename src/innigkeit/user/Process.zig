@@ -37,6 +37,9 @@ next_thread_id: std.atomic.Value(usize) = .init(0),
 /// May be null for processes created by the kernel (e.g. the initial shell).
 exit_notify: ?*innigkeit.capabilities.Notify = null,
 
+/// Exit status set by exit_process syscall; 0 if never set (killed/crashed).
+exit_status: u8 = 0,
+
 pub const CreateOptions = struct {
     name: Name,
 };
@@ -229,7 +232,7 @@ const ProcessCleanup = struct {
 
         // Signal exit watchers before freeing the process.
         if (process.exit_notify) |n| {
-            n.signal(1);
+            n.signal(@as(u64, 1) | (@as(u64, process.exit_status) << 8));
             n.unref();
             process.exit_notify = null;
         }
