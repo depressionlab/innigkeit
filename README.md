@@ -1,5 +1,21 @@
 # innigkeit
 
+<!-- TOC start (generated with https://github.com/derlin/bitdowntoc) -->
+<!-- markdownlint-disable MD004 MD007 -->
+- [27-05-2026 reflection](#27-05-2026-reflection)
+   * [important functions & types](#important-functions--types)
+   * [most recent failure example](#most-recent-failure-example)
+- [goals](#goals)
+- [q & a](#q--a)
+- [instructions](#instructions)
+   * [prerequesites](#prerequesites)
+      + [download it](#download-it)
+   * [doit](#doit)
+   * [options](#options)
+   * [running in UTM](#running-in-utm)
+<!-- markdownlint-enable MD004 MD007 -->
+<!-- TOC end -->
+
 ## 27-05-2026 reflection
 
 - it went well! i think i learned a lot of how Zig works internally
@@ -117,9 +133,15 @@ build and run x64:
 zig build run_x64 -Dlog_level=debug
 ```
 
-Note: If you want to see display output (pretty colors, framebuffer, DOOM) on macOS, you need to use [UTM](#running-in-utm)!
+If you want to see display output (pretty colors, framebuffer, DOOM), use [options](#options)
+
+### options
+
+- run with display: `zig build run_x64 -Ddisplay=true`
 
 ### running in [UTM](https://mac.getutm.app/)
+
+note: this is no longer entirely necessary; you can use `zig build run_x64 -Ddisplay=true` on macOS and it works with display. if you need graphics acceleration, use UTM.
 
 - download [UTM](https://mac.getutm.app/): `brew install --cask utm`
 - run `zig build image_x64`
