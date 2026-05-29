@@ -256,7 +256,7 @@ pub fn syscallSpawn(
         }
         current_task.incrementEnableAccessToUserMemory();
         @memcpy(
-            std.mem.bytesAsSlice(CapGrant, std.mem.asBytes(&grants_buf[0]))[0..spec.cap_grant_count],
+            grants_buf[0..spec.cap_grant_count],
             @as([*]const CapGrant, @ptrFromInt(spec.cap_grants))[0..spec.cap_grant_count],
         );
         current_task.decrementEnableAccessToUserMemory();
@@ -299,21 +299,20 @@ pub fn syscallSpawn(
 
         for (grants) |grant| {
             const requested_rights: innigkeit.capabilities.Rights = @bitCast(grant.rights_raw);
-            const slot = parent_process.cap_table.getLocked(grant.src_slot) orelse {
+            const info = parent_process.cap_table.getAndRefLocked(grant.src_slot) orelse {
                 log.warn("cap grant: slot {} not found in parent", .{grant.src_slot});
                 continue;
             };
             // Requested rights must be a subset of what the parent holds.
-            const parent_raw: u16 = @bitCast(slot.rights);
+            const parent_raw: u16 = @bitCast(info.rights);
             const req_raw: u16 = @bitCast(requested_rights);
             if (req_raw & ~parent_raw != 0) {
+                innigkeit.capabilities.CapabilityTable.unrefObject(info.cap_type, info.ptr);
                 log.warn("cap grant: rights escalation attempt for slot {}", .{grant.src_slot});
                 continue;
             }
-            const obj_ptr: *anyopaque = @ptrFromInt(slot.ptr_or_next);
-            innigkeit.capabilities.CapabilityTable.refObject(slot.type, obj_ptr);
-            _ = child_process.cap_table.insertLocked(slot.type, obj_ptr, requested_rights) catch {
-                innigkeit.capabilities.CapabilityTable.unrefObject(slot.type, obj_ptr);
+            _ = child_process.cap_table.insertLocked(info.cap_type, info.ptr, requested_rights) catch {
+                innigkeit.capabilities.CapabilityTable.unrefObject(info.cap_type, info.ptr);
                 log.warn("cap grant: child table full, skipping slot {}", .{grant.src_slot});
             };
         }
@@ -441,6 +440,15 @@ fn loadAndStart(
         var iter = header.loadableRegionIterator(program_header_table);
         while (iter.next() catch null) |region| {
             if (region.source_length == 0) continue;
+            // Bounds-check the source range against the ELF file before slicing.
+            if (region.source_base >= elf_data.len or
+                region.source_length > elf_data.len - region.source_base)
+            {
+                log.err("spawn: ELF segment [{x}, +{x}) out of file bounds ({x})", .{
+                    region.source_base, region.source_length, elf_data.len,
+                });
+                return;
+            }
             const dst = region.virtual_range.byteSlice();
             @memcpy(
                 dst[region.destination_offset..][0..region.source_length],
@@ -546,6 +554,9 @@ test "spawn: SpawnSpec _pad field must be zero (field exists in struct)" {
         .cap_grants = 0,
         .cap_grant_count = 0,
         ._pad = 1,
+        .envp = 0,
+        .envc = 0,
+        ._pad2 = 0,
     };
     try std.testing.expectEqual(@as(u32, 1), spec._pad);
 }

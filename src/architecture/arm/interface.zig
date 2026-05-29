@@ -14,21 +14,33 @@ pub const functions: architecture.Functions = .{
         .enable = arm.instructions.enableInterrupts,
         .disable = arm.instructions.disableInterrupts,
 
+        .instructionPointer = struct {
+            fn instructionPointer(interrupt_frame: *const arm.InterruptFrame) innigkeit.VirtualAddress {
+                return interrupt_frame.instructionPointer();
+            }
+        }.instructionPointer,
+
         .init = .{},
     },
 
     .paging = .{
-        .init = .{},
+        .createPageTable = arm.PageTable.create,
+        .copyTopLevelIntoPageTable = arm.PageTable.copyTopLevelIntoPageTable,
+
+        .init = .{
+            .sizeOfTopLevelEntry = arm.PageTable.sizeOfTopLevelEntry,
+        },
     },
 
     .user = .{
+        .syscallFromSyscallFrame = arm.SyscallFrame.syscall,
+        .argFromSyscallFrame = arm.SyscallFrame.arg,
+
         .init = .{},
     },
 
     .scheduling = .{
-        .initializeTaskArchSpecific = struct {
-            fn initializeTaskArchSpecific(_: *innigkeit.Task) void {}
-        }.initializeTaskArchSpecific,
+        .initializeTaskArchSpecific = arm.PerTask.initializeTaskArchSpecific,
 
         .getCurrentTask = struct {
             inline fn getCurrentTask() *innigkeit.Task {
@@ -40,6 +52,13 @@ pub const functions: architecture.Functions = .{
                 arm.registers.TPIDR_EL1.write(@intFromPtr(task));
             }
         }.setCurrentTask,
+
+        .prepareTaskForScheduling = arm.scheduling.prepareTaskForScheduling,
+        .beforeSwitchTask = arm.scheduling.beforeSwitchTask,
+        .switchTask = arm.scheduling.switchTask,
+        .switchTaskNoSave = arm.scheduling.switchTaskNoSave,
+        .call = arm.scheduling.call,
+        .callNoSave = arm.scheduling.callNoSave,
     },
 
     .io = .{},
@@ -47,14 +66,15 @@ pub const functions: architecture.Functions = .{
     .init = .{
         .getStandardWallclockStartTime = struct {
             fn getStandardWallclockStartTime() innigkeit.time.wallclock.Tick {
-                return @enumFromInt(arm.instructions.readPhysicalCount()); // TODO: should this be virtual count?
+                return @enumFromInt(arm.instructions.readPhysicalCount());
             }
         }.getStandardWallclockStartTime,
 
         .tryGetSerialOutput = struct {
             fn tryGetSerialOutput(memory_system_available: bool) ?architecture.init.InitOutput {
                 _ = memory_system_available;
-                return null;
+                // Return the PL011 UART at the QEMU virt base address.
+                return arm.pl011.getInitOutput(arm.pl011.UART_BASE);
             }
         }.tryGetSerialOutput,
 
@@ -73,7 +93,19 @@ pub const functions: architecture.Functions = .{
             fn initExecutor(
                 executor: *innigkeit.Executor,
             ) void {
-                _ = executor;
+                // Use SP_EL1 as the stack pointer while running at EL1.
+                arm.registers.spSel1();
+
+                // Install the exception vector table.
+                arm.registers.VBAR_EL1.write(@intFromPtr(&arm.vectors.vector_table));
+
+                // Record the CPU affinity register for this executor.
+                executor.arch_specific.mpidr = arm.registers.MPIDR_EL1.read();
+
+                // Initialise the GICv2 and generic timer for this CPU.
+                arm.gic.init();
+                arm.timer.init();
+                arm.gic.registerHandler(arm.timer.IRQ, arm.timer.irqHandler);
             }
         }.initExecutor,
     },
@@ -87,23 +119,22 @@ pub const decls: architecture.Decls = .{
     .PerExecutor = struct { mpidr: u64 },
 
     .interrupts = .{
-        .Interrupt = enum(u0) { _ },
-        .InterruptFrame = extern struct {},
+        .Interrupt = arm.Interrupt,
+        .InterruptFrame = arm.InterruptFrame,
     },
 
     .paging = .{
-        // TODO: most of these values are copied from the x64, so all of them need to be checked
         .standard_page_size = standard_page_size,
         .largest_page_size = .from(1, .gib),
         .kernel_memory_range = .from(
             innigkeit.VirtualAddress.from(0xffff000000000000),
             size_of_address_space_half,
         ),
-        .PageTable = extern struct {},
+        .PageTable = arm.PageTable,
     },
 
     .scheduling = .{
-        .PerTask = struct {},
+        .PerTask = arm.PerTask,
         .cfi_prevent_unwinding =
         \\.cfi_sections .debug_frame
         \\.cfi_undefined lr
@@ -112,8 +143,8 @@ pub const decls: architecture.Decls = .{
     },
 
     .user = .{
-        .PerThread = struct {},
-        .SyscallFrame = struct {},
+        .PerThread = arm.PerThread,
+        .SyscallFrame = arm.SyscallFrame,
         .user_memory_range = .from(
             innigkeit.VirtualAddress.zero.moveForward(standard_page_size),
             size_of_address_space_half,

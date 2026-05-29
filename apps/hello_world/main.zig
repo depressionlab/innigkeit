@@ -21,6 +21,9 @@ pub fn main() void {
     testDetach();
     testSleep();
     testSpawnWait();
+    testSecureVault();
+    testGpuBuffer();
+    testCoreHint();
 
     std.log.info("all tests passed", .{});
     innigkeit.io.stdout.print("all tests passed\n", .{}) catch {};
@@ -240,10 +243,11 @@ fn tryLockWorker() void {
     // Spin until signaled to start.
     while (tl_start.load(.acquire) == 0) innigkeit.thread.yield();
 
-    // Mutex is still held by main — tryLock must fail.
+    // Mutex is still held by main: tryLock must fail.
     if (!tl_mutex.tryLock()) {
         _ = tl_failed.fetchAdd(1, .acq_rel);
     } else {
+        @branchHint(.cold);
         tl_mutex.unlock(); // shouldn't happen
     }
 
@@ -330,4 +334,105 @@ fn serverEntry(ep: capabilities.Handle) void {
 
     msg.tag += 100;
     capabilities.endpointReply(ep, &msg) catch {};
+}
+
+fn testSecureVault() void {
+    const vault = capabilities.secureVaultCreate() catch |err| {
+        innigkeit.io.stdout.print("secure_vault: create failed: {s}\n", .{@errorName(err)}) catch {};
+        return;
+    };
+    defer capabilities.delete(vault) catch {};
+
+    // Check it's software-only (no TPM in QEMU).
+    const status = capabilities.secureVaultStatus(vault) catch 0;
+    innigkeit.io.stdout.print("secure_vault: tpm_backed={}\n", .{status != 0}) catch {};
+
+    // Seal a secret.
+    const plaintext = "hello from secure vault";
+    const overhead = 24 + 16; // xchacha20-poly1305: 24-byte nonce + 16-byte tag
+    var blob: [plaintext.len + overhead]u8 = undefined;
+    const blob_len = capabilities.secureVaultSeal(vault, plaintext, &blob) catch |err| {
+        innigkeit.io.stdout.print("secure_vault: seal failed: {s}\n", .{@errorName(err)}) catch {};
+        return;
+    };
+
+    // Unseal and verify.
+    var recovered: [plaintext.len]u8 = undefined;
+    const rec_len = capabilities.secureVaultUnseal(vault, blob[0..blob_len], &recovered) catch |err| {
+        innigkeit.io.stdout.print("secure_vault: unseal failed: {s}\n", .{@errorName(err)}) catch {};
+        return;
+    };
+
+    const ok = rec_len == plaintext.len and std.mem.eql(u8, plaintext, recovered[0..rec_len]);
+    innigkeit.io.stdout.print("secure_vault: seal/unseal roundtrip {s}\n", .{if (ok) "ok" else "FAIL"}) catch {};
+
+    // Tampered blob must fail.
+    var tampered: @TypeOf(blob) = blob;
+    tampered[blob_len / 2] ^= 0xFF;
+    const tamper_result = capabilities.secureVaultUnseal(vault, tampered[0..blob_len], &recovered);
+    const tamper_ok = (tamper_result == error.PermissionDenied);
+    innigkeit.io.stdout.print("secure_vault: tampered unseal rejected {s}\n", .{if (tamper_ok) "ok" else "FAIL"}) catch {};
+
+    innigkeit.io.stdout.print("secure_vault test done\n", .{}) catch {};
+}
+
+fn testGpuBuffer() void {
+    const usage: capabilities.GpuBufferUsage = .{ .vertex_buffer = true, .cpu_visible = true };
+    const buf = capabilities.gpuBufferCreate(2, usage) catch |err| {
+        innigkeit.io.stdout.print("gpu_buffer: create failed: {s}\n", .{@errorName(err)}) catch {};
+        return;
+    };
+    defer capabilities.delete(buf) catch {};
+
+    const size = capabilities.gpuBufferSize(buf) catch 0;
+    const phys = capabilities.gpuBufferPhysAddr(buf) catch 0;
+    const usage_raw = capabilities.gpuBufferUsageRaw(buf) catch 0;
+    const usage_back: capabilities.GpuBufferUsage = @bitCast(usage_raw);
+
+    const size_ok = size == 2 * 4096;
+    const phys_ok = phys != 0;
+    const usage_ok = usage_back.vertex_buffer and usage_back.cpu_visible;
+
+    innigkeit.io.stdout.print("gpu_buffer: size={} ({}), phys=0x{x} ({}), usage.vertex={} ({})\n", .{
+        size,                     size_ok,
+        phys,                     phys_ok,
+        usage_back.vertex_buffer, usage_ok,
+    }) catch {};
+
+    const all_ok = size_ok and phys_ok and usage_ok;
+    innigkeit.io.stdout.print("gpu_buffer test {s}\n", .{if (all_ok) "done" else "FAIL"}) catch {};
+}
+
+var hint_done: std.atomic.Value(u32) = .init(0);
+
+fn testCoreHint() void {
+    hint_done = .init(0);
+
+    const tp = innigkeit.Thread.spawn(pCoreWorker, .{}) catch {
+        innigkeit.io.stdout.print("core_hint: thread spawn failed\n", .{}) catch {};
+        return;
+    };
+    const te = innigkeit.Thread.spawn(eCoreWorker, .{}) catch {
+        innigkeit.io.stdout.print("core_hint: thread spawn failed\n", .{}) catch {};
+        tp.join();
+        return;
+    };
+    tp.join();
+    te.join();
+
+    const done = hint_done.load(.acquire);
+    innigkeit.io.stdout.print("core_hint: {d}/2 threads completed{s}\n", .{
+        done, if (done == 2) "" else " FAIL",
+    }) catch {};
+    innigkeit.io.stdout.print("core_hint test done\n", .{}) catch {};
+}
+
+fn pCoreWorker() void {
+    innigkeit.thread.setCoreHint(.p_core);
+    _ = hint_done.fetchAdd(1, .acq_rel);
+}
+
+fn eCoreWorker() void {
+    innigkeit.thread.setCoreHint(.e_core);
+    _ = hint_done.fetchAdd(1, .acq_rel);
 }

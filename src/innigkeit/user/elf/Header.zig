@@ -49,6 +49,7 @@ section_header_entry_count: u16,
 section_name_string_table_index: u16,
 
 pub const ParseError = error{
+    TruncatedInput,
     InvalidMagic,
     InvalidVersion,
     InvalidEndian,
@@ -59,7 +60,7 @@ pub const ParseError = error{
 ///
 /// The slice must be atleast 64 bytes long.
 pub fn parse(elf_header_slice: []const u8) ParseError!Header {
-    if (builtin.mode == .Debug) std.debug.assert(elf_header_slice.len >= 64);
+    if (elf_header_slice.len < 64) return error.TruncatedInput;
 
     const ident: HeaderIdent = .from(elf_header_slice);
     if (!std.mem.eql(u8, ident.magic(), HeaderIdent.MAGIC)) return error.InvalidMagic;

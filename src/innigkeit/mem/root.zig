@@ -17,6 +17,7 @@ pub const PageFaultDetails = @import("core/PageFaultDetails.zig");
 pub const VirtualRangeBatch = @import("core/VirtualRangeBatch.zig");
 pub const ChangeProtectionBatch = @import("core/ChangeProtectionBatch.zig");
 
+pub const compress = @import("compress.zig");
 pub const globals = @import("core/globals.zig");
 pub const init = @import("core/init.zig");
 

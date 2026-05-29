@@ -162,6 +162,8 @@ fn objectGeneration(cap_type: ObjectType, ptr: *anyopaque) u32 {
         .notify => @as(*@import("types/Notify.zig"), @ptrCast(@alignCast(ptr))).generation.load(.acquire),
         .endpoint => @as(*@import("types/Endpoint.zig"), @ptrCast(@alignCast(ptr))).generation.load(.acquire),
         .reply => @as(*@import("types/Reply.zig"), @ptrCast(@alignCast(ptr))).generation.load(.acquire),
+        .secure_vault => @as(*@import("types/SecureVault.zig"), @ptrCast(@alignCast(ptr))).generation.load(.acquire),
+        .gpu_buffer => @as(*@import("types/GpuBuffer.zig"), @ptrCast(@alignCast(ptr))).generation.load(.acquire),
     };
 }
 
@@ -174,6 +176,8 @@ fn incrementObjectGeneration(cap_type: ObjectType, ptr: *anyopaque) void {
         .notify => _ = @as(*@import("types/Notify.zig"), @ptrCast(@alignCast(ptr))).generation.fetchAdd(1, .acq_rel),
         .endpoint => _ = @as(*@import("types/Endpoint.zig"), @ptrCast(@alignCast(ptr))).generation.fetchAdd(1, .acq_rel),
         .reply => _ = @as(*@import("types/Reply.zig"), @ptrCast(@alignCast(ptr))).generation.fetchAdd(1, .acq_rel),
+        .secure_vault => _ = @as(*@import("types/SecureVault.zig"), @ptrCast(@alignCast(ptr))).generation.fetchAdd(1, .acq_rel),
+        .gpu_buffer => _ = @as(*@import("types/GpuBuffer.zig"), @ptrCast(@alignCast(ptr))).generation.fetchAdd(1, .acq_rel),
     }
 }
 
@@ -190,6 +194,8 @@ pub fn refObject(cap_type: ObjectType, ptr: *anyopaque) void {
         .notify => (@as(*@import("types/Notify.zig"), @ptrCast(@alignCast(ptr)))).ref(),
         .endpoint => (@as(*@import("types/Endpoint.zig"), @ptrCast(@alignCast(ptr)))).ref(),
         .reply => (@as(*@import("types/Reply.zig"), @ptrCast(@alignCast(ptr)))).ref(),
+        .secure_vault => (@as(*@import("types/SecureVault.zig"), @ptrCast(@alignCast(ptr)))).ref(),
+        .gpu_buffer => (@as(*@import("types/GpuBuffer.zig"), @ptrCast(@alignCast(ptr)))).ref(),
     }
 }
 
@@ -200,6 +206,8 @@ pub fn unrefObject(cap_type: ObjectType, ptr: *anyopaque) void {
         .notify => (@as(*@import("types/Notify.zig"), @ptrCast(@alignCast(ptr)))).unref(),
         .endpoint => (@as(*@import("types/Endpoint.zig"), @ptrCast(@alignCast(ptr)))).unref(),
         .reply => (@as(*@import("types/Reply.zig"), @ptrCast(@alignCast(ptr)))).unref(),
+        .secure_vault => (@as(*@import("types/SecureVault.zig"), @ptrCast(@alignCast(ptr)))).unref(),
+        .gpu_buffer => (@as(*@import("types/GpuBuffer.zig"), @ptrCast(@alignCast(ptr)))).unref(),
     }
 }
 

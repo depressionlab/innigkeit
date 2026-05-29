@@ -54,3 +54,11 @@ pub var unavailable_memory: core.Size = undefined;
 ///
 /// Initialized during `init.initializePhysicalMemory`.
 pub var pages: []innigkeit.mem.PhysicalPage = undefined;
+
+/// Called whenever free memory drops below `pressure_threshold_pages`.
+/// Invoked with interrupts enabled, no locks held. May be null.
+pub var pressure_hook: ?*const fn (free_pages: u64, total_pages: u64) void = null;
+
+/// Free-page threshold that triggers `pressure_hook`. 0 = disabled.
+/// Set this to e.g. `total_pages / 8` for a 12.5% watermark.
+pub var pressure_threshold_pages: u64 = 0;

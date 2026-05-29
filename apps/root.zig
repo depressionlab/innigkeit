@@ -5,6 +5,10 @@ pub const apps: []const AppDescription = &.{
     .{ .name = "calculator" },
     .{ .name = "shell" },
     .{ .name = "pixels" },
+    .{ .name = "gfx_demo" },
+    .{ .name = "shader_demo" },
+    .{ .name = "wm" },
+    .{ .name = "installer" },
     .{
         .name = "doom",
         .configuration = .{ .custom = @import("doom/custom.zig").custom },

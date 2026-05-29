@@ -120,6 +120,11 @@ futex_timeout_ms: u64 = 0,
 
 block_reason: BlockReason = .other,
 
+/// Preferred core type for scheduling on hybrid platforms.
+/// Scheduler may honour this hint when choosing a run queue.
+/// `.unknown` means no preference (scheduler decides).
+core_hint: innigkeit.Executor.CoreType = .unknown,
+
 pub const State = union(enum) {
     ready,
     /// Do not access the executor directly, use `known_executor` instead.

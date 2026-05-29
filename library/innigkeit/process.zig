@@ -96,7 +96,7 @@ pub fn spawn(path: [:0]const u8, grants: []const CapGrant) innigkeit.Syscall.Err
 /// `argv` is a slice of `Arg` entries; the kernel copies each string before
 /// the child starts. `grants` transfers capabilities into the child.
 ///
-/// Returns a Notify handle in the caller's capability table.  The Notify is
+/// Returns a Notify handle in the caller's capability table. The Notify is
 /// signalled (bit 1) when the child process terminates.
 pub fn spawnWithArgs(
     path: [:0]const u8,
@@ -149,4 +149,31 @@ pub fn spawnArgs(path: [:0]const u8, argv: []const []const u8) innigkeit.Syscall
 pub fn waitProcess(notify_handle: u32) innigkeit.Syscall.Error!u8 {
     const ret = innigkeit.Syscall.invoke(.wait_process, .{@as(usize, notify_handle)});
     return @truncate(try innigkeit.Syscall.decode(ret));
+}
+
+/// Return a stable u64 identifier for the calling process.
+///
+/// Currently returns the virtual address of the kernel Process struct, which
+/// is unique per process and stable for the process lifetime.
+pub fn getPid() u64 {
+    return @bitCast(innigkeit.Syscall.invoke(.getpid, .{}));
+}
+
+/// Non-blocking check whether the process associated with `notify_handle` has exited.
+///
+/// Returns the exit status if the process has exited, or `error.WouldBlock` if
+/// it is still running. Never blocks.
+pub fn waitProcessNb(notify_handle: u32) innigkeit.Syscall.Error!u8 {
+    const ret = innigkeit.Syscall.invoke(.wait_process_nb, .{@as(usize, notify_handle)});
+    return @truncate(try innigkeit.Syscall.decode(ret));
+}
+
+/// Signal the exit Notify for a process, unblocking any `waitProcess` /
+/// `waitProcessNb` callers. Reports exit status 130 (SIGINT convention).
+///
+/// This is a "soft kill": the target process is not immediately terminated,
+/// but the wait syscall will return with status 130.
+pub fn killProcess(notify_handle: u32) innigkeit.Syscall.Error!void {
+    const ret = innigkeit.Syscall.invoke(.process_kill, .{@as(usize, notify_handle)});
+    _ = try innigkeit.Syscall.decode(ret);
 }

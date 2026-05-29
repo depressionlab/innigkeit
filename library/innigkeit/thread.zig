@@ -18,6 +18,19 @@ pub fn yield() void {
     _ = innigkeit.Syscall.invoke(.yield, .{});
 }
 
+/// P/E-core scheduling hint values for `setCoreHint`.
+pub const CoreHint = enum(u8) {
+    unknown = 0,
+    p_core = 1,
+    e_core = 2,
+};
+
+/// Suggest to the scheduler which core class should run the calling thread.
+/// On non-hybrid systems the hint is stored but never acted upon.
+pub fn setCoreHint(hint: CoreHint) void {
+    _ = innigkeit.Syscall.invoke(.thread_set_hint, .{@as(usize, @intFromEnum(hint))});
+}
+
 /// Spawn a new thread in the current process.
 ///
 /// The kernel creates a thread that begins executing `entry(arg)`.
@@ -187,7 +200,7 @@ pub const InnigkeitThreadImpl = struct {
                     else => @compileError(bad_ret),
                 }
 
-                // Transition state: running → completed, wake any join() waiter.
+                // Transition state: running -> completed, wake any join() waiter.
                 const prev: State = @enumFromInt(
                     self.completion.state.swap(@intFromEnum(State.completed), .seq_cst),
                 );
@@ -270,9 +283,9 @@ pub const InnigkeitThreadImpl = struct {
 
 test "Mutex.tryLock fast path" {
     var m: Mutex = .init;
-    try std.testing.expect(m.tryLock()); // unlocked → locked_once
+    try std.testing.expect(m.tryLock()); // unlocked -> locked_once
     try std.testing.expect(!m.tryLock()); // already held
-    m.unlock(); // locked_once → unlocked, no futex wake
+    m.unlock(); // locked_once -> unlocked, no futex wake
     try std.testing.expect(m.tryLock()); // can re-acquire
     m.unlock();
 }

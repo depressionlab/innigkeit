@@ -15,6 +15,7 @@ pub const process = @import("process.zig");
 pub const block = @import("block.zig");
 pub const storage = @import("storage.zig");
 pub const display = @import("display.zig");
+pub const graphics = @import("graphics.zig");
 pub const fs = @import("fs.zig");
 
 const std = @import("std");

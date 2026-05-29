@@ -1665,7 +1665,7 @@ pub var intel_serialize: bool = false;
 ///
 /// The processor is identified as a hybrid part.
 ///
-/// If CPUID.0.MAXLEAF ≥ 1AH and CPUID.1A.EAX ≠ 0, then the Native Model ID Enumeration 1AH exists.
+/// If CPUID.0.MAXLEAF >= 1AH and CPUID.1A.EAX ≠ 0, then the Native Model ID Enumeration 1AH exists.
 ///
 /// Intel Only.
 ///
@@ -3915,6 +3915,31 @@ pub const ProcessorType = enum(u2) {
 // TODO: CPUID.17H - System-On-Chip Information (Intel Only)
 // TODO: CPUID.18H - Deterministic Address Translation Parameters (Intel Only)
 // TODO: CPUID.19H - Key Locker (Intel Only)
+/// Core type for an Intel Hybrid logical processor.
+///
+/// Read via CPUID leaf 1AH EAX[31:24]. Unlike most CPUID values, this leaf
+/// returns a DIFFERENT answer on each logical core, so it must be executed
+/// per-executor (on the core being initialized), not once at boot.
+///
+/// Only meaningful when `intel_hybrid == true` and `max_standard_leaf >= 0x1A`.
+///
+/// Intel Only. CPUID.1AH.
+pub const CoreType = enum(u8) {
+    unknown = 0,
+    /// Intel Atom (efficiency core; Gracemont and later).
+    e_core = 0x20,
+    /// Intel Core (performance core; Golden Cove and later).
+    p_core = 0x40,
+    _,
+
+    pub fn detect() CoreType {
+        if (!intel_hybrid or max_standard_leaf < 0x1A) return .unknown;
+        const leaf = raw(0x1A, 0);
+        if (leaf.eax == 0) return .unknown;
+        return @enumFromInt(@as(u8, @truncate(leaf.eax >> 24)));
+    }
+};
+
 // TODO: CPUID.1AH - Native Model ID Enumeration (Intel Only)
 // TODO: CPUID.1BH - PCONFIG Information Sub-leaf (Intel Only)
 // TODO: CPUID.1CH - Last Branch Records Information (Intel Only)

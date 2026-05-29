@@ -199,8 +199,8 @@ pub fn initializePhysicalMemory(pages_range: innigkeit.KernelVirtualRange) void 
             }
         }
 
-        var current_free_index: u32 = @as(u32, @intCast(@as(usize, @intFromEnum(bootstrap_region.start_physical_page)) + @as(usize, bootstrap_region.first_free_page_index)));
-        const end_free_index: u32 = @as(u32, @intCast(@as(usize, @intFromEnum(bootstrap_region.start_physical_page)) + @as(usize, bootstrap_region.page_count)));
+        var current_free_index: u32 = @intCast(@intFromEnum(bootstrap_region.start_physical_page) + @as(usize, bootstrap_region.first_free_page_index));
+        const end_free_index: u32 = @intCast(@intFromEnum(bootstrap_region.start_physical_page) + @as(usize, bootstrap_region.page_count));
 
         // Populate the buddy allocator using the largest naturally-aligned
         // blocks that fit within each contiguous free range.

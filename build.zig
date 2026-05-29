@@ -26,14 +26,16 @@ pub fn build(b: *std.Build) !void {
 
     try QEMU.registerQemuSteps(b, image_steps, options, architectures);
 
-    // Test step: builds a test kernel (builtin.is_test = true), assembles a
-    // disk image, and runs it in QEMU with the ISA debug-exit device.
-    // Exit code 1 means all tests passed; any other code means failure.
-    {
-        const test_kernel = try Kernel.buildTestKernel(b, libraries, options, .x64, apps, tools);
-        const test_image = try ImageStep.buildTestImageStep(b, test_kernel, tools, .x64, options);
-        const test_qemu = try QEMU.buildTestQemuStep(b, .x64, test_image.image_file, options);
-        b.step("test_x64", "Build test kernel and run unit tests in QEMU (x64)").dependOn(&test_qemu.step);
+    // Test steps: build a test kernel (builtin.is_test = true), assemble a disk
+    // image, and run it in QEMU. Exit code 1 = all tests passed.
+    inline for (.{
+        .{ .arch = Bundle.Architecture.x64, .name = "test_x64", .desc = "Build test kernel and run unit tests in QEMU (x64)" },
+        .{ .arch = Bundle.Architecture.arm, .name = "test_arm", .desc = "Build test kernel and run unit tests in QEMU (arm/AArch64)" },
+    }) |entry| {
+        const test_kernel = try Kernel.buildTestKernel(b, libraries, options, entry.arch, apps, tools);
+        const test_image = try ImageStep.buildTestImageStep(b, test_kernel, tools, entry.arch, options);
+        const test_qemu = try QEMU.buildTestQemuStep(b, entry.arch, test_image.image_file, options);
+        b.step(entry.name, entry.desc).dependOn(&test_qemu.step);
     }
 }
 

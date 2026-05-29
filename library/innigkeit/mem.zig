@@ -61,7 +61,7 @@ const page_alloc_vtable: std.mem.Allocator.VTable = .{
 fn pageAlloc(
     _: *anyopaque,
     len: usize,
-    _: std.mem.Alignment, // page-alignment satisfies any alignment ≤ 4096
+    _: std.mem.Alignment, // page-alignment satisfies any alignment <= 4096
     _: usize,
 ) ?[*]u8 {
     const aligned = pageAlignUp(len);

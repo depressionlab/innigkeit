@@ -177,6 +177,95 @@ pub fn create(object_type: CreateType) Syscall.Error!Handle {
     return @intCast(try Syscall.decode(result));
 }
 
+pub const SecureVaultOp = enum(u64) {
+    seal = 0,
+    unseal = 1,
+    status = 2,
+};
+
+/// Create a software-only SecureVault capability.
+/// The vault generates a random 256-bit wrapping key kept in kernel memory.
+pub fn secureVaultCreate() Syscall.Error!Handle {
+    const result = Syscall.invoke(.cap_create, .{ @as(usize, 5), @as(usize, 0) });
+    return @intCast(try Syscall.decode(result));
+}
+
+/// Seal `plaintext` into `out_blob`.
+/// Returns the number of bytes written to `out_blob` (plaintext.len + 40).
+/// `out_blob` must be at least `plaintext.len + 40` bytes.
+pub fn secureVaultSeal(handle: Handle, plaintext: []const u8, out_blob: []u8) Syscall.Error!usize {
+    const result = Syscall.invoke(.cap_invoke, .{
+        @as(usize, handle),
+        @as(usize, @intFromEnum(SecureVaultOp.seal)),
+        @intFromPtr(plaintext.ptr),
+        plaintext.len,
+        @intFromPtr(out_blob.ptr),
+        out_blob.len,
+    });
+    return Syscall.decode(result);
+}
+
+/// Unseal a blob produced by `secureVaultSeal`.
+/// Returns the number of bytes written to `out_plaintext`.
+/// Returns `error.PermissionDenied` if authentication fails.
+pub fn secureVaultUnseal(handle: Handle, blob: []const u8, out_plaintext: []u8) Syscall.Error!usize {
+    const result = Syscall.invoke(.cap_invoke, .{
+        @as(usize, handle),
+        @as(usize, @intFromEnum(SecureVaultOp.unseal)),
+        @intFromPtr(blob.ptr),
+        blob.len,
+        @intFromPtr(out_plaintext.ptr),
+        out_plaintext.len,
+    });
+    return Syscall.decode(result);
+}
+
+/// Returns 1 if the vault is backed by a TPM 2.0 device, 0 otherwise.
+pub fn secureVaultStatus(handle: Handle) Syscall.Error!usize {
+    return invoke(handle, @intFromEnum(SecureVaultOp.status), 0);
+}
+
+pub const GpuBufferUsage = packed struct(u32) {
+    vertex_buffer: bool = false,
+    texture: bool = false,
+    render_target: bool = false,
+    readback: bool = false,
+    cpu_visible: bool = true,
+    _pad: u27 = 0,
+};
+
+pub const GpuBufferOp = enum(u64) {
+    phys_addr = 0,
+    size = 1,
+    usage = 2,
+};
+
+/// Allocate a GpuBuffer capability backed by `page_count` physical pages.
+/// `page_count` must be >= 1.
+pub fn gpuBufferCreate(page_count: usize, usage: GpuBufferUsage) Syscall.Error!Handle {
+    const result = Syscall.invoke(.cap_create, .{
+        @as(usize, 6),
+        page_count,
+        @as(usize, @as(u32, @bitCast(usage))),
+    });
+    return @intCast(try Syscall.decode(result));
+}
+
+/// Return the physical base address of the buffer.
+pub fn gpuBufferPhysAddr(handle: Handle) Syscall.Error!usize {
+    return invoke(handle, @intFromEnum(GpuBufferOp.phys_addr), 0);
+}
+
+/// Return the size of the buffer in bytes.
+pub fn gpuBufferSize(handle: Handle) Syscall.Error!usize {
+    return invoke(handle, @intFromEnum(GpuBufferOp.size), 0);
+}
+
+/// Return the usage bitmask as a raw u32.
+pub fn gpuBufferUsageRaw(handle: Handle) Syscall.Error!u32 {
+    return @intCast(try invoke(handle, @intFromEnum(GpuBufferOp.usage), 0));
+}
+
 pub const FrameOp = enum(u64) {
     clone = 0,
     phys_addr = 1,

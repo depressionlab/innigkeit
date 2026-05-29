@@ -136,6 +136,23 @@ pub fn initExecutor(executor: *innigkeit.Executor) void {
     per_executor.tss.setPrivilegeStack(.ring0, per_executor.irq_stack.top_stack_pointer);
 
     x64.interrupts.init.loadIdt();
+
+    // Detect Intel Hybrid core type (CPUID.1AH). Must run on the target
+    // logical core because the leaf returns per-core values.
+    executor.core_type = switch (x64.info.cpu_id.CoreType.detect()) {
+        .p_core => blk: {
+            log.debug("hybrid core type: P-core (performance)", .{});
+            break :blk .p_core;
+        },
+        .e_core => blk: {
+            log.debug("hybrid core type: E-core (efficiency)", .{});
+            break :blk .e_core;
+        },
+        else => .unknown,
+    };
+
+    // Propagate core_type to the runqueue so pickNext can apply soft P/E affinity.
+    executor.scheduler.runqueue.executor_core_type = executor.core_type;
 }
 
 pub const CaptureSystemInformationOptions = struct {

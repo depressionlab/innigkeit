@@ -21,6 +21,10 @@ eevdf: Eevdf.EevdfRunqueue = .{},
 /// setNextRunning decrements, causing net zero for yields.
 nr_running: u32 = 0,
 
+/// Intel Hybrid core type of the executor that owns this runqueue.
+/// Set by initExecutor after CPUID.1AH detection. Used for soft P/E affinity.
+executor_core_type: innigkeit.Executor.CoreType = .unknown,
+
 /// Enqueue a task.
 ///
 /// For initial spawns pass `flags.initial=true`; for wakeups pass `flags.wakeup=true`.
@@ -45,10 +49,31 @@ pub fn putPrevTask(self: *Runqueue, prev: *innigkeit.Task) void {
 /// Select the next task.
 /// Returns null if no task is ready (caller should switch to idle).
 /// May return `prev` if the current task should keep running.
+///
+/// Soft P/E affinity: if this executor has a known core_type and the EEVDF
+/// winner has a mismatching core_hint, a second task with the right hint is
+/// preferred PROVIDED it exists and has a later-or-equal vruntime vs. the
+/// winner by at most 2x (prevents starvation of mismatched tasks).
 pub fn pickNext(self: *Runqueue, prev: ?*innigkeit.Task) ?*innigkeit.Task {
     // RT always preempts fair tasks.
     if (self.rt.pickNext()) |t| return t;
-    return self.eevdf.pickNext(prev);
+
+    const candidate = self.eevdf.pickNext(prev) orelse return null;
+
+    // Fast path: no affinity filter needed.
+    const my_type = self.executor_core_type;
+    if (my_type == .unknown) return candidate;
+    const hint = candidate.core_hint;
+    if (hint == .unknown or hint == my_type) return candidate;
+
+    // The best task has a mismatching hint. If only one task is queued we
+    // must run it anyway to prevent starvation.
+    if (self.nr_running <= 1) return candidate;
+
+    // Try to find a better-matched task from the EEVDF alternate selection.
+    if (self.eevdf.pickPreferring(prev, my_type, candidate)) |better| return better;
+
+    return candidate;
 }
 
 /// Finalize the picked task as the running task.

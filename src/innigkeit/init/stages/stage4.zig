@@ -7,17 +7,51 @@ const log = innigkeit.debug.log.scoped(.init);
 ///
 /// Runs in a fully scheduled kernel task with interrupts enabled.
 pub fn start() !void {
-    // In test builds, run all collected unit tests then exit QEMU.
-    // ISA debug exit: write 0 -> QEMU exists 1 (pass), write 1 -> exits 3 (fail).
+    // In test builds, run all collected unit tests then signal QEMU to exit.
+    //
+    // Convention: QEMU exit code 0 = all tests passed; non-zero = failure.
+    // This lets the build step use the standard "exit 0 = success" rule with
+    // stdio = .inherit (which always shows test output on the terminal).
+    //
+    // - x64 pass: ACPI S5 soft-off via ICH9 PM1a_CNT port 0x604 -> QEMU exits 0.
+    // - x64 fail: ISA debug-exit (port 0xf4) write 1 -> QEMU exits 3.
+    // - arm pass: AArch64 semihosting SYS_EXIT subcode 0 -> QEMU exits 0.
+    // - arm fail: AArch64 semihosting SYS_EXIT subcode 1 -> QEMU exits 1.
     if (comptime builtin.is_test) {
         const failed = innigkeit.testing.runner.runAll();
-        const exit_val: u8 = if (failed == 0) 0 else 1;
-        asm volatile ("outb %[val], %[port]"
-            :
-            : [val] "{al}" (exit_val),
-              [port] "{dx}" (@as(u16, 0xf4)),
-        );
-        while (true) asm volatile ("hlt");
+        switch (comptime builtin.cpu.arch) {
+            .x86_64 => {
+                if (failed == 0) {
+                    // ACPI soft power-off: SLP_EN=1, SLP_TYP=7 (S5) -> QEMU exits 0.
+                    // Port 0x604 = ICH9 PM1a_CNT_BLK on the QEMU q35 machine.
+                    asm volatile ("outw %[val], %[port]"
+                        :
+                        : [val] "{ax}" (@as(u16, 0x3C00)),
+                          [port] "{dx}" (@as(u16, 0x604)),
+                    );
+                } else {
+                    // ISA debug-exit: write 1 -> QEMU exits (1<<1)|1 = 3.
+                    asm volatile ("outb %[val], %[port]"
+                        :
+                        : [val] "{al}" (@as(u8, 1)),
+                          [port] "{dx}" (@as(u16, 0xf4)),
+                    );
+                }
+                while (true) asm volatile ("hlt");
+            },
+            .aarch64 => {
+                // AArch64 semihosting SYS_EXIT (0x18): QEMU exits with subcode.
+                const subcode: u64 = if (failed == 0) 0 else 1;
+                const param align(8) = [2]u64{ 0x20026, subcode }; // ADP_Stopped_ApplicationExit
+                asm volatile ("hlt #0xf000"
+                    :
+                    : [op] "{x0}" (@as(u64, 0x18)),
+                      [param] "{x1}" (@intFromPtr(&param)),
+                    : .{ .memory = true });
+                while (true) asm volatile ("wfe");
+            },
+            else => @compileError("test exit not implemented for this architecture"),
+        }
     }
 
     log.info("running scheduler benchmark", .{});
@@ -31,6 +65,9 @@ pub fn start() !void {
 
     log.debug("initializing virtio-blk driver", .{});
     innigkeit.drivers.virtio.blk.init();
+
+    log.debug("initializing virtio-net driver", .{});
+    innigkeit.drivers.virtio.net.init();
 
     if (innigkeit.drivers.virtio.blk.isBootReady()) {
         var sector: [512]u8 = undefined;

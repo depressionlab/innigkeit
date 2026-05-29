@@ -176,7 +176,7 @@ pub const EevdfRunqueue = struct {
     //   sum_weight     = Σ weight_i
     //
     // The weighted average is  sum_w_vruntime / sum_weight + zero_vruntime.
-    // A task is eligible iff its vruntime ≤ that average.
+    // A task is eligible iff its vruntime <= that average.
     //
     // zero_vruntime is periodically re-anchored to prevent i64 overflow.
 
@@ -220,7 +220,7 @@ pub const EevdfRunqueue = struct {
 
     /// Eligibility check: is se's vruntime <= weighted average?
     ///
-    /// lag_i ≥ 0  <->  V >= v_i
+    /// lag_i >= 0  <->  V >= v_i
     /// Using the exact Linux formula to avoid loss-of-precision from division:
     ///   eligible  <->  avg >= key * load
     /// where avg = sum_w_vruntime (+ curr contribution), load = sum_weight.
@@ -286,12 +286,55 @@ pub const EevdfRunqueue = struct {
         return best;
     }
 
+    /// Soft P/E affinity alternative selection.
+    ///
+    /// Scans eligible tasks for one whose `core_hint` matches `preferred`.
+    /// Only considers tasks whose deadline <= `winner.deadline * 2` to
+    /// prevent indefinite starvation of mismatched tasks.
+    ///
+    /// Returns the matched task, or null if none found. Callers fall back
+    /// to `winner` on null.
+    pub fn pickPreferring(
+        self: *const EevdfRunqueue,
+        prev: ?*innigkeit.Task,
+        preferred: innigkeit.Executor.CoreType,
+        winner: *innigkeit.Task,
+    ) ?*innigkeit.Task {
+        _ = prev;
+        const deadline_limit = winner.sched.deadline *| 2;
+        return pickPreferBest(self, self.tree.root, preferred, deadline_limit);
+    }
+
     /// Find the eligible task with the earliest virtual deadline.
     /// O(log n) via subtree_min_vruntime augmentation.
     fn pickEevdf(self: *EevdfRunqueue) ?*innigkeit.Task {
         return pickBest(self, self.tree.root);
     }
 };
+
+/// Scan tree for the earliest-deadline eligible task with matching core_hint,
+/// bounded by `deadline_limit` (anti-starvation window).
+fn pickPreferBest(
+    erq: *const EevdfRunqueue,
+    node_opt: ?*RbTree.Node,
+    preferred: innigkeit.Executor.CoreType,
+    deadline_limit: u64,
+) ?*innigkeit.Task {
+    const node = node_opt orelse return null;
+    const se = SchedEntity.fromNode(node);
+    if (!erq.vruntimeEligible(se.subtree_min_vruntime)) return null;
+    // Left subtree first (earlier deadlines).
+    if (pickPreferBest(erq, node.left, preferred, deadline_limit)) |t| return t;
+    // This node.
+    if (erq.vruntimeEligible(se.vruntime) and se.deadline <= deadline_limit) {
+        if (se.task().core_hint == preferred) return se.task();
+    }
+    // Right subtree: only enter if still within deadline window.
+    if (se.deadline < deadline_limit) {
+        return pickPreferBest(erq, node.right, preferred, deadline_limit);
+    }
+    return null;
+}
 
 pub fn enqueue(rq: *Runqueue, task: *innigkeit.Task, flags: SchedClass.EnqueueFlags) void {
     const erq = &rq.eevdf;
@@ -701,8 +744,8 @@ test "augmentation: larger vruntime insert stops early (no ancestor update)" {
     _ = try auditSubtreeConservative(tree.root);
 }
 
-test "augmentation: 5-node insert, root smin ≤ global minimum (safe invariant)" {
-    // auditSubtree checks smin ≤ true_min everywhere. The root's smin must be <= 10
+test "augmentation: 5-node insert, root smin <= global minimum (safe invariant)" {
+    // auditSubtree checks smin <= true_min everywhere. The root's smin must be <= 10
     // (the global minimum), which means pickBest will never wrongly prune the root.
     var nodes: [5]SchedEntity = .{
         .{ .vruntime = 300, .deadline = 1 },
@@ -735,7 +778,7 @@ test "augmentation: remove leaf, parent correctly updated" {
 test "augmentation: remove two-child node (on_rotate fixes stale-high smin)" {
     // Removing a two-child node swaps it with its in-order successor. The
     // successor carries its old (small) smin into the new position. With
-    // on_rotate active during rebalanceAfterRemove the conservative smin ≤
+    // on_rotate active during rebalanceAfterRemove the conservative smin <=
     // true_min invariant is maintained, and augmentHintBeforeRemove +
     // fixupAugmentationUp corrects the successor's smin in O(log n).
     var n1: SchedEntity = .{ .vruntime = 10, .deadline = 1 };
@@ -824,7 +867,7 @@ test "pickBest: prunes ineligible subtree via subtree_min_vruntime" {
     // Build a tree where the left subtree's subtree_min_vruntime exceeds the
     // average, and pickBest must prune that whole subtree and find the right one.
     //
-    // avg = 100.  Left subtree: only c (vr=150, ineligible).
+    // avg = 100. Left subtree: only c (vr=150, ineligible).
     //             Right subtree: only d (vr=80, eligible, dl=4).
     // With deadlines: c(dl=1), d(dl=4); d ends up in the right subtree.
     // Actually with this layout c < d by deadline so we need c to be in

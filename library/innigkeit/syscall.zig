@@ -56,16 +56,45 @@ pub const Syscall = enum(usize) {
     /// Return milliseconds elapsed since kernel boot.
     /// () -> ms:u64
     uptime_ms = 23,
-    /// Read bytes from the data disk (virtio-blk device 1) into a user buffer.
-    /// (spec_ptr: usize) -> bytes_read|error  spec_ptr -> BlkReadSpec{byte_offset:u64, buf_ptr:usize, buf_len:usize}
-    blk_read = 24,
     /// Non-blocking drain of raw PS/2 scancode bytes into a user buffer.
     /// Includes 0xE0 extended prefix and break bit (bit 7 = release).
     /// (buf_ptr: usize, buf_len: usize) -> count
-    kbd_read = 25,
+    kbd_read = 24,
     /// Block until uptime_ms >= deadline_ms.
     /// (deadline_ms: u64) -> 0
-    nanosleep_ms = 26,
+    nanosleep_ms = 25,
+    /// Return a stable u64 identifier for the calling process.
+    /// () -> pid:u64  (currently the VA of the kernel Process struct)
+    getpid = 26,
+    /// Non-blocking check whether the process associated with a Notify handle has exited.
+    /// (notify_handle: u32) -> exit_status:u8|error
+    /// Returns -EAGAIN if still running.
+    wait_process_nb = 27,
+    /// Force-signal the exit Notify for a process, unblocking any waitProcess caller.
+    /// (notify_handle: u32) -> 0|error
+    process_kill = 28,
+    /// Read bytes from the data disk (virtio-blk device 1) into a user buffer.
+    /// (spec_ptr: usize) -> bytes_read|error  spec_ptr -> BlkReadSpec{byte_offset:u64, buf_ptr:usize, buf_len:usize}
+    blk_read = 29,
+    /// Write bytes to the data disk (virtio-blk device 1) from a user buffer.
+    /// Offset and length must be multiples of 512 (sector size).
+    /// (spec_ptr: usize) -> 0|error spec_ptr -> BlkReadSpec{byte_offset:u64, buf_ptr:usize, buf_len:usize}
+    blk_write = 30,
+    /// Open or create a file on the simple flat filesystem.
+    /// (name_ptr: usize, name_len: u32, flags: u32) -> fd|error
+    fs_open = 31,
+    /// Read bytes from an open file descriptor.
+    /// (fd: u32, buf_ptr: usize, buf_len: usize) -> nbytes|error
+    fs_read = 32,
+    /// Write bytes to an open file descriptor.
+    /// (fd: u32, buf_ptr: usize, buf_len: usize) -> nbytes|error
+    fs_write = 33,
+    /// Close an open file descriptor.
+    /// (fd: u32) -> 0|error
+    fs_close = 34,
+    /// Set P/E-core scheduling hint for the calling thread.
+    /// (hint: u8) -> 0  hint: 0=unknown, 1=p_core, 2=e_core
+    thread_set_hint = 35,
 
     /// Decode a raw syscall return value into a success count or a `SyscallError`.
     ///
@@ -75,12 +104,16 @@ pub const Syscall = enum(usize) {
         if (result >= 0) return @intCast(result);
         return switch (result) {
             -1 => error.PermissionDenied,
+            -2 => error.NotFound,
             -5 => error.IoError,
             -9 => error.BadFileDescriptor,
             -11 => error.WouldBlock,
             -12 => error.OutOfMemory,
             -14 => error.BadAddress,
+            -17 => error.AlreadyExists,
+            -19 => error.NoDevice,
             -22 => error.InvalidArgument,
+            -28 => error.NoSpace,
             -38 => error.Unsupported,
             else => error.Unknown,
         };
@@ -333,12 +366,16 @@ pub const Syscall = enum(usize) {
     /// Error codes returned by the kernel as negative isize values.
     pub const Error = error{
         PermissionDenied,
+        NotFound,
         IoError,
         BadFileDescriptor,
         WouldBlock,
         OutOfMemory,
         BadAddress,
+        AlreadyExists,
+        NoDevice,
         InvalidArgument,
+        NoSpace,
         Unsupported,
         Unknown,
     };

@@ -1,0 +1,150 @@
+//! ARM GICv2 (Generic Interrupt Controller v2) driver.
+//!
+//! QEMU virt machine memory map:
+//!   GICD (distributor)   0x08000000
+//!   GICC (CPU interface) 0x08010000
+//!
+//! Supports SGIs (0–15), PPIs (16–31) and SPIs (32–1019).
+//! IRQ 27 = virtual timer (PPI, per-CPU).
+
+const arm = @import("arm.zig");
+
+const GICD_BASE: u64 = 0x0800_0000;
+const GICC_BASE: u64 = 0x0801_0000;
+
+// Distributor registers (word-wide)
+const GICD_CTLR: u64 = GICD_BASE + 0x000;
+const GICD_TYPER: u64 = GICD_BASE + 0x004;
+const GICD_IGROUPR0: u64 = GICD_BASE + 0x080; // +4*n for group n
+const GICD_ISENABLER0: u64 = GICD_BASE + 0x100; // +4*n
+const GICD_ICENABLER0: u64 = GICD_BASE + 0x180; // +4*n
+const GICD_ICPENDR0: u64 = GICD_BASE + 0x280; // +4*n
+const GICD_IPRIORITYR0: u64 = GICD_BASE + 0x400; // +4*n  (1 byte per irq)
+const GICD_ITARGETSR0: u64 = GICD_BASE + 0x800; // +4*n  (1 byte per irq)
+const GICD_ICFGR0: u64 = GICD_BASE + 0xC00; // +4*n  (2 bits per irq)
+
+// CPU interface registers
+const GICC_CTLR: u64 = GICC_BASE + 0x000;
+const GICC_PMR: u64 = GICC_BASE + 0x004;
+const GICC_BPR: u64 = GICC_BASE + 0x008;
+const GICC_IAR: u64 = GICC_BASE + 0x00C;
+const GICC_EOIR: u64 = GICC_BASE + 0x010;
+
+inline fn gicdReg(offset: u64) *volatile u32 {
+    return @ptrFromInt(GICD_BASE + offset);
+}
+
+inline fn giccReg(offset: u64) *volatile u32 {
+    return @ptrFromInt(GICC_BASE + offset);
+}
+
+/// Initialise the GICv2 distributor and this CPU's interface.
+///
+/// Must be called once per CPU after MMU is on and memory is mapped 1:1 (or
+/// direct-mapped) at the GIC physical address range.
+pub fn init() void {
+    // Disable distributor while we configure it.
+    gicdReg(0x000).* = 0;
+
+    // Read the number of interrupt lines (rounds up to nearest 32).
+    const typer = gicdReg(0x004).*;
+    const num_irqs: u32 = (32 * ((typer & 0x1F) + 1));
+
+    // Mark all SPIs as Group 1 (non-secure) and disable / clear pending.
+    var i: u32 = 1; // skip SGIs (n=0)
+    while (i < num_irqs / 32) : (i += 1) {
+        gicdReg(0x080 + i * 4).* = 0xFFFF_FFFF; // IGROUPR: group 1
+        gicdReg(0x180 + i * 4).* = 0xFFFF_FFFF; // ICENABLER
+        gicdReg(0x280 + i * 4).* = 0xFFFF_FFFF; // ICPENDR
+    }
+
+    // Set all interrupt priorities to 0xA0 (medium).
+    i = 0;
+    while (i < num_irqs / 4) : (i += 1) {
+        gicdReg(0x400 + i * 4).* = 0xA0A0_A0A0;
+    }
+
+    // Target all SPIs to CPU0.
+    i = 8; // ITARGETSR0..7 are read-only (SGIs/PPIs target themselves)
+    while (i < num_irqs / 4) : (i += 1) {
+        gicdReg(0x800 + i * 4).* = 0x0101_0101;
+    }
+
+    // Re-enable distributor.
+    gicdReg(0x000).* = 1;
+
+    // CPU interface: enable, allow all priority levels.
+    giccReg(0x000).* = 1; // GICC_CTLR: enable
+    giccReg(0x004).* = 0xFF; // GICC_PMR: lowest priority threshold (allow all)
+    giccReg(0x008).* = 0; // GICC_BPR: no pre-emption splitting
+}
+
+/// Enable interrupt `irq` in the distributor.
+pub fn enableIrq(irq: u32) void {
+    const word: u32 = irq / 32;
+    const bit: u32 = irq % 32;
+    gicdReg(0x100 + word * 4).* = @as(u32, 1) << @intCast(bit);
+}
+
+/// Disable interrupt `irq` in the distributor.
+pub fn disableIrq(irq: u32) void {
+    const word: u32 = irq / 32;
+    const bit: u32 = irq % 32;
+    gicdReg(0x180 + word * 4).* = @as(u32, 1) << @intCast(bit);
+}
+
+/// Set the priority of `irq` (0 = highest, 255 = lowest; even values only in
+/// most implementations).
+pub fn setPriority(irq: u32, priority: u8) void {
+    const byte_off: u32 = 0x400 + irq;
+    const word_off: u32 = byte_off & ~@as(u32, 3);
+    const shift: u5 = @intCast((byte_off & 3) * 8);
+    const reg = gicdReg(word_off);
+    reg.* = (reg.* & ~(@as(u32, 0xFF) << shift)) | (@as(u32, priority) << shift);
+}
+
+/// Route SPI `irq` to CPU 0.
+pub fn setTarget(irq: u32) void {
+    const byte_off: u32 = 0x800 + irq;
+    const word_off: u32 = byte_off & ~@as(u32, 3);
+    const shift: u5 = @intCast((byte_off & 3) * 8);
+    const reg = gicdReg(word_off);
+    reg.* = (reg.* & ~(@as(u32, 0xFF) << shift)) | (@as(u32, 0x01) << shift);
+}
+
+/// Read the interrupt acknowledge register. Returns the pending IRQ id.
+/// Call at the START of an IRQ handler (before any other GIC interaction).
+pub inline fn ack() u32 {
+    return giccReg(0x00C).*; // GICC_IAR
+}
+
+/// Signal end-of-interrupt for `irq_id` (the value returned by `ack()`).
+/// Call at the END of an IRQ handler.
+pub inline fn eoi(irq_id: u32) void {
+    giccReg(0x010).* = irq_id; // GICC_EOIR
+}
+
+/// Spurious interrupt ID: returned by `ack()` when no real interrupt is pending.
+pub const SPURIOUS_ID: u32 = 0x3FF;
+
+/// Maximum number of IRQs tracked by the dispatch table.
+pub const MAX_IRQS: usize = 64;
+
+/// Simple flat dispatch table: one handler per IRQ id (0..MAX_IRQS-1).
+/// Handlers are called with IRQs disabled.
+pub var handlers: [MAX_IRQS]?*const fn () void = .{null} ** MAX_IRQS;
+
+/// Register a handler for `irq`.
+pub fn registerHandler(irq: u32, handler: *const fn () void) void {
+    if (irq < MAX_IRQS) handlers[irq] = handler;
+}
+
+/// Called from the exception vector IRQ entry. Acks the GIC, dispatches,
+/// then signals EOI.
+pub fn handleIrq() void {
+    const id = ack();
+    if (id != SPURIOUS_ID and id < MAX_IRQS) {
+        if (handlers[id]) |h| h();
+    }
+    eoi(id);
+}

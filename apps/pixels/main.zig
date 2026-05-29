@@ -11,44 +11,31 @@ pub fn main() void {
     };
 
     const info = fb.info;
-    const pixels = fb.pixels;
-    const stride = info.stride();
 
     innigkeit.io.stdout.print(
         "pixels: framebuffer {}x{} pitch={} bpp={}\n",
         .{ info.width, info.height, info.pitch, info.bpp },
     ) catch {};
 
+    const canvas: innigkeit.graphics.Canvas = .fromFb(fb.pixels, fb.info);
+
     // Draw a full-screen gradient: R increases left->right, G increases top->bottom.
     var y: u32 = 0;
     while (y < info.height) : (y += 1) {
         var x: u32 = 0;
         while (x < info.width) : (x += 1) {
-            const r: u32 = x * 255 / info.width;
-            const g: u32 = y * 255 / info.height;
-            const b: u32 = 128;
-            pixels[y * stride + x] = (r << 16) | (g << 8) | b;
+            const r: u8 = @intCast(x * 255 / info.width);
+            const g: u8 = @intCast(y * 255 / info.height);
+            canvas.putPixel(x, y, .{ .r = r, .g = g, .b = 128 });
         }
     }
 
     // Draw a white 4-pixel border so we can see the display boundaries.
     const border = 4;
-    var i: u32 = 0;
-    while (i < info.width) : (i += 1) {
-        var j: u32 = 0;
-        while (j < border) : (j += 1) {
-            pixels[j * stride + i] = 0xFFFFFF;
-            pixels[(info.height - 1 - j) * stride + i] = 0xFFFFFF;
-        }
-    }
-    i = 0;
-    while (i < info.height) : (i += 1) {
-        var j: u32 = 0;
-        while (j < border) : (j += 1) {
-            pixels[i * stride + j] = 0xFFFFFF;
-            pixels[i * stride + (info.width - 1 - j)] = 0xFFFFFF;
-        }
-    }
+    canvas.fillRect(0, 0, info.width, border, .white);
+    canvas.fillRect(0, info.height -| border, info.width, border, .white);
+    canvas.fillRect(0, 0, border, info.height, .white);
+    canvas.fillRect(info.width -| border, 0, border, info.height, .white);
 
     innigkeit.io.stdout.print("pixels: done gradient + border drawn\n", .{}) catch {};
 }

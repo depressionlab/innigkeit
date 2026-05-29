@@ -20,7 +20,7 @@ static int write_stdout(const char *buf, size_t len) {
 /* ---- malloc / free ---- */
 
 /*
- * Simple heap backed by mmap.  We use a fixed 64 MiB arena so that the
+ * Simple heap backed by mmap. We use a fixed 64 MiB arena so that the
  * zone allocator can grab one big block at startup, as DOOM expects.
  * Allocations that exceed a page are rounded up and mmap'd directly.
  * free() is a no-op (acceptable: DOOM's zone allocator owns the memory).
@@ -68,7 +68,7 @@ void *calloc(size_t nmemb, size_t size) {
 }
 
 void *realloc(void *old_ptr, size_t new_size) {
-    /* Simple realloc: alloc new + memcpy.  Works because free() is a no-op. */
+    /* Simple realloc: alloc new + memcpy. Works because free() is a no-op. */
     void *p = malloc(new_size);
     if (old_ptr && p) {
         size_t old_size = *((size_t *)((uint8_t *)old_ptr - sizeof(size_t)));
@@ -328,12 +328,12 @@ static bool load_from_initfs(MemFile *f, const char *path) {
 }
 
 static bool load_from_disk(MemFile *f) {
-    /* Data disk: device 1.  We read the whole WAD into memory. */
+    /* Data disk: device 1. We read the whole WAD into memory. */
     /* First 8 bytes of a WAD are: IWAD/PWAD magic + uint32 lumpcount + uint32 infooffset */
     uint8_t header[8];
     long r = innigkeit_blk_read(0, header, 8);
     if (r < 8) return false;
-    /* WAD size: we don't know upfront.  Read the directory offset + 16 bytes of lump count. */
+    /* WAD size: we don't know upfront. Read the directory offset + 16 bytes of lump count. */
     /* WAD format: [4 magic][4 lumpcount][4 infotableofs] */
     uint32_t lump_count, info_ofs;
     __builtin_memcpy(&lump_count, header + 4, 4);

@@ -14,7 +14,7 @@ const innigkeit = @import("innigkeit");
 /// }
 /// ```
 pub fn exportEntry() void {
-    comptime if (@import("is_internal").is_internal)
+    comptime if (!@import("builtin").is_test and @import("is_internal").is_internal)
         @export(&_innigkeit_entry, .{ .name = "_start" });
 }
 
@@ -93,7 +93,7 @@ fn callMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
     const auxv: [*]const std.elf.Auxv = @ptrCast(@alignCast(envp.ptr + envp_count + 1));
 
     // For static PIE binaries: find AT_PHDR/AT_PHNUM in the auxv and apply ELF
-    // relocations before touching any global state.  Must be always_inline so the
+    // relocations before touching any global state. Must be always_inline so the
     // call itself does not go through the (not yet relocated) PLT/GOT.
     if (builtin.link_mode == .static and builtin.position_independent_executable) {
         const phdrs = init: {

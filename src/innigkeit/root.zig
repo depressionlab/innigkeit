@@ -7,6 +7,7 @@ pub const Executor = @import("Executor.zig");
 pub const fs = @import("fs/root.zig");
 pub const init = @import("init/root.zig");
 pub const mem = @import("mem/root.zig");
+pub const net = @import("net/root.zig");
 pub const pci = @import("pci/root.zig");
 pub const sync = @import("sync/root.zig");
 pub const Task = @import("task/Task.zig");

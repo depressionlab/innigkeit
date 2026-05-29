@@ -5,4 +5,8 @@ pub const ObjectType = enum(u8) {
     endpoint = 3,
     /// Single-use reply token created by recv_call.
     reply = 4,
+    /// Kernel-managed sealed key store.
+    secure_vault = 5,
+    /// UMA zero-copy GPU buffer.
+    gpu_buffer = 6,
 };

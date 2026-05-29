@@ -60,11 +60,17 @@ pub fn syscallVmemMap(handle: u32, current_task: innigkeit.Task.Current) usize {
     const page_align = architecture.paging.standard_page_size_alignment;
     const page_size = architecture.paging.standard_page_size;
 
+    const prot: innigkeit.mem.MapType.Protection = .{
+        .read = slot_info.rights.read,
+        .write = slot_info.rights.write,
+        .execute = false, // W^X: explicit execute right required
+    };
+
     // Reserve a virtual address range in the process's address space.
     const virt_range = process.address_space.map(.{
         .size = page_size,
-        .protection = .{ .read = true, .write = true },
-        .max_protection = .all,
+        .protection = prot,
+        .max_protection = prot,
         .type = .zero_fill,
     }) catch |err| {
         log.debug("vmem_map: address_space.map failed: {t}", .{err});
@@ -77,7 +83,7 @@ pub fn syscallVmemMap(handle: u32, current_task: innigkeit.Task.Current) usize {
     // Now wire the physical page into the page table over the reserved VA.
     const map_type: innigkeit.mem.MapType = .{
         .type = .user,
-        .protection = .{ .read = true, .write = true },
+        .protection = prot,
     };
 
     _ = page_align; // alignment is guaranteed by address_space.map

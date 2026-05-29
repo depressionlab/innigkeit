@@ -29,7 +29,7 @@
 | `Thread.startProcess` | `src/innigkeit/user/Thread.zig` | Writes full ELF-ABI initial stack (argc/argv/envp/auxv) into userspace |
 | `spawnFull` | `library/innigkeit/process.zig` | Syscall wrapper that passes argv + envp via `SpawnSpec` |
 | `callMainAndExit` | `library/innigkeit/entry.zig` | Parses ELF initial stack, populates `innigkeit.process._argv/_envp` globals |
-| `App.createModule` | `build/App.zig` | Build-system function — now creates a two-module tree (wrapper root + app sub-module) |
+| `App.createModule` | `build/App.zig` | Build-system function; now creates a two-module tree (wrapper root + app sub-module) |
 
 ### most recent failure example
 

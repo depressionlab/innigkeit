@@ -54,7 +54,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         //   return: bytes written, or negative error code                    //
         // ------------------------------------------------------------------ //
         .write => {
-            const fd = @as(i32, @intCast(syscall_frame.arg(.one)));
+            const fd: i32 = @intCast(syscall_frame.arg(.one));
             const buf_ptr = syscall_frame.arg(.two);
             const buf_len = syscall_frame.arg(.three);
 
@@ -103,7 +103,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         //   return: bytes read, or negative error code                       //
         // ------------------------------------------------------------------ //
         .read => {
-            const fd = @as(i32, @intCast(syscall_frame.arg(.one)));
+            const fd: i32 = @intCast(syscall_frame.arg(.one));
             const buf_ptr = syscall_frame.arg(.two);
             const buf_len = syscall_frame.arg(.three);
 
@@ -429,6 +429,81 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                     }
                 },
 
+                .secure_vault => {
+                    const vault: *innigkeit.capabilities.SecureVault = @ptrCast(@alignCast(slot_info.ptr));
+                    const vault_op = std.enums.fromInt(innigkeit.capabilities.SecureVault.Op, op) orelse {
+                        arch_frame.rax = errCode(e.EINVAL);
+                        return;
+                    };
+                    switch (vault_op) {
+                        .status => {
+                            arch_frame.rax = if (vault.tpm_backed) 1 else 0;
+                        },
+                        .seal => {
+                            // arg.one=handle, arg.two=op, arg.three=src_ptr,
+                            // arg.four=src_len, arg.five=dst_ptr, arg.six=dst_len
+                            const src_ptr: usize = syscall_frame.arg(.three);
+                            const src_len: usize = syscall_frame.arg(.four);
+                            const dst_ptr: usize = syscall_frame.arg(.five);
+                            const dst_len: usize = syscall_frame.arg(.six);
+                            if (!validateUserBuffer(src_ptr, src_len) or !validateUserBuffer(dst_ptr, dst_len)) {
+                                arch_frame.rax = errCode(e.EFAULT);
+                                return;
+                            }
+                            const plaintext: []const u8 = @as([*]const u8, @ptrFromInt(src_ptr))[0..src_len];
+                            const out: []u8 = @as([*]u8, @ptrFromInt(dst_ptr))[0..dst_len];
+                            current_task.incrementEnableAccessToUserMemory();
+                            defer current_task.decrementEnableAccessToUserMemory();
+                            const written = vault.seal(plaintext, out) catch |err| {
+                                arch_frame.rax = switch (err) {
+                                    error.TooBig => errCode(e.EINVAL),
+                                    error.BufferTooSmall => errCode(e.EINVAL),
+                                };
+                                return;
+                            };
+                            arch_frame.rax = @intCast(written);
+                        },
+                        .unseal => {
+                            // arg.one=handle, arg.two=op, arg.three=src_ptr,
+                            // arg.four=src_len, arg.five=dst_ptr, arg.six=dst_len
+                            const src_ptr: usize = syscall_frame.arg(.three);
+                            const src_len: usize = syscall_frame.arg(.four);
+                            const dst_ptr: usize = syscall_frame.arg(.five);
+                            const dst_len: usize = syscall_frame.arg(.six);
+                            if (!validateUserBuffer(src_ptr, src_len) or !validateUserBuffer(dst_ptr, dst_len)) {
+                                arch_frame.rax = errCode(e.EFAULT);
+                                return;
+                            }
+                            const blob: []const u8 = @as([*]const u8, @ptrFromInt(src_ptr))[0..src_len];
+                            const out: []u8 = @as([*]u8, @ptrFromInt(dst_ptr))[0..dst_len];
+                            current_task.incrementEnableAccessToUserMemory();
+                            defer current_task.decrementEnableAccessToUserMemory();
+                            const written = vault.unseal(blob, out) catch |err| {
+                                arch_frame.rax = switch (err) {
+                                    error.TooSmall => errCode(e.EINVAL),
+                                    error.BufferTooSmall => errCode(e.EINVAL),
+                                    error.AuthFailed => errCode(e.EPERM),
+                                };
+                                return;
+                            };
+                            arch_frame.rax = @intCast(written);
+                        },
+                    }
+                },
+
+                .gpu_buffer => {
+                    const gpu: *innigkeit.capabilities.GpuBuffer = @ptrCast(@alignCast(slot_info.ptr));
+                    const gpu_op = std.enums.fromInt(innigkeit.capabilities.GpuBuffer.Op, op) orelse {
+                        arch_frame.rax = errCode(e.EINVAL);
+                        return;
+                    };
+                    switch (gpu_op) {
+                        .phys_addr => arch_frame.rax = gpu.phys_base.value,
+                        .size => arch_frame.rax = gpu.size_bytes,
+                        .usage => arch_frame.rax = @as(u32, @bitCast(gpu.usage)),
+                    }
+                },
+
                 .frame => {
                     const frame: *innigkeit.capabilities.Frame = @ptrCast(@alignCast(slot_info.ptr));
                     const frame_op = std.enums.fromInt(innigkeit.capabilities.Frame.Op, op) orelse {
@@ -512,8 +587,8 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const current_rights = slot.rights;
 
             // Copy to a new slot (bumps refcount to 2).
+            // Note: the defer above handles unlock on all exit paths; do NOT unlock explicitly here.
             const new_idx = cap_table.copyLocked(handle, current_rights) catch |err| {
-                cap_table.lock.unlock();
                 arch_frame.rax = switch (err) {
                     error.NotFound => errCode(e.EBADF),
                     error.Full => errCode(e.ENOMEM),
@@ -610,6 +685,50 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 },
                 // Reply capabilities are created by the kernel (recv_call), not by userspace.
                 .reply => arch_frame.rax = errCode(e.EINVAL),
+                .secure_vault => {
+                    // arg2: 0 = software-only, 1 = prefer TPM-backed.
+                    // TPM-backed mode will be wired up once the TPM 2.0 CRB driver
+                    // lands; for now always software-only.
+                    _ = syscall_frame.arg(.two);
+                    const vault = innigkeit.capabilities.SecureVault.create(null) catch {
+                        arch_frame.rax = errCode(e.ENOMEM);
+                        return;
+                    };
+                    cap_table.lock.lock();
+                    defer cap_table.lock.unlock();
+                    const idx = cap_table.insertLocked(.secure_vault, vault, .all) catch {
+                        vault.unref();
+                        arch_frame.rax = errCode(e.ENOMEM);
+                        return;
+                    };
+                    arch_frame.rax = @intCast(idx);
+                },
+
+                .gpu_buffer => {
+                    // arg2: page_count (must be >= 1)
+                    // arg3: usage bitmask (GpuBuffer.Usage packed struct as u32)
+                    const page_count: usize = syscall_frame.arg(.two);
+                    const usage_raw: u32 = @truncate(syscall_frame.arg(.three));
+                    if (page_count == 0) {
+                        arch_frame.rax = errCode(e.EINVAL);
+                        return;
+                    }
+                    const gpu = innigkeit.capabilities.GpuBuffer.create(
+                        page_count,
+                        @bitCast(usage_raw),
+                    ) catch {
+                        arch_frame.rax = errCode(e.ENOMEM);
+                        return;
+                    };
+                    cap_table.lock.lock();
+                    defer cap_table.lock.unlock();
+                    const idx = cap_table.insertLocked(.gpu_buffer, gpu, .all) catch {
+                        gpu.unref();
+                        arch_frame.rax = errCode(e.ENOMEM);
+                        return;
+                    };
+                    arch_frame.rax = @intCast(idx);
+                },
             }
         },
 
@@ -925,6 +1044,161 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             innigkeit.sync.nanosleep.wait(deadline_ms);
             arch_frame.rax = 0;
         },
+
+        // ------------------------------------------------------------------ //
+        // getpid() -> pid:u64                                                //
+        //   Returns the VA of the calling process's kernel Process struct as //
+        //   a stable per-process identifier.                                 //
+        // ------------------------------------------------------------------ //
+        .getpid => {
+            const current_task: innigkeit.Task.Current = .get();
+            const thread: *innigkeit.user.Thread = innigkeit.user.Thread.from(current_task.task);
+            arch_frame.rax = @intFromPtr(thread.process);
+        },
+
+        // ------------------------------------------------------------------ //
+        // wait_process_nb(notify_handle: u32) -> exit_status:u8|error        //
+        //   Non-blocking check: returns exit status if the process has       //
+        //   exited, or -EAGAIN if it is still running.                       //
+        // ------------------------------------------------------------------ //
+        .wait_process_nb => {
+            const handle: u32 = @truncate(syscall_frame.arg(.one));
+            const current_task: innigkeit.Task.Current = .get();
+            const process = Process.from(current_task.task);
+            const cap_table = process.cap_table;
+
+            cap_table.lock.lock();
+            const slot_info = cap_table.getAndRefLocked(handle) orelse {
+                cap_table.lock.unlock();
+                arch_frame.rax = errCode(e.EBADF);
+                return;
+            };
+            cap_table.lock.unlock();
+            defer innigkeit.capabilities.CapabilityTable.unrefObject(slot_info.cap_type, slot_info.ptr);
+
+            if (slot_info.cap_type != .notify) {
+                arch_frame.rax = errCode(e.EINVAL);
+                return;
+            }
+            if (!slot_info.rights.read) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
+
+            const notify: *innigkeit.capabilities.Notify = @ptrCast(@alignCast(slot_info.ptr));
+            const bits = notify.poll(0xFF_01); // non-blocking: check bits 0 (exit) and 8..15 (status)
+            if (bits == 0) {
+                // Nothing pending: process still running.
+                arch_frame.rax = errCode(e.EAGAIN);
+                return;
+            }
+            const exit_status: u8 = @truncate(bits >> 8);
+            arch_frame.rax = exit_status;
+        },
+
+        // ------------------------------------------------------------------- //
+        // process_kill(notify_handle: u32) -> 0|error                         //
+        //   Signals the exit Notify for the process associated with the given //
+        //   handle, unblocking any waitProcess / wait_process_nb callers and  //
+        //   reporting exit status 130 (SIGINT convention).                    //
+        // ------------------------------------------------------------------- //
+        .process_kill => {
+            const handle: u32 = @truncate(syscall_frame.arg(.one));
+            const current_task: innigkeit.Task.Current = .get();
+            const process = Process.from(current_task.task);
+            const cap_table = process.cap_table;
+
+            cap_table.lock.lock();
+            const slot_info = cap_table.getAndRefLocked(handle) orelse {
+                cap_table.lock.unlock();
+                arch_frame.rax = errCode(e.EBADF);
+                return;
+            };
+            cap_table.lock.unlock();
+            defer innigkeit.capabilities.CapabilityTable.unrefObject(slot_info.cap_type, slot_info.ptr);
+
+            if (slot_info.cap_type != .notify) {
+                arch_frame.rax = errCode(e.EINVAL);
+                return;
+            }
+
+            const notify: *innigkeit.capabilities.Notify = @ptrCast(@alignCast(slot_info.ptr));
+            // Signal exit with status 130 (killed by Ctrl+C / SIGINT convention).
+            // Bit 0 = exited, bits 8..15 = exit status.
+            notify.signal(@as(u64, 1) | (@as(u64, 130) << 8));
+            arch_frame.rax = 0;
+        },
+
+        // ------------------------------------------------------------------------ //
+        // blk_write(spec_ptr: usize) -> 0|error                                    //
+        //   spec_ptr -> BlkReadSpec{byte_offset:u64, buf_ptr:usize, buf_len:usize} //
+        //   Writes sector-aligned bytes to the data disk (virtio-blk device 1).    //
+        //   Offset and length must be multiples of 512 (sector size).              //
+        // ------------------------------------------------------------------------ //
+        .blk_write => {
+            const spec_ptr = syscall_frame.arg(.one);
+            const current_task: innigkeit.Task.Current = .get();
+            arch_frame.rax = handlers.framebuffer.syscallBlkWrite(spec_ptr, current_task);
+        },
+
+        // ------------------------------------------------------------------ //
+        // fs_open(name_ptr, name_len, flags) -> fd|error                     //
+        //   Open or create a file on the simple flat filesystem.             //
+        // ------------------------------------------------------------------ //
+        .fs_open => {
+            const name_ptr = syscall_frame.arg(.one);
+            const name_len = syscall_frame.arg(.two);
+            const flags_raw = syscall_frame.arg(.three);
+            const current_task: innigkeit.Task.Current = .get();
+            arch_frame.rax = handlers.fs_handler.syscallFsOpen(name_ptr, name_len, flags_raw, current_task);
+        },
+
+        // ------------------------------------------------------------------ //
+        // fs_read(fd, buf_ptr, buf_len) -> nbytes|error                      //
+        // ------------------------------------------------------------------ //
+        .fs_read => {
+            const fd = syscall_frame.arg(.one);
+            const buf_ptr = syscall_frame.arg(.two);
+            const buf_len = syscall_frame.arg(.three);
+            const current_task: innigkeit.Task.Current = .get();
+            arch_frame.rax = handlers.fs_handler.syscallFsRead(fd, buf_ptr, buf_len, current_task);
+        },
+
+        // ------------------------------------------------------------------ //
+        // fs_write(fd, buf_ptr, buf_len) -> nbytes|error                     //
+        // ------------------------------------------------------------------ //
+        .fs_write => {
+            const fd = syscall_frame.arg(.one);
+            const buf_ptr = syscall_frame.arg(.two);
+            const buf_len = syscall_frame.arg(.three);
+            const current_task: innigkeit.Task.Current = .get();
+            arch_frame.rax = handlers.fs_handler.syscallFsWrite(fd, buf_ptr, buf_len, current_task);
+        },
+
+        // ------------------------------------------------------------------ //
+        // fs_close(fd) -> 0|error                                            //
+        // ------------------------------------------------------------------ //
+        .fs_close => {
+            const fd = syscall_frame.arg(.one);
+            const current_task: innigkeit.Task.Current = .get();
+            arch_frame.rax = handlers.fs_handler.syscallFsClose(fd, current_task);
+        },
+
+        // ------------------------------------------------------------------ //
+        // thread_set_hint(hint: u8) -> 0                                     //
+        //   Set the P/E-core scheduling hint for the calling thread.         //
+        //   hint: 0=unknown, 1=p_core, 2=e_core (maps to Executor.CoreType). //
+        // ------------------------------------------------------------------ //
+        .thread_set_hint => {
+            const raw: u8 = @truncate(syscall_frame.arg(.one));
+            const current_task: innigkeit.Task.Current = .get();
+            current_task.task.core_hint = switch (raw) {
+                1 => innigkeit.Executor.CoreType.p_core,
+                2 => innigkeit.Executor.CoreType.e_core,
+                else => innigkeit.Executor.CoreType.unknown,
+            };
+            arch_frame.rax = 0;
+        },
     }
 }
 
@@ -955,6 +1229,7 @@ const e = struct {
     const EPERM: i64 = -1;
     const EIO: i64 = -5;
     const EBADF: i64 = -9;
+    const EAGAIN: i64 = -11;
     const ENOMEM: i64 = -12;
     const EFAULT: i64 = -14;
     const EINVAL: i64 = -22;

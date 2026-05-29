@@ -29,6 +29,7 @@ const e = struct {
     const EFAULT: i64 = -14;
     const EINVAL: i64 = -22;
     const ENODEV: i64 = -19;
+    const ENOSPC: i64 = -28;
 };
 
 fn validateUserBuffer(ptr: usize, len: usize) bool {
@@ -187,8 +188,8 @@ pub fn syscallKbdRead(buf_ptr: usize, buf_len: usize, current_task: innigkeit.Ta
     return n;
 }
 
-/// ABI layout for blk_read syscall (spec_ptr points to this struct in user memory).
-const BlkReadSpec = extern struct {
+/// ABI layout for blk_read / blk_write syscalls (spec_ptr points to this struct in user memory).
+pub const BlkReadSpec = extern struct {
     byte_offset: u64,
     buf_ptr: usize,
     buf_len: usize,
@@ -239,4 +240,53 @@ pub fn syscallBlkRead(spec_ptr: usize, current_task: innigkeit.Task.Current) usi
     }
 
     return out_pos;
+}
+
+/// Write bytes from a user buffer to the data disk (device 1).
+///
+/// Offset and length must be multiples of 512 (sector size).
+/// Returns 0 on success.
+pub fn syscallBlkWrite(spec_ptr: usize, current_task: innigkeit.Task.Current) usize {
+    if (!validateUserBuffer(spec_ptr, @sizeOf(BlkReadSpec))) return errCode(e.EFAULT);
+
+    current_task.incrementEnableAccessToUserMemory();
+    const spec = @as(*const BlkReadSpec, @ptrFromInt(spec_ptr)).*;
+    current_task.decrementEnableAccessToUserMemory();
+
+    if (spec.buf_len == 0) return 0;
+    if (!validateUserBuffer(spec.buf_ptr, spec.buf_len)) return errCode(e.EFAULT);
+
+    // Offset and length must be sector-aligned.
+    if (spec.byte_offset % 512 != 0 or spec.buf_len % 512 != 0) return errCode(e.EINVAL);
+
+    if (!innigkeit.drivers.virtio.blk.isDataReady()) return errCode(e.ENODEV);
+
+    // Copy in chunks through a kernel-side bounce buffer.
+    const buf: [*]const u8 = @ptrFromInt(spec.buf_ptr);
+    var in_pos: usize = 0;
+    var remaining: usize = spec.buf_len;
+    var byte_offset: u64 = spec.byte_offset;
+    var tmp: [8 * 512]u8 = undefined;
+
+    while (remaining > 0) {
+        const sectors_now: u32 = @intCast(@min(8, remaining / 512));
+        const chunk_bytes: usize = @as(usize, sectors_now) * 512;
+        const sector: u64 = byte_offset / 512;
+
+        current_task.incrementEnableAccessToUserMemory();
+        @memcpy(tmp[0..chunk_bytes], buf[in_pos..][0..chunk_bytes]);
+        current_task.decrementEnableAccessToUserMemory();
+
+        const dev_idx = innigkeit.drivers.virtio.blk.dataDeviceIndex();
+        innigkeit.drivers.virtio.blk.writeSectors(dev_idx, sector, tmp[0..chunk_bytes], sectors_now) catch |err| {
+            log.debug("blk_write: writeSectors failed: {t}", .{err});
+            return errCode(e.EIO);
+        };
+
+        in_pos += chunk_bytes;
+        remaining -= chunk_bytes;
+        byte_offset += chunk_bytes;
+    }
+
+    return 0;
 }

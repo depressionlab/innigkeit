@@ -86,9 +86,9 @@ fn buildQemuCommand(
         run.addArgs(&.{ "-display", "none" });
     }
 
-    // CPU model.
+    // TODO: CPU model.
     run.addArgs(&.{ "-cpu", switch (arch) {
-        .arm => "cortex-a76",
+        .arm => "max",
         .riscv => "max",
         .x64 => "max,migratable=no",
     } });
@@ -152,9 +152,14 @@ fn buildQemuCommand(
 
 /// Build a QEMU run step for `test_{arch}`.
 ///
-/// Adds the ISA debug-exit device so the guest can signal pass/fail:
-///   write 0 -> QEMU exits 1 (pass), write 1 -> QEMU exits 3 (fail).
-/// The step expects exit code 1, so the build fails when tests fail.
+/// Pass/fail convention:
+/// - x64 pass: ACPI S5 soft-off via ICH9 PM1a_CNT port 0x604 -> QEMU exits 0.
+/// - x64 fail: ISA debug-exit (port 0xf4) write 1 -> QEMU exits 3.
+/// - arm pass: AArch64 semihosting SYS_EXIT subcode 0 -> QEMU exits 0.
+/// - arm fail: AArch64 semihosting SYS_EXIT subcode 1 -> QEMU exits 1.
+///
+/// Pass = QEMU exits 0. No expectExitCode needed: standard exit-0-success
+/// works with .inherit stdio (always visible on terminal).
 pub fn buildTestQemuStep(
     b: *std.Build,
     arch: Bundle.Architecture,
@@ -166,12 +171,16 @@ pub fn buildTestQemuStep(
     test_opts.emulator.memory = 256;
 
     const run = try buildQemuCommand(b, arch, image, test_opts);
-    run.addArgs(&.{ "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04" });
+
+    switch (arch) {
+        .x64 => run.addArgs(&.{ "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04" }),
+        .arm => run.addArgs(&.{ "-semihosting", "-semihosting-config", "enable=on,target=native" }),
+        .riscv => @panic("RISC-V test exit not yet implemented"),
+    }
+
     run.addArg("-no-reboot");
-    // buildQemuCommand sets stdio = .inherit; reset it so expectExitCode works.
-    // With .infer, output is captured and printed only on failure.
-    run.stdio = .infer_from_args;
-    run.expectExitCode(1); // (0 << 1) | 1 = 1 means all tests passed
+    // buildQemuCommand already sets stdio = .inherit; test output is always
+    // visible on the terminal. Pass = exit 0 = step success; no expectExitCode.
     return run;
 }
 

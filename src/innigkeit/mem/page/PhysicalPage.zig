@@ -51,10 +51,22 @@ pub const Allocator = struct {
 fn allocate() Allocator.AllocateError!Index {
     const index = try globals.buddy.alloc(0);
 
-    _ = globals.free_memory.fetchSub(
+    const prev_free = globals.free_memory.fetchSub(
         architecture.paging.standard_page_size.value,
         .release,
     );
+    const remaining = prev_free -| architecture.paging.standard_page_size.value;
+
+    // Memory pressure notification. The hook sees accurate free-page count.
+    // The hook must not allocate pages or block.
+    const threshold = globals.pressure_threshold_pages;
+    if (threshold > 0 and globals.pressure_hook != null) {
+        const free_pages = remaining / architecture.paging.standard_page_size.value;
+        if (free_pages < threshold) {
+            const total_pages = globals.total_memory.value / architecture.paging.standard_page_size.value;
+            globals.pressure_hook.?(free_pages, total_pages);
+        }
+    }
 
     if (core.is_debug) {
         // In debug builds, fill with 0xAA to detect uninitialized use.

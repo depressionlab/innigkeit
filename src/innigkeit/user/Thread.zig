@@ -75,7 +75,7 @@ pub const InitialStack = struct {
 /// Writes the SysV x86_64 initial stack layout below the top of a fresh 64 KiB
 /// user stack, then jumps to `entry_point` with rsp pointing at argc.
 ///
-/// Stack layout (low → high, rsp points at argc):
+/// Stack layout (low -> high, rsp points at argc):
 ///   [argc][argv[0] ptr]...[argv[N-1] ptr][argv null]
 ///   [envp[0] ptr]...[envp[M-1] ptr][envp null]
 ///   [AT_PHDR][AT_PHNUM][AT_ENTRY][AT_NULL]

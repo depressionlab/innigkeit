@@ -63,3 +63,61 @@ pub fn blkRead(byte_offset: u64, buf: []u8) innigkeit.Syscall.Error!usize {
     const result = innigkeit.Syscall.invoke(.blk_read, .{@intFromPtr(&spec)});
     return innigkeit.Syscall.decode(result);
 }
+
+/// Write bytes to the data disk (virtio-blk device 1) at `byte_offset` from `buf`.
+///
+/// `byte_offset` and `buf.len` must be multiples of 512 (sector size).
+/// Returns error.NoDevice if no data disk is present.
+pub fn blkWrite(byte_offset: u64, buf: []const u8) innigkeit.Syscall.Error!void {
+    const spec = BlkReadSpec{
+        .byte_offset = byte_offset,
+        .buf_ptr = @intFromPtr(buf.ptr),
+        .buf_len = buf.len,
+    };
+    const result = innigkeit.Syscall.invoke(.blk_write, .{@intFromPtr(&spec)});
+    _ = try innigkeit.Syscall.decode(result);
+}
+
+/// Open or create a file on the simple flat filesystem.
+///
+/// `name` must be at most 15 bytes.
+/// `flags`: bit 0 = create if not exists, bit 1 = truncate on open.
+/// Returns a file descriptor (>= 3) on success.
+pub fn fsOpen(name: []const u8, flags: u32) innigkeit.Syscall.Error!u32 {
+    const result = innigkeit.Syscall.invoke(.fs_open, .{
+        @intFromPtr(name.ptr),
+        @as(usize, name.len),
+        @as(usize, flags),
+    });
+    return @intCast(try innigkeit.Syscall.decode(result));
+}
+
+/// Read up to `buf.len` bytes from `fd` into `buf`.
+///
+/// Returns the number of bytes actually read (0 at EOF).
+pub fn fsRead(fd: u32, buf: []u8) innigkeit.Syscall.Error!usize {
+    const result = innigkeit.Syscall.invoke(.fs_read, .{
+        @as(usize, fd),
+        @intFromPtr(buf.ptr),
+        buf.len,
+    });
+    return innigkeit.Syscall.decode(result);
+}
+
+/// Write `data` to `fd`.
+///
+/// Returns the number of bytes written.
+pub fn fsWrite(fd: u32, data: []const u8) innigkeit.Syscall.Error!usize {
+    const result = innigkeit.Syscall.invoke(.fs_write, .{
+        @as(usize, fd),
+        @intFromPtr(data.ptr),
+        data.len,
+    });
+    return innigkeit.Syscall.decode(result);
+}
+
+/// Close `fd`.
+pub fn fsClose(fd: u32) innigkeit.Syscall.Error!void {
+    const result = innigkeit.Syscall.invoke(.fs_close, .{@as(usize, fd)});
+    _ = try innigkeit.Syscall.decode(result);
+}

@@ -69,21 +69,18 @@ pub fn send(self: *Reply, msg: Message) error{AlreadyReplied}!void {
         const CapabilityTable = innigkeit.capabilities.CapabilityTable;
         for (&reply_msg.caps) |*cap_handle| {
             if (cap_handle.* == 0) continue;
+            // Use getAndRefLocked so revoked capabilities are correctly rejected.
             src_table.lock.lock();
-            const slot = src_table.getLocked(cap_handle.*) orelse {
+            const info = src_table.getAndRefLocked(cap_handle.*) orelse {
                 src_table.lock.unlock();
                 cap_handle.* = 0;
                 continue;
             };
-            const cap_type = slot.type;
-            const rights = slot.rights;
-            const obj_ptr: *anyopaque = @ptrFromInt(slot.ptr_or_next);
-            CapabilityTable.refObject(cap_type, obj_ptr);
             src_table.lock.unlock();
             dst_table.lock.lock();
-            const new_idx = dst_table.insertLocked(cap_type, obj_ptr, rights) catch {
+            const new_idx = dst_table.insertLocked(info.cap_type, info.ptr, info.rights) catch {
                 dst_table.lock.unlock();
-                CapabilityTable.unrefObject(cap_type, obj_ptr);
+                CapabilityTable.unrefObject(info.cap_type, info.ptr);
                 cap_handle.* = 0;
                 continue;
             };

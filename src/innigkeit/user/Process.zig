@@ -40,6 +40,11 @@ exit_notify: ?*innigkeit.capabilities.Notify = null,
 /// Exit status set by exit_process syscall; 0 if never set (killed/crashed).
 exit_status: u8 = 0,
 
+/// Simple flat filesystem open file table.
+/// FD 3..14 map to indices 0..11 respectively.
+open_files: [12]?innigkeit.fs.simple_fs.OpenFile = .{null} ** 12,
+open_files_lock: innigkeit.sync.TicketSpinLock = .{},
+
 pub const CreateOptions = struct {
     name: Name,
 };

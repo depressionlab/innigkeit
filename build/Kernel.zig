@@ -130,6 +130,7 @@ pub fn buildTestKernel(
     apps: App.Collection,
     tools: Tool.Collection,
 ) !Kernel {
+    // TODO: unify this with buildKernel()
     const initfs_archive = buildInitfs(b, arch, apps, tools);
 
     // Build the component graph exactly as the normal kernel does.
@@ -146,11 +147,13 @@ pub fn buildTestKernel(
     // Use the innigkeit component module as the test binary's root package.
     // All files reachable via its import hierarchy are in the root package, so Zig
     // collects every test block in them automatically, no dual-module conflict.
+    // TODO: hone these options so we have the most optimized when we release and the most debuggable when we debug!
     const innigkeit_module = graph.nodes.get("innigkeit").?.module;
     innigkeit_module.resolved_target = arch.kernelTarget(b);
     innigkeit_module.optimize = options.optimize;
     innigkeit_module.strip = false;
     innigkeit_module.omit_frame_pointer = false;
+    innigkeit_module.single_threaded = true; // freestanding: no TLS segment
     innigkeit_module.sanitize_c = switch (options.optimize) {
         .Debug => .full,
         .ReleaseSafe => .trap,
@@ -173,7 +176,9 @@ pub fn buildTestKernel(
         },
     });
 
-    if (arch == .x64) test_exe.use_llvm = true;
+    // TODO: make this better
+    // Force LLVM for architectures whose Zig backend lacks freestanding support.
+    if (arch == .x64 or arch == .arm) test_exe.use_llvm = true;
     test_exe.entry = .disabled;
     test_exe.lto = .none;
     test_exe.pie = true;

@@ -45,14 +45,19 @@ pub fn ref(self: *Endpoint) void {
 
 pub fn unref(self: *Endpoint) void {
     if (self.refcount.fetchSub(1, .acq_rel) != 1) return;
-    // Wake any call-mode sender that is still parked and waiting for a reply.
-    // Deliver an empty message so they get a defined (zero) response rather
-    // than blocking forever. Senders should treat tag==0 + all-zero words
-    // as "endpoint destroyed" and handle it as an error.
+    self.lock.lock();
+    // Wake the pending call-mode sender (if any) with an empty message so it
+    // is never stuck forever. Senders should treat tag==0 as "endpoint destroyed".
     if (self.pending_sender) |s| {
+        self.pending_sender = null;
         s.ipc_message = .{};
         s.wakeFromBlocked();
     }
+    // TODO: safely wake call_queue and send_queue tasks. This requires that each
+    // waiter holds a refcount on the endpoint to prevent the UAF that occurs when
+    // WaitQueue.wait() re-acquires self.lock after wakeup on already-freed memory.
+    // Until per-waiter refs are added, these tasks stay blocked (DoS risk: H-2).
+    self.lock.unlock();
     innigkeit.mem.heap.allocator.destroy(self);
 }
 
@@ -164,6 +169,14 @@ pub fn recv(self: *Endpoint) Message {
     self.recv_queue.wait(&self.lock);
     self.lock.lock();
     const msg = self.pending_msg;
+    // If a call()-mode sender woke us, pending_sender is set. Since recv() has
+    // no way to return a Reply cap to the caller, wake the sender with an empty
+    // reply to prevent it from blocking forever (M-2 / H-1 fix).
+    if (self.pending_sender) |s| {
+        self.pending_sender = null;
+        s.ipc_message = .{};
+        s.wakeFromBlocked();
+    }
     self.lock.unlock();
     return msg;
 }
@@ -322,9 +335,14 @@ pub fn recvCall(self: *Endpoint) RecvCallResult {
     self.recv_queue.wait(&self.lock);
     self.lock.lock();
     const msg = self.pending_msg;
-    // pending_msg was set by a fire-and-forget sender (send path).
+    // If a call()-mode sender woke us (via call()'s recv_queue fast path), take
+    // ownership of pending_sender and return it so the caller can create a Reply cap.
+    // Without this, pending_sender would be left non-null and a future replyRecv()
+    // would deliver its reply to the wrong task (H-1 fix).
+    const sender = self.pending_sender;
+    self.pending_sender = null;
     self.lock.unlock();
-    return .{ .msg = msg, .sender = null };
+    return .{ .msg = msg, .sender = sender };
 }
 
 /// cap_invoke operations for Endpoint.
