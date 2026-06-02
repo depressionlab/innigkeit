@@ -1379,7 +1379,7 @@ fn entryRange(self: *const AddressSpace, range: innigkeit.VirtualRange) ?EntryRa
 
     const last_entry = self.entries.items[entry_range.start + entry_range.length - 1];
     if (last_entry.range.after().greaterThan(range.after())) {
-        if (core.is_debug) std.debug.assert(last_entry.range.address.lessThan(range.last()));
+        if (core.is_debug) std.debug.assert(last_entry.range.address.lessThan(range.after()));
         entry_range.end_overlap = true;
     }
 

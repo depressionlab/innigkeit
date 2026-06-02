@@ -13,6 +13,7 @@ const std = @import("std");
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
+const validateUserBuffer = @import("../validate.zig").validateUserBuffer;
 
 const log = innigkeit.debug.log.scoped(.user_fb);
 
@@ -31,13 +32,6 @@ const e = struct {
     const ENODEV: i64 = -19;
     const ENOSPC: i64 = -28;
 };
-
-fn validateUserBuffer(ptr: usize, len: usize) bool {
-    if (len == 0) return true;
-    if (ptr +% len < ptr) return false;
-    const range: innigkeit.VirtualRange = .from(.from(ptr), .from(len, .byte));
-    return architecture.user.user_memory_range.fullyContains(range);
-}
 
 /// ABI layout of the FramebufferInfo struct (must match library/innigkeit/display.zig).
 const FramebufferInfo = extern struct {
@@ -87,7 +81,21 @@ pub fn syscallFramebufferMap(info_ptr: usize, current_task: innigkeit.Task.Curre
 
     process.address_space.page_table_lock.lock();
     for (0..n_pages) |i| {
-        const phys_addr = innigkeit.PhysicalAddress.from(info.phys_base.value + i * page_size.value);
+        // Use saturating arithmetic: if the framebuffer PA wraps, refuse to map
+        // arbitrary physical memory (kernel pages, MMIO) into userspace.
+        const phys_offset = i *| page_size.value;
+        if (phys_offset / page_size.value != i) {
+            process.address_space.page_table_lock.unlock();
+            process.address_space.unmap(virt_range) catch {};
+            return errCode(e.EINVAL);
+        }
+        const phys_val = info.phys_base.value +| phys_offset;
+        if (phys_val < info.phys_base.value) {
+            process.address_space.page_table_lock.unlock();
+            process.address_space.unmap(virt_range) catch {};
+            return errCode(e.EINVAL);
+        }
+        const phys_addr = innigkeit.PhysicalAddress.from(phys_val);
         const phys_idx = innigkeit.mem.PhysicalPage.Index.fromAddress(phys_addr);
         const virt_addr = innigkeit.VirtualAddress.from(virt_range.address.value + i * page_size.value);
         innigkeit.mem.mapSinglePage(
@@ -220,7 +228,8 @@ pub fn syscallBlkRead(spec_ptr: usize, current_task: innigkeit.Task.Current) usi
     while (remaining > 0) {
         const sector: u64 = byte_offset / 512;
         const off_in_sector: usize = @intCast(byte_offset % 512);
-        const sectors_needed: u32 = @intCast(@min(8, (off_in_sector + remaining + 511) / 512));
+        // Use saturating add to prevent overflow when computing sectors needed.
+        const sectors_needed: u32 = @intCast(@min(8, (off_in_sector +| remaining +| 511) / 512));
         const chunk_bytes: usize = @as(usize, sectors_needed) * 512;
 
         const dev_idx = innigkeit.drivers.virtio.blk.dataDeviceIndex();

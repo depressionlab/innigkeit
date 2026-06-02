@@ -1,12 +1,12 @@
 //! Kernel-side handlers for the simple flat filesystem syscalls:
-//!   fs_open  (id=31): open or create a file
-//!   fs_read  (id=32): read from an open fd
-//!   fs_write (id=33): write to an open fd
-//!   fs_close (id=34): close an fd
+//! - fs_open  (id=31): open or create a file
+//! - fs_read  (id=32): read from an open fd
+//! - fs_write (id=33): write to an open fd
+//! - fs_close (id=34): close an fd
 
 const std = @import("std");
-const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
+const validateUserBuffer = @import("../validate.zig").validateUserBuffer;
 
 const simple_fs = innigkeit.fs.simple_fs;
 
@@ -28,13 +28,6 @@ const e = struct {
     const ENOSPC: i64 = -28;
     const EPERM: i64 = -1;
 };
-
-fn validateUserBuffer(ptr: usize, len: usize) bool {
-    if (len == 0) return true;
-    if (ptr +% len < ptr) return false;
-    const range: innigkeit.VirtualRange = .from(.from(ptr), .from(len, .byte));
-    return architecture.user.user_memory_range.fullyContains(range);
-}
 
 // FD numbering: userspace FDs 3..14 -> open_files[0..11].
 const FD_BASE: u32 = 3;

@@ -575,9 +575,9 @@ fn placeEntity(erq: *EevdfRunqueue, se: *SchedEntity, flags: SchedClass.EnqueueF
         // Waking task: restore from lag to keep its fair position.
         // vlag is positive when owed service, so we subtract it from min_vruntime
         // to place it slightly behind (or ahead of) the current front.
-        const base: i64 = @bitCast(erq.min_vruntime);
-        const placed: i64 = base -% se.vlag;
-        se.vruntime = @max(se.vruntime, @as(u64, @max(placed, 0)));
+        // Keep all arithmetic in u64 wrapping space to avoid signed-bitcast UB.
+        const placed: u64 = erq.min_vruntime -% @as(u64, @bitCast(se.vlag));
+        se.vruntime = @max(se.vruntime, placed);
     }
     // else: re-enqueue after voluntary yield, keep vruntime as-is.
 

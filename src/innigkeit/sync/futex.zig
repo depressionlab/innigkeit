@@ -89,6 +89,7 @@ pub fn tick() void {
             if (task.futex_timeout_ms != 0 and task.futex_timeout_ms <= now_ms) {
                 task.futex_timeout_ms = 0;
                 task.futex_addr = 0;
+                task.block_reason = .other;
                 task.wakeFromBlocked();
             } else {
                 unmatched.append(&task.next_task_node);
@@ -106,25 +107,16 @@ pub fn tick() void {
 /// Safe to call if the task is not in any bucket (no-op).
 pub fn cancel(task: *innigkeit.Task) void {
     if (task.futex_addr == 0) return;
-    for (&buckets) |*bucket| {
-        bucket.lock.lock();
-        var unmatched: core.containers.FIFO = .{};
-        var found = false;
-        while (bucket.queue.popFirst()) |t| {
-            if (t == task) {
-                found = true;
-            } else {
-                unmatched.append(&t.next_task_node);
-            }
-        }
-        bucket.queue.waiting_tasks = unmatched;
-        bucket.lock.unlock();
-        if (found) {
-            task.futex_addr = 0;
-            task.futex_timeout_ms = 0;
-            return;
-        }
+    const bucket = bucketOf(task.futex_addr);
+    bucket.lock.lock();
+    var unmatched: core.containers.FIFO = .{};
+    while (bucket.queue.popFirst()) |t| {
+        if (t != task) unmatched.append(&t.next_task_node);
     }
+    bucket.queue.waiting_tasks = unmatched;
+    bucket.lock.unlock();
+    task.futex_addr = 0;
+    task.futex_timeout_ms = 0;
 }
 
 /// Wake up to `max_wake` tasks blocked on `addr`.

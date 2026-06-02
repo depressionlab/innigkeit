@@ -78,6 +78,12 @@ pub fn blkWrite(byte_offset: u64, buf: []const u8) innigkeit.Syscall.Error!void 
     _ = try innigkeit.Syscall.decode(result);
 }
 
+/// Return the size in 512-byte sectors of virtio-blk device `dev_idx`.
+pub fn blkDiskSize(dev_idx: u32) innigkeit.Syscall.Error!u64 {
+    const result = innigkeit.Syscall.invoke(.blk_disk_size, .{@as(usize, dev_idx)});
+    return @intCast(try innigkeit.Syscall.decode(result));
+}
+
 /// Open or create a file on the simple flat filesystem.
 ///
 /// `name` must be at most 15 bytes.

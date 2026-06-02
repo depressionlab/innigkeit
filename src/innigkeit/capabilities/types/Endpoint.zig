@@ -46,17 +46,26 @@ pub fn ref(self: *Endpoint) void {
 pub fn unref(self: *Endpoint) void {
     if (self.refcount.fetchSub(1, .acq_rel) != 1) return;
     self.lock.lock();
-    // Wake the pending call-mode sender (if any) with an empty message so it
-    // is never stuck forever. Senders should treat tag==0 as "endpoint destroyed".
+    // Wake every parked task with an empty message so none stay blocked forever
+    // on memory that is about to be freed. Callers treat tag==0 as "endpoint
+    // destroyed" and should return an error to their caller.
     if (self.pending_sender) |s| {
         self.pending_sender = null;
         s.ipc_message = .{};
         s.wakeFromBlocked();
     }
-    // TODO: safely wake call_queue and send_queue tasks. This requires that each
-    // waiter holds a refcount on the endpoint to prevent the UAF that occurs when
-    // WaitQueue.wait() re-acquires self.lock after wakeup on already-freed memory.
-    // Until per-waiter refs are added, these tasks stay blocked (DoS risk: H-2).
+    while (self.call_queue.popFirst()) |s| {
+        s.ipc_message = .{};
+        s.wakeFromBlocked();
+    }
+    while (self.send_queue.popFirst()) |s| {
+        s.ipc_message = .{};
+        s.wakeFromBlocked();
+    }
+    while (self.recv_queue.popFirst()) |r| {
+        self.pending_msg = .{};
+        r.wakeFromBlocked();
+    }
     self.lock.unlock();
     innigkeit.mem.heap.allocator.destroy(self);
 }

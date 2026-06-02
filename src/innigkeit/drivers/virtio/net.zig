@@ -25,13 +25,8 @@ const REG_QUEUE_SEL: u16 = 0x0E;
 const REG_QUEUE_NOTIFY: u16 = 0x10;
 const REG_DEVICE_STATUS: u16 = 0x12;
 const REG_ISR: u16 = 0x13;
-// Net-specific config registers (start at 0x14)
+// Net-specific config registers (start at 0x14): MAC bytes 0-5 at 0x14-0x19.
 const REG_MAC_0: u16 = 0x14;
-const REG_MAC_1: u16 = 0x15;
-const REG_MAC_2: u16 = 0x16;
-const REG_MAC_3: u16 = 0x17;
-const REG_MAC_4: u16 = 0x18;
-const REG_MAC_5: u16 = 0x19;
 
 const STATUS_ACKNOWLEDGE: u8 = 0x01;
 const STATUS_DRIVER: u8 = 0x02;
@@ -178,12 +173,9 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
 
     // Read MAC address.
     var mac: [6]u8 = undefined;
-    mac[0] = (architecture.io.Port.from(io_base + REG_MAC_0) catch return).read(u8);
-    mac[1] = (architecture.io.Port.from(io_base + REG_MAC_1) catch return).read(u8);
-    mac[2] = (architecture.io.Port.from(io_base + REG_MAC_2) catch return).read(u8);
-    mac[3] = (architecture.io.Port.from(io_base + REG_MAC_3) catch return).read(u8);
-    mac[4] = (architecture.io.Port.from(io_base + REG_MAC_4) catch return).read(u8);
-    mac[5] = (architecture.io.Port.from(io_base + REG_MAC_5) catch return).read(u8);
+    for (&mac, 0..) |*byte, i| {
+        byte.* = (architecture.io.Port.from(io_base + REG_MAC_0 + @as(u16, @intCast(i))) catch return).read(u8);
+    }
 
     log.info("MAC: {x:0>2}:{x:0>2}:{x:0>2}:{x:0>2}:{x:0>2}:{x:0>2}", .{
         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
@@ -303,7 +295,7 @@ pub fn send(frame: []const u8) bool {
 
     // Add to available ring (volatile writes, fence for ordering).
     avail[2 + q.avail_idx % q.queue_num] = desc0_idx;
-    asm volatile ("" ::: "memory");
+    asm volatile ("" ::: .{ .memory = true });
     avail[1] = q.avail_idx + 1;
     q.avail_idx += 1;
 
@@ -315,6 +307,7 @@ pub fn send(frame: []const u8) bool {
     var retries: usize = 0;
     const used = q.used_ring();
     while (@as(u16, @truncate(used[0] >> 16)) == q.used_last_seen) {
+        architecture.spinLoopHint();
         retries += 1;
         if (retries > 10_000) return false;
     }
@@ -349,7 +342,7 @@ pub fn pollRx(callback: fn (frame: []const u8) void) void {
         const avail2 = q.avail_ring();
         avail2[2 + q.avail_idx % q.queue_num] = @intCast(desc_id);
         q.avail_idx += 1;
-        asm volatile ("" ::: "memory");
+        asm volatile ("" ::: .{ .memory = true });
         avail2[1] = q.avail_idx;
 
         q.used_last_seen += 1;

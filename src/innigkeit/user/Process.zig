@@ -9,6 +9,10 @@ const log = innigkeit.debug.log.scoped(.user_process);
 
 name: Name,
 
+/// Stable opaque process identifier. Assigned at creation from a global counter.
+/// Returned by the getpid syscall.
+pid: u64,
+
 /// The number of references to this process.
 ///
 /// Each thread within the process has a reference to the process.
@@ -58,6 +62,7 @@ pub fn create(options: CreateOptions) !*Process {
         if (core.is_debug) std.debug.assert(process.reference_count.load(.monotonic) == 0);
 
         process.name = options.name;
+        process.pid = globals.next_pid.fetchAdd(1, .monotonic);
         process.address_space.retarget(process);
 
         globals.processes_lock.writeLock();
@@ -250,6 +255,9 @@ const ProcessCleanup = struct {
 };
 
 const globals = struct {
+    /// Monotonic counter for stable process IDs.
+    var next_pid: std.atomic.Value(u64) = .init(1);
+
     /// The source of process objects.
     ///
     /// Initialized during `init.initializeCache`.
@@ -269,6 +277,7 @@ const globals = struct {
 
                     process.* = .{
                         .name = temp_name,
+                        .pid = 0, // set in Process.create() via global counter
                         .reference_count = .init(0),
                         .address_space = undefined, // initialized below
                         .cap_table = cap_table,

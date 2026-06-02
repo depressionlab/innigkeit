@@ -147,7 +147,7 @@ pub fn incrementReferenceCount(task: *Task) void {
 ///
 /// This must **not** be called when the task is the current task, see `Scheduler.Handle.terminate` instead.
 pub fn decrementReferenceCount(task: *Task) void {
-    if (core.is_debug) std.debug.assert(task != Task.Current.get().task);
+    if (task == Task.Current.get().task) @panic("cannot decrement reference count of current task");
 
     if (task.reference_count.fetchSub(1, .acq_rel) != 1) {
         @branchHint(.likely);

@@ -38,24 +38,24 @@ pub const Syscall = enum(usize) {
     munmap = 15,
     /// Block until futex word at addr != expected: (addr: usize, expected: u32) -> 0|error
     futex_wait = 16,
-    /// Block until futex word at addr != expected OR uptime_ms >= deadline_ms.
-    /// (addr: usize, expected: u32, deadline_ms: u64) -> 0|error
-    futex_wait_timeout = 17,
     /// Wake up to max_wake tasks on addr: (addr: usize, max_wake: u32) -> woken_count|error
-    futex_wake = 18,
+    futex_wake = 17,
     /// Map a Frame capability into the calling process's address space: (handle: u32) -> addr|error
-    vmem_map = 19,
+    vmem_map = 18,
     /// Unmap a virtual address range from the calling process's address space: (addr: usize, size: usize) -> 0|error
-    vmem_unmap = 20,
+    vmem_unmap = 19,
     /// Map the bootloader framebuffer (write-combining) into the calling process's VA.
     /// (info_ptr: usize) -> va|error  Fills FramebufferInfo at info_ptr.
-    framebuffer_map = 21,
+    framebuffer_map = 20,
     /// Read a file from the embedded initfs archive.
     /// (spec_ptr: usize) -> bytes|error  spec_ptr -> InitfsReadSpec
-    initfs_read = 22,
+    initfs_read = 21,
     /// Return milliseconds elapsed since kernel boot.
     /// () -> ms:u64
-    uptime_ms = 23,
+    uptime_ms = 22,
+    /// Read bytes from the data disk (virtio-blk device 1) into a user buffer.
+    /// (spec_ptr: usize) -> bytes_read|error  spec_ptr -> BlkReadSpec{byte_offset:u64, buf_ptr:usize, buf_len:usize}
+    blk_read = 23,
     /// Non-blocking drain of raw PS/2 scancode bytes into a user buffer.
     /// Includes 0xE0 extended prefix and break bit (bit 7 = release).
     /// (buf_ptr: usize, buf_len: usize) -> count
@@ -63,19 +63,19 @@ pub const Syscall = enum(usize) {
     /// Block until uptime_ms >= deadline_ms.
     /// (deadline_ms: u64) -> 0
     nanosleep_ms = 25,
+    /// Block until futex word at addr != expected OR uptime_ms >= deadline_ms.
+    /// (addr: usize, expected: u32, deadline_ms: u64) -> 0|error
+    futex_wait_timeout = 26,
     /// Return a stable u64 identifier for the calling process.
-    /// () -> pid:u64  (currently the VA of the kernel Process struct)
-    getpid = 26,
+    /// () -> pid:u64
+    getpid = 27,
     /// Non-blocking check whether the process associated with a Notify handle has exited.
     /// (notify_handle: u32) -> exit_status:u8|error
     /// Returns -EAGAIN if still running.
-    wait_process_nb = 27,
+    wait_process_nb = 28,
     /// Force-signal the exit Notify for a process, unblocking any waitProcess caller.
     /// (notify_handle: u32) -> 0|error
-    process_kill = 28,
-    /// Read bytes from the data disk (virtio-blk device 1) into a user buffer.
-    /// (spec_ptr: usize) -> bytes_read|error  spec_ptr -> BlkReadSpec{byte_offset:u64, buf_ptr:usize, buf_len:usize}
-    blk_read = 29,
+    process_kill = 29,
     /// Write bytes to the data disk (virtio-blk device 1) from a user buffer.
     /// Offset and length must be multiples of 512 (sector size).
     /// (spec_ptr: usize) -> 0|error spec_ptr -> BlkReadSpec{byte_offset:u64, buf_ptr:usize, buf_len:usize}
@@ -95,6 +95,15 @@ pub const Syscall = enum(usize) {
     /// Set P/E-core scheduling hint for the calling thread.
     /// (hint: u8) -> 0  hint: 0=unknown, 1=p_core, 2=e_core
     thread_set_hint = 35,
+    /// Read an EFI variable by name into a user buffer.
+    /// (spec_ptr: usize) -> bytes|error (stub: returns ENOSYS)
+    efi_var_get = 36,
+    /// Write an EFI variable by name from a user buffer.
+    /// (spec_ptr: usize) -> 0|error (stub: returns ENOSYS)
+    efi_var_set = 37,
+    /// Return the size in 512-byte sectors of virtio-blk device dev_idx.
+    /// (dev_idx: u32) -> sectors:u64|error
+    blk_disk_size = 38,
 
     /// Decode a raw syscall return value into a success count or a `SyscallError`.
     ///

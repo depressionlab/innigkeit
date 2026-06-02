@@ -259,6 +259,65 @@ pub const WriteError = error{ NotInitialized, OutOfRange, DeviceError };
 
 const BLK_T_OUT: u32 = 1; // write request type
 
+/// Submit a single virtio-blk request and poll for completion.
+///
+/// `req_type`: BLK_T_IN (read) or BLK_T_OUT (write).
+/// `data_flags`: VRING_DESC_F_WRITE for reads (device writes data), 0 for writes.
+/// The caller fills `scratch_virt` with data before calling (writes) or reads it
+/// after (reads). Returns error on timeout or non-zero device status.
+fn submitRequest(
+    dev: *Device,
+    dev_idx: usize,
+    lba: u64,
+    count: u32,
+    req_type: u32,
+    data_flags: u16,
+    scratch_phys: usize,
+    req_phys: usize,
+    req_virt: [*]u8,
+) ReadError!void {
+    const header: BlkReqHeader = .{ .type_ = req_type, .ioprio = 0, .sector = lba };
+    @memcpy(req_virt[0..@sizeOf(BlkReqHeader)], std.mem.asBytes(&header));
+    req_virt[@sizeOf(BlkReqHeader)] = 0xFF; // status sentinel
+
+    const pg0 = dev.dma_pages[0].baseAddress().toDirectMap().toPtr([*]u8);
+    const pg1 = dev.dma_pages[1].baseAddress().toDirectMap().toPtr([*]u8);
+    const pg2 = dev.dma_pages[2].baseAddress().toDirectMap().toPtr([*]u8);
+    const descs: *[QUEUE_SIZE_MAX]VringDesc = @ptrCast(@alignCast(pg0));
+    const avail_idx_ptr: *u16 = @ptrCast(@alignCast(pg1 + 2));
+    const avail_ring_base: [*]u16 = @ptrCast(@alignCast(pg1 + 4));
+    const used_idx_ptr: *u16 = @ptrCast(@alignCast(pg2 + 2));
+
+    descs[0] = .{ .addr = req_phys, .len = @sizeOf(BlkReqHeader), .flags = VRING_DESC_F_NEXT, .next = 1 };
+    descs[1] = .{ .addr = scratch_phys, .len = @as(u32, count) * 512, .flags = data_flags | VRING_DESC_F_NEXT, .next = 2 };
+    descs[2] = .{ .addr = req_phys + @sizeOf(BlkReqHeader), .len = 1, .flags = VRING_DESC_F_WRITE, .next = 0 };
+
+    const avail_ring_idx = dev.avail_idx % dev.queue_num;
+    @atomicStore(u16, &avail_ring_base[avail_ring_idx], 0, .monotonic);
+    @atomicStore(u16, avail_idx_ptr, avail_idx_ptr.* +% 1, .release);
+    dev.avail_idx +%= 1;
+
+    dev.iow16(REG_QUEUE_NOTIFY, 0);
+
+    const expected = dev.used_last_seen +% 1;
+    var timeout: u32 = 1_000_000;
+    while (timeout > 0) : (timeout -= 1) {
+        if (@atomicLoad(u16, used_idx_ptr, .acquire) == expected) break;
+        architecture.spinLoopHint();
+    }
+    if (timeout == 0) {
+        log.err("virtio-blk[{}]: timeout waiting for used ring", .{dev_idx});
+        return error.DeviceError;
+    }
+    dev.used_last_seen = expected;
+
+    const status = req_virt[@sizeOf(BlkReqHeader)];
+    if (status != 0) {
+        log.err("virtio-blk[{}]: I/O error, status={}", .{ dev_idx, status });
+        return error.DeviceError;
+    }
+}
+
 /// Read up to 8 sectors (4 KiB) from `dev_idx` starting at `lba` into `buf`.
 /// `buf` must be at least `count * 512` bytes; count must be <= 8.
 pub fn readSectors(dev_idx: usize, lba: u64, buf: []u8, count: u32) ReadError!void {
@@ -267,7 +326,6 @@ pub fn readSectors(dev_idx: usize, lba: u64, buf: []u8, count: u32) ReadError!vo
     if (lba + count > dev.capacity_sectors) return error.OutOfRange;
     if (buf.len < @as(usize, count) * 512) return error.OutOfRange;
 
-    // Allocate scratch page (data buffer) and request page (header + status).
     const scratch_page = innigkeit.mem.PhysicalPage.allocator.allocate() catch return error.DeviceError;
     defer {
         var list: innigkeit.mem.PhysicalPage.List = .{};
@@ -286,63 +344,8 @@ pub fn readSectors(dev_idx: usize, lba: u64, buf: []u8, count: u32) ReadError!vo
     const req_phys = req_page.baseAddress().value;
     const req_virt = req_page.baseAddress().toDirectMap().toPtr([*]u8);
 
-    // Write the block request header at offset 0 of req_page.
-    const header: BlkReqHeader = .{ .type_ = BLK_T_IN, .ioprio = 0, .sector = lba };
-    @memcpy(req_virt[0..@sizeOf(BlkReqHeader)], std.mem.asBytes(&header));
-    req_virt[@sizeOf(BlkReqHeader)] = 0xFF; // status sentinel
+    try submitRequest(dev, dev_idx, lba, count, BLK_T_IN, VRING_DESC_F_WRITE, scratch_phys, req_phys, req_virt);
 
-    // Virtual addresses of the three DMA pages.
-    const pg0 = dev.dma_pages[0].baseAddress().toDirectMap().toPtr([*]u8); // descriptor table
-    const pg1 = dev.dma_pages[1].baseAddress().toDirectMap().toPtr([*]u8); // available ring
-    const pg2 = dev.dma_pages[2].baseAddress().toDirectMap().toPtr([*]u8); // used ring
-
-    // Descriptor table at pg0.
-    const descs: *[QUEUE_SIZE_MAX]VringDesc = @ptrCast(@alignCast(pg0));
-
-    // Available ring at pg1: flags(u16) + idx(u16) + ring[queue_num](u16[]).
-    // Use raw byte offsets to avoid struct sizing issues.
-    const avail_flags: *u16 = @ptrCast(@alignCast(pg1 + 0));
-    const avail_idx_ptr: *u16 = @ptrCast(@alignCast(pg1 + 2));
-    const avail_ring_base: [*]u16 = @ptrCast(@alignCast(pg1 + 4));
-    _ = avail_flags;
-
-    // Used ring at pg2: flags(u16) + idx(u16) + ring[queue_num]({id:u32, len:u32}[]).
-    const used_idx_ptr: *u16 = @ptrCast(@alignCast(pg2 + 2));
-
-    descs[0] = .{ .addr = req_phys, .len = @sizeOf(BlkReqHeader), .flags = VRING_DESC_F_NEXT, .next = 1 };
-    descs[1] = .{ .addr = scratch_phys, .len = @as(u32, count) * 512, .flags = VRING_DESC_F_WRITE | VRING_DESC_F_NEXT, .next = 2 };
-    descs[2] = .{ .addr = req_phys + @sizeOf(BlkReqHeader), .len = 1, .flags = VRING_DESC_F_WRITE, .next = 0 };
-
-    // Post descriptor chain to the available ring.
-    const avail_ring_idx = dev.avail_idx % dev.queue_num;
-    @atomicStore(u16, &avail_ring_base[avail_ring_idx], 0, .monotonic);
-    @atomicStore(u16, avail_idx_ptr, avail_idx_ptr.* +% 1, .release);
-    dev.avail_idx +%= 1;
-
-    // Kick queue 0.
-    dev.iow16(REG_QUEUE_NOTIFY, 0);
-
-    // Poll used ring until the device completes the request.
-    const expected = dev.used_last_seen +% 1;
-    var timeout: u32 = 1_000_000;
-    while (timeout > 0) : (timeout -= 1) {
-        if (@atomicLoad(u16, used_idx_ptr, .acquire) == expected) break;
-        architecture.spinLoopHint();
-    }
-    if (timeout == 0) {
-        log.err("virtio-blk[{}]: timeout waiting for used ring", .{dev_idx});
-        return error.DeviceError;
-    }
-    dev.used_last_seen = expected;
-
-    // Check status byte (0 = success).
-    const status = req_virt[@sizeOf(BlkReqHeader)];
-    if (status != 0) {
-        log.err("virtio-blk[{}]: I/O error, status={}", .{ dev_idx, status });
-        return error.DeviceError;
-    }
-
-    // Copy from scratch page to caller's buffer.
     @memcpy(buf[0 .. @as(usize, count) * 512], scratch_virt[0 .. @as(usize, count) * 512]);
 }
 
@@ -377,7 +380,6 @@ pub fn writeSectors(dev_idx: usize, lba: u64, buf: []const u8, count: u32) Write
     if (lba + count > dev.capacity_sectors) return error.OutOfRange;
     if (buf.len < @as(usize, count) * 512) return error.OutOfRange;
 
-    // Allocate scratch page (data buffer) and request page (header + status).
     const scratch_page = innigkeit.mem.PhysicalPage.allocator.allocate() catch return error.DeviceError;
     defer {
         var list: innigkeit.mem.PhysicalPage.List = .{};
@@ -396,63 +398,9 @@ pub fn writeSectors(dev_idx: usize, lba: u64, buf: []const u8, count: u32) Write
     const req_phys = req_page.baseAddress().value;
     const req_virt = req_page.baseAddress().toDirectMap().toPtr([*]u8);
 
-    // Copy caller data into scratch page.
     @memcpy(scratch_virt[0 .. @as(usize, count) * 512], buf[0 .. @as(usize, count) * 512]);
-
-    // Write the block request header (OUT = write to device).
-    const header: BlkReqHeader = .{ .type_ = BLK_T_OUT, .ioprio = 0, .sector = lba };
-    @memcpy(req_virt[0..@sizeOf(BlkReqHeader)], std.mem.asBytes(&header));
-    req_virt[@sizeOf(BlkReqHeader)] = 0xFF; // status sentinel
-
-    // Virtual addresses of the three DMA pages.
-    const pg0 = dev.dma_pages[0].baseAddress().toDirectMap().toPtr([*]u8); // descriptor table
-    const pg1 = dev.dma_pages[1].baseAddress().toDirectMap().toPtr([*]u8); // available ring
-    const pg2 = dev.dma_pages[2].baseAddress().toDirectMap().toPtr([*]u8); // used ring
-
-    const descs: *[QUEUE_SIZE_MAX]VringDesc = @ptrCast(@alignCast(pg0));
-
-    const avail_flags: *u16 = @ptrCast(@alignCast(pg1 + 0));
-    const avail_idx_ptr: *u16 = @ptrCast(@alignCast(pg1 + 2));
-    const avail_ring_base: [*]u16 = @ptrCast(@alignCast(pg1 + 4));
-    _ = avail_flags;
-
-    const used_idx_ptr: *u16 = @ptrCast(@alignCast(pg2 + 2));
-
-    // For writes: header descriptor is device-readable (no WRITE flag),
-    // data descriptor is device-readable (no WRITE flag),
-    // status descriptor is device-writable (WRITE flag).
-    descs[0] = .{ .addr = req_phys, .len = @sizeOf(BlkReqHeader), .flags = VRING_DESC_F_NEXT, .next = 1 };
-    descs[1] = .{ .addr = scratch_phys, .len = @as(u32, count) * 512, .flags = VRING_DESC_F_NEXT, .next = 2 };
-    descs[2] = .{ .addr = req_phys + @sizeOf(BlkReqHeader), .len = 1, .flags = VRING_DESC_F_WRITE, .next = 0 };
-
-    // Post descriptor chain to the available ring.
-    const avail_ring_idx = dev.avail_idx % dev.queue_num;
-    @atomicStore(u16, &avail_ring_base[avail_ring_idx], 0, .monotonic);
-    @atomicStore(u16, avail_idx_ptr, avail_idx_ptr.* +% 1, .release);
-    dev.avail_idx +%= 1;
-
-    // Kick queue 0.
-    dev.iow16(REG_QUEUE_NOTIFY, 0);
-
-    // Poll used ring until the device completes the request.
-    const expected = dev.used_last_seen +% 1;
-    var timeout: u32 = 1_000_000;
-    while (timeout > 0) : (timeout -= 1) {
-        if (@atomicLoad(u16, used_idx_ptr, .acquire) == expected) break;
-        architecture.spinLoopHint();
-    }
-    if (timeout == 0) {
-        log.err("virtio-blk[{}]: timeout waiting for used ring (write)", .{dev_idx});
-        return error.DeviceError;
-    }
-    dev.used_last_seen = expected;
-
-    // Check status byte (0 = success).
-    const status = req_virt[@sizeOf(BlkReqHeader)];
-    if (status != 0) {
-        log.err("virtio-blk[{}]: write I/O error, status={}", .{ dev_idx, status });
-        return error.DeviceError;
-    }
+    // data_flags=0: device reads the data (no WRITE flag on data descriptor)
+    try submitRequest(dev, dev_idx, lba, count, BLK_T_OUT, 0, scratch_phys, req_phys, req_virt);
 }
 
 /// Write bytes to device `dev_idx` at byte offset `byte_offset` from `buf`.
@@ -483,6 +431,12 @@ pub fn bootDiskSectorCount() u64 {
 pub fn dataDiskSectorCount() u64 {
     if (devices[1]) |d| return d.capacity_sectors;
     return 0;
+}
+
+/// Return the sector count for the device at dev_idx, or null if no such device.
+pub fn diskSectorCount(dev_idx: usize) ?u64 {
+    if (dev_idx >= MAX_DEVICES) return null;
+    return if (devices[dev_idx]) |d| d.capacity_sectors else null;
 }
 
 pub fn isBootReady() bool {

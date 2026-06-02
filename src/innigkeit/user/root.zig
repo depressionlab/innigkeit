@@ -8,6 +8,8 @@ pub const elf = @import("elf/root.zig");
 pub const Process = @import("Process.zig");
 pub const Thread = @import("Thread.zig");
 pub const handlers = @import("handlers/root.zig");
+pub const validate = @import("validate.zig");
+const validateUserBuffer = validate.validateUserBuffer;
 
 const log = innigkeit.debug.log.scoped(.user);
 
@@ -1047,13 +1049,13 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
 
         // ------------------------------------------------------------------ //
         // getpid() -> pid:u64                                                //
-        //   Returns the VA of the calling process's kernel Process struct as //
-        //   a stable per-process identifier.                                 //
+        //   Returns a stable opaque identifier assigned at process creation. //
+        //   This is a monotonic counter value, NOT a kernel pointer.         //
         // ------------------------------------------------------------------ //
         .getpid => {
             const current_task: innigkeit.Task.Current = .get();
             const thread: *innigkeit.user.Thread = innigkeit.user.Thread.from(current_task.task);
-            arch_frame.rax = @intFromPtr(thread.process);
+            arch_frame.rax = thread.process.pid;
         },
 
         // ------------------------------------------------------------------ //
@@ -1199,6 +1201,27 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             };
             arch_frame.rax = 0;
         },
+
+        // ------------------------------------------------------------------ //
+        // efi_var_get / efi_var_set — stubs, not yet implemented.            //
+        // ------------------------------------------------------------------ //
+        .efi_var_get, .efi_var_set => {
+            arch_frame.rax = errCode(e.ENOSYS);
+        },
+
+        // ------------------------------------------------------------------ //
+        // blk_disk_size(dev_idx: u32) -> sectors:u64|error                   //
+        //   Returns the capacity (in 512-byte sectors) of virtio-blk device  //
+        //   dev_idx. Returns ENODEV if no such device exists.                //
+        // ------------------------------------------------------------------ //
+        .blk_disk_size => {
+            const dev_idx: usize = syscall_frame.arg(.one);
+            if (innigkeit.drivers.virtio.blk.diskSectorCount(dev_idx)) |sectors| {
+                arch_frame.rax = @intCast(sectors);
+            } else {
+                arch_frame.rax = errCode(e.ENODEV);
+            }
+        },
     }
 }
 
@@ -1232,18 +1255,7 @@ const e = struct {
     const EAGAIN: i64 = -11;
     const ENOMEM: i64 = -12;
     const EFAULT: i64 = -14;
+    const ENODEV: i64 = -19;
     const EINVAL: i64 = -22;
     const ENOSYS: i64 = -38;
 };
-
-/// Return true if `[ptr, ptr+len)` is a non-wrapping range fully inside
-/// the user virtual address space as defined by the architecture.
-fn validateUserBuffer(ptr: usize, len: usize) bool {
-    if (len == 0) return true;
-    if (ptr +% len < ptr) return false; // integer overflow
-    const range: innigkeit.VirtualRange = .from(
-        .from(ptr),
-        .from(len, .byte),
-    );
-    return architecture.user.user_memory_range.fullyContains(range);
-}

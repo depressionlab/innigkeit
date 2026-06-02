@@ -24,6 +24,9 @@ const Index = PhysicalPage.Index;
 const sync = innigkeit.sync;
 
 pub const max_order: u4 = 10;
+comptime {
+    std.debug.assert(max_order < 15); // loop in allocLocked relies on u4 not wrapping to 0
+}
 const num_orders: usize = max_order + 1;
 
 /// Per-order free lists (doubly-linked via PhysicalPage.prev_node + node.next).
@@ -86,7 +89,7 @@ pub fn free(self: *BuddyAllocator, index: Index, order: u4) void {
 
 fn freeLocked(self: *BuddyAllocator, index: Index, order: u4) void {
     // Double-free detection: the page must not be already on a free list.
-    if (core.is_debug) {
+    {
         const page = PhysicalPage.fromIndex(index);
         if (page.is_free) std.debug.panic(
             "BuddyAllocator: double-free of page index {} at order {}",

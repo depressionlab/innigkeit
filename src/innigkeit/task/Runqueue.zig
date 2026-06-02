@@ -6,6 +6,7 @@
 //! The real-time class always takes precedence over the fair (EEVDF) class.
 const Runqueue = @This();
 
+const std = @import("std");
 const innigkeit = @import("innigkeit");
 const SchedClass = @import("SchedClass.zig");
 const Eevdf = @import("sched/Eevdf.zig");
@@ -36,7 +37,8 @@ pub fn enqueueTask(self: *Runqueue, task: *innigkeit.Task, flags: SchedClass.Enq
 
 pub fn dequeueTask(self: *Runqueue, task: *innigkeit.Task, flags: SchedClass.DequeueFlags) void {
     task.sched_class.dequeue(self, task, flags);
-    if (self.nr_running > 0) self.nr_running -= 1;
+    std.debug.assert(self.nr_running > 0);
+    self.nr_running -= 1;
 }
 
 /// Update `prev`'s accounting before switching away from it.
@@ -81,7 +83,8 @@ pub fn pickNext(self: *Runqueue, prev: ?*innigkeit.Task) ?*innigkeit.Task {
 /// (removes from EEVDF tree, sets exec_start).
 /// Decrements nr_running because the task is leaving the queue.
 pub fn setNextRunning(self: *Runqueue, task: *innigkeit.Task) void {
-    if (self.nr_running > 0) self.nr_running -= 1;
+    std.debug.assert(self.nr_running > 0);
+    self.nr_running -= 1;
     if (task.sched_class == &SchedClass.fair_class) {
         Eevdf.setRunning(&self.eevdf, task);
     }

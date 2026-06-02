@@ -11,9 +11,9 @@
 //!   syscall that clearly communicates intent.
 
 const std = @import("std");
-const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
+const validateUserBuffer = @import("../validate.zig").validateUserBuffer;
 
 const log = innigkeit.debug.log.scoped(.spawn);
 
@@ -111,6 +111,12 @@ pub fn syscallSpawn(
     @memcpy(path_buf[0..spec.path_len], @as([*]const u8, @ptrFromInt(spec.path))[0..spec.path_len]);
     current_task.decrementEnableAccessToUserMemory();
     path_buf[spec.path_len] = 0;
+
+    // Reject embedded nulls, they would silently truncate the path passed to the ELF loader.
+    if (std.mem.indexOfScalar(u8, path_buf[0..spec.path_len], 0) != null) {
+        innigkeit.mem.heap.allocator.free(path_buf);
+        return errCode(e.EINVAL);
+    }
 
     const path: [:0]const u8 = path_buf[0..spec.path_len :0];
 
@@ -313,7 +319,10 @@ pub fn syscallSpawn(
             }
             _ = child_process.cap_table.insertLocked(info.cap_type, info.ptr, requested_rights) catch {
                 innigkeit.capabilities.CapabilityTable.unrefObject(info.cap_type, info.ptr);
-                log.warn("cap grant: child table full, skipping slot {}", .{grant.src_slot});
+                log.warn("cap grant: child table full for slot {}", .{grant.src_slot});
+                innigkeit.mem.heap.allocator.free(path_buf);
+                if (proc_init.len > 0) innigkeit.mem.heap.allocator.free(proc_init);
+                return errCode(e.ENOMEM);
             };
         }
     }
@@ -355,7 +364,10 @@ pub fn syscallSpawn(
         return errCode(e.ENOMEM);
     };
 
-    log.debug("spawned '{s}' as pid {*} -> notify handle {}", .{ path, child_process, handle });
+    // Sanitize path: replace non-printable bytes with '?' to prevent log injection.
+    var safe_path_buf: [max_path_len + 1]u8 = undefined;
+    for (path, 0..) |c, i| safe_path_buf[i] = if (c >= 0x20 and c < 0x7F) c else '?';
+    log.debug("spawned '{s}' pid={d} -> notify handle {}", .{ safe_path_buf[0..path.len], child_process.pid, handle });
 
     return @intCast(handle);
 }
@@ -517,13 +529,6 @@ const e = struct {
 
 inline fn errCode(code: i64) usize {
     return @bitCast(code);
-}
-
-fn validateUserBuffer(ptr: usize, len: usize) bool {
-    if (len == 0) return true;
-    if (ptr +% len < ptr) return false;
-    const range: innigkeit.VirtualRange = .from(.from(ptr), .from(len, .byte));
-    return architecture.user.user_memory_range.fullyContains(range);
 }
 
 // Tests
