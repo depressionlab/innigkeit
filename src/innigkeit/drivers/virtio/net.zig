@@ -11,6 +11,7 @@ const innigkeit = @import("innigkeit");
 const architecture = @import("architecture");
 const core = @import("core");
 const net = @import("../../net/root.zig");
+const PortIo = @import("IoPort.zig").PortIo;
 
 const log = innigkeit.debug.log.scoped(.virtio_net);
 
@@ -82,25 +83,23 @@ const Queue = struct {
         const phys = q.dma_pages[2].baseAddress();
         return @ptrFromInt(phys.toDirectMap().value);
     }
+    inline fn port(q: *const Queue) PortIo {
+        return .{ .base = q.io_base };
+    }
     inline fn ior8(q: *Queue, off: u16) u8 {
-        const p = architecture.io.Port.from(q.io_base + off) catch unreachable;
-        return p.read(u8);
+        return q.port().r8(off);
     }
     inline fn iow8(q: *Queue, off: u16, v: u8) void {
-        const p = architecture.io.Port.from(q.io_base + off) catch unreachable;
-        p.write(u8, v);
+        q.port().w8(off, v);
     }
     inline fn iow16(q: *Queue, off: u16, v: u16) void {
-        const p = architecture.io.Port.from(q.io_base + off) catch unreachable;
-        p.write(u16, v);
+        q.port().w16(off, v);
     }
     inline fn iow32(q: *Queue, off: u16, v: u32) void {
-        const p = architecture.io.Port.from(q.io_base + off) catch unreachable;
-        p.write(u32, v);
+        q.port().w32(off, v);
     }
     inline fn ior16(q: *Queue, off: u16) u16 {
-        const p = architecture.io.Port.from(q.io_base + off) catch unreachable;
-        return p.read(u16);
+        return q.port().r16(off);
     }
 };
 

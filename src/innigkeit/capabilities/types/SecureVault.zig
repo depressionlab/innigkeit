@@ -132,8 +132,12 @@ pub fn unseal(
 fn fillRandomKey(key: *[Aead.key_length]u8) void {
     var i: usize = 0;
     while (i < Aead.key_length) : (i += 8) {
-        const v: u64 = hwRand64() orelse counterFallback(i);
-        @memcpy(key[i..][0..8], &std.mem.toBytes(v));
+        // Mix hardware RNG with timing counter for defense in depth: if RDRAND
+        // is weak or absent, the timer still provides unpredictability; if the
+        // timer is low-entropy at boot, RDRAND covers it.
+        const hw = hwRand64() orelse 0;
+        const timer = counterFallback(i);
+        @memcpy(key[i..][0..8], &std.mem.toBytes(hw ^ timer));
     }
 }
 
@@ -142,16 +146,22 @@ fn fillRandomKey(key: *[Aead.key_length]u8) void {
 inline fn hwRand64() ?u64 {
     return switch (builtin.cpu.arch) {
         .x86_64 => blk: {
-            var v: u64 = undefined;
-            var ok: u8 = undefined;
-            asm volatile (
-                \\ rdrand %[v]
-                \\ setc %[ok]
-                : [v] "=r" (v),
-                  [ok] "=r" (ok),
-                :
-                : .{ .cc = true });
-            break :blk if (ok != 0) v else null;
+            // Intel recommends retrying RDRAND up to 10 times; brief failure is
+            // common under high system load (DRNG reseeding, contention).
+            var attempts: usize = 0;
+            while (attempts < 10) : (attempts += 1) {
+                var v: u64 = undefined;
+                var ok: u8 = undefined;
+                asm volatile (
+                    \\ rdrand %[v]
+                    \\ setc %[ok]
+                    : [v] "=r" (v),
+                      [ok] "=r" (ok),
+                    :
+                    : .{ .cc = true });
+                if (ok != 0) break :blk v;
+            }
+            break :blk null;
         },
         .aarch64 => blk: {
             // RNDR system register (ARMv8.5-A FEAT_RNG).
@@ -188,6 +198,14 @@ inline fn counterFallback(slot: usize) u64 {
         .aarch64 => blk: {
             var v: u64 = undefined;
             asm volatile ("mrs %[v], cntvct_el0"
+                : [v] "=r" (v),
+            );
+            break :blk v;
+        },
+        .riscv64 => blk: {
+            // rdtime reads the real-time counter (guaranteed by the RISC-V spec).
+            var v: u64 = undefined;
+            asm volatile ("rdtime %[v]"
                 : [v] "=r" (v),
             );
             break :blk v;

@@ -8,6 +8,7 @@ const std = @import("std");
 const innigkeit = @import("innigkeit");
 const architecture = @import("architecture");
 const core = @import("core");
+const PortIo = @import("IoPort.zig").PortIo;
 
 const log = innigkeit.debug.log.scoped(.virtio_blk);
 
@@ -69,36 +70,35 @@ const BlkReqHeader = extern struct {
 };
 
 const Device = struct {
-    io_base: u16,
+    io: PortIo,
     capacity_sectors: u64,
     queue_num: u16,
     dma_pages: [DMA_PAGES]innigkeit.mem.PhysicalPage.Index,
     avail_idx: u16,
     used_last_seen: u16,
 
+    /// Pre-allocated page for the block request header + status byte.
+    req_page: innigkeit.mem.PhysicalPage.Index,
+    /// Pre-allocated page for the data bounce buffer (up to 8 sectors = 4 KiB).
+    scratch_page: innigkeit.mem.PhysicalPage.Index,
+
     inline fn ior8(d: *const Device, offset: u16) u8 {
-        const port = architecture.io.Port.from(d.io_base + offset) catch unreachable;
-        return port.read(u8);
+        return d.io.r8(offset);
     }
     inline fn ior16(d: *const Device, offset: u16) u16 {
-        const port = architecture.io.Port.from(d.io_base + offset) catch unreachable;
-        return port.read(u16);
+        return d.io.r16(offset);
     }
     inline fn ior32(d: *const Device, offset: u16) u32 {
-        const port = architecture.io.Port.from(d.io_base + offset) catch unreachable;
-        return port.read(u32);
+        return d.io.r32(offset);
     }
     inline fn iow8(d: *const Device, offset: u16, v: u8) void {
-        const port = architecture.io.Port.from(d.io_base + offset) catch unreachable;
-        port.write(u8, v);
+        d.io.w8(offset, v);
     }
     inline fn iow16(d: *const Device, offset: u16, v: u16) void {
-        const port = architecture.io.Port.from(d.io_base + offset) catch unreachable;
-        port.write(u16, v);
+        d.io.w16(offset, v);
     }
     inline fn iow32(d: *const Device, offset: u16, v: u32) void {
-        const port = architecture.io.Port.from(d.io_base + offset) catch unreachable;
-        port.write(u32, v);
+        d.io.w32(offset, v);
     }
 };
 
@@ -131,12 +131,14 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
     log.debug("virtio-blk[{}] found: I/O base=0x{x}", .{ device_count, io_base });
 
     var dev: Device = .{
-        .io_base = io_base,
+        .io = .{ .base = io_base },
         .capacity_sectors = 0,
         .queue_num = 0,
         .dma_pages = undefined,
         .avail_idx = 0,
         .used_last_seen = 0,
+        .req_page = undefined,
+        .scratch_page = undefined,
     };
 
     dev.iow8(REG_DEVICE_STATUS, 0);
@@ -156,6 +158,22 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
     });
 
     if (!setupQueue(&dev)) return;
+
+    // Pre-allocate the bounce buffers used on every I/O request. Since the
+    // driver is single-threaded (protected by the caller's lock), these pages
+    // can be reused across operations, eliminating per-request allocation.
+    dev.req_page = innigkeit.mem.PhysicalPage.allocator.allocate() catch {
+        log.err("virtio-blk[{}]: OOM allocating req_page", .{device_count});
+        return;
+    };
+    dev.scratch_page = innigkeit.mem.PhysicalPage.allocator.allocate() catch {
+        var list: innigkeit.mem.PhysicalPage.List = .{};
+        list.prepend(dev.req_page);
+        innigkeit.mem.PhysicalPage.allocator.deallocate(list);
+        log.err("virtio-blk[{}]: OOM allocating scratch_page", .{device_count});
+        return;
+    };
+
     dev.iow8(REG_DEVICE_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER | STATUS_DRIVER_OK);
     devices[device_count] = dev;
     device_count += 1;
@@ -272,10 +290,11 @@ fn submitRequest(
     count: u32,
     req_type: u32,
     data_flags: u16,
-    scratch_phys: usize,
-    req_phys: usize,
-    req_virt: [*]u8,
 ) ReadError!void {
+    const scratch_phys = dev.scratch_page.baseAddress().value;
+    const req_phys = dev.req_page.baseAddress().value;
+    const req_virt = dev.req_page.baseAddress().toDirectMap().toPtr([*]u8);
+
     const header: BlkReqHeader = .{ .type_ = req_type, .ioprio = 0, .sector = lba };
     @memcpy(req_virt[0..@sizeOf(BlkReqHeader)], std.mem.asBytes(&header));
     req_virt[@sizeOf(BlkReqHeader)] = 0xFF; // status sentinel
@@ -326,26 +345,8 @@ pub fn readSectors(dev_idx: usize, lba: u64, buf: []u8, count: u32) ReadError!vo
     if (lba + count > dev.capacity_sectors) return error.OutOfRange;
     if (buf.len < @as(usize, count) * 512) return error.OutOfRange;
 
-    const scratch_page = innigkeit.mem.PhysicalPage.allocator.allocate() catch return error.DeviceError;
-    defer {
-        var list: innigkeit.mem.PhysicalPage.List = .{};
-        list.prepend(scratch_page);
-        innigkeit.mem.PhysicalPage.allocator.deallocate(list);
-    }
-    const scratch_phys = scratch_page.baseAddress().value;
-    const scratch_virt = scratch_page.baseAddress().toDirectMap().toPtr([*]u8);
-
-    const req_page = innigkeit.mem.PhysicalPage.allocator.allocate() catch return error.DeviceError;
-    defer {
-        var list: innigkeit.mem.PhysicalPage.List = .{};
-        list.prepend(req_page);
-        innigkeit.mem.PhysicalPage.allocator.deallocate(list);
-    }
-    const req_phys = req_page.baseAddress().value;
-    const req_virt = req_page.baseAddress().toDirectMap().toPtr([*]u8);
-
-    try submitRequest(dev, dev_idx, lba, count, BLK_T_IN, VRING_DESC_F_WRITE, scratch_phys, req_phys, req_virt);
-
+    try submitRequest(dev, dev_idx, lba, count, BLK_T_IN, VRING_DESC_F_WRITE);
+    const scratch_virt = dev.scratch_page.baseAddress().toDirectMap().toPtr([*]u8);
     @memcpy(buf[0 .. @as(usize, count) * 512], scratch_virt[0 .. @as(usize, count) * 512]);
 }
 
@@ -380,27 +381,10 @@ pub fn writeSectors(dev_idx: usize, lba: u64, buf: []const u8, count: u32) Write
     if (lba + count > dev.capacity_sectors) return error.OutOfRange;
     if (buf.len < @as(usize, count) * 512) return error.OutOfRange;
 
-    const scratch_page = innigkeit.mem.PhysicalPage.allocator.allocate() catch return error.DeviceError;
-    defer {
-        var list: innigkeit.mem.PhysicalPage.List = .{};
-        list.prepend(scratch_page);
-        innigkeit.mem.PhysicalPage.allocator.deallocate(list);
-    }
-    const scratch_phys = scratch_page.baseAddress().value;
-    const scratch_virt = scratch_page.baseAddress().toDirectMap().toPtr([*]u8);
-
-    const req_page = innigkeit.mem.PhysicalPage.allocator.allocate() catch return error.DeviceError;
-    defer {
-        var list: innigkeit.mem.PhysicalPage.List = .{};
-        list.prepend(req_page);
-        innigkeit.mem.PhysicalPage.allocator.deallocate(list);
-    }
-    const req_phys = req_page.baseAddress().value;
-    const req_virt = req_page.baseAddress().toDirectMap().toPtr([*]u8);
-
+    const scratch_virt = dev.scratch_page.baseAddress().toDirectMap().toPtr([*]u8);
     @memcpy(scratch_virt[0 .. @as(usize, count) * 512], buf[0 .. @as(usize, count) * 512]);
-    // data_flags=0: device reads the data (no WRITE flag on data descriptor)
-    try submitRequest(dev, dev_idx, lba, count, BLK_T_OUT, 0, scratch_phys, req_phys, req_virt);
+    // data_flags=0: device reads data (no WRITE flag on data descriptor)
+    try submitRequest(dev, dev_idx, lba, count, BLK_T_OUT, 0);
 }
 
 /// Write bytes to device `dev_idx` at byte offset `byte_offset` from `buf`.
