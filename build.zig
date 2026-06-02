@@ -8,6 +8,7 @@ const Wrapper = @import("build/Wrapper.zig");
 const Library = @import("build/Library.zig");
 const Tool = @import("build/Tool.zig");
 const Kernel = @import("build/Kernel.zig");
+const RustApp = @import("build/RustApp.zig");
 const ImageStep = @import("build/ImageStep.zig");
 const QEMU = @import("build/QEMU.zig");
 
@@ -21,7 +22,18 @@ pub fn build(b: *std.Build) !void {
     const libraries = try Library.getLibraries(b, wrapper, options, architectures);
     const tools = try Tool.getTools(b, wrapper, libraries, options.optimize);
     const apps = try App.getApps(b, wrapper, libraries, options, architectures);
-    const kernels = try Kernel.getKernels(b, wrapper, libraries, options, architectures, apps, tools);
+
+    // Build Rust no_std apps and embed them in the initfs.
+    const rust_hello = RustApp.build(b, "rust_hello", "apps/rust_hello");
+    const rust_cat = RustApp.build(b, "rust_cat", "apps/rust_cat");
+    const rust_echo = RustApp.build(b, "rust_echo", "apps/rust_echo");
+    const extra_binaries = [_]Kernel.ExtraBinary{
+        .{ .name = rust_hello.name, .binary_path = rust_hello.binary_path, .step = rust_hello.step },
+        .{ .name = rust_cat.name, .binary_path = rust_cat.binary_path, .step = rust_cat.step },
+        .{ .name = rust_echo.name, .binary_path = rust_echo.binary_path, .step = rust_echo.step },
+    };
+
+    const kernels = try Kernel.getKernels(b, wrapper, libraries, options, architectures, apps, tools, &extra_binaries);
     const image_steps = try ImageStep.registerImageSteps(b, kernels, tools, wrapper, options, architectures);
 
     try QEMU.registerQemuSteps(b, image_steps, options, architectures);
@@ -32,7 +44,7 @@ pub fn build(b: *std.Build) !void {
         .{ .arch = Bundle.Architecture.x64, .name = "test_x64", .desc = "Build test kernel and run unit tests in QEMU (x64)" },
         .{ .arch = Bundle.Architecture.arm, .name = "test_arm", .desc = "Build test kernel and run unit tests in QEMU (arm/AArch64)" },
     }) |entry| {
-        const test_kernel = try Kernel.buildTestKernel(b, libraries, options, entry.arch, apps, tools);
+        const test_kernel = try Kernel.buildTestKernel(b, libraries, options, entry.arch, apps, tools, &extra_binaries);
         const test_image = try ImageStep.buildTestImageStep(b, test_kernel, tools, entry.arch, options);
         const test_qemu = try QEMU.buildTestQemuStep(b, entry.arch, test_image.image_file, options);
         b.step(entry.name, entry.desc).dependOn(&test_qemu.step);

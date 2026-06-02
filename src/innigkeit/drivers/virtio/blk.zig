@@ -8,7 +8,7 @@ const std = @import("std");
 const innigkeit = @import("innigkeit");
 const architecture = @import("architecture");
 const core = @import("core");
-const PortIo = @import("IoPort.zig").PortIo;
+const PortIo = @import("PortIo.zig");
 
 const log = innigkeit.debug.log.scoped(.virtio_blk);
 

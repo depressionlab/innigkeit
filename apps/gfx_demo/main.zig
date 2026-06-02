@@ -66,7 +66,7 @@ pub fn main() void {
     while (x < W) : (x += 1) {
         const r: u8 = @intCast(x * 255 / W);
         const b: u8 = @intCast(255 - r);
-        canvas.vline(x, grad_y, H / 4, .{ .r = r, .g = 80, .b = b });
+        canvas.vline(x, grad_y, H / 4, .init(r, 80, b));
     }
     canvas.drawText(4, grad_y + 4, "Gradient", .white, null);
 

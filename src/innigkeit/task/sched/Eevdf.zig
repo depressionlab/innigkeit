@@ -1,4 +1,4 @@
-//! EEVDF (Earliest Eligible Virtual Deadline First) scheduling class.
+//! # EEVDF (Earliest Eligible Virtual Deadline First) scheduling class.
 //!
 //! Implements the algorithm described in:
 //!   Stoica & Abdel-Wahab 1995, "Earliest Eligible Virtual Deadline First"
@@ -8,8 +8,7 @@
 //! - https://github.com/torvalds/linux/blob/master/Documentation/scheduler/sched-eevdf.rst
 //! - https://web.archive.org/web/20251230112235/https://citeseerx.ist.psu.edu/document?repid=rep1&type=pdf&doi=805acf7726282721504c8f00575d91ebfd750564
 //!
-//! Augmentation O(log n) fixup
-//! ---------------------------
+//! ## Augmentation O(log n) fixup
 //! After `tree.put` we walk from the inserted leaf up to the root via
 //! `fixupAugmentationUp`, stopping early when a node's value is stable.
 //! The leaf is initialised to `se.vruntime` (correct for a zero-child node),
@@ -36,8 +35,7 @@
 //!   After `tree.remove`, `augmentHintBeforeRemove` + `fixupAugmentationUp`
 //!   walks up from the removal site and corrects smins in O(log n).
 //!
-//! Virtual time model
-//! ------------------
+//! ## Virtual time model
 //! Each task has a weight derived from its nice level.
 //! Virtual time for task i advances at rate NICE_0_WEIGHT / weight_i.
 //!
@@ -51,8 +49,7 @@
 //!
 //! This gives strong latency guarantees while maintaining fairness.
 //!
-//! Data structures
-//! ---------------
+//! ## Data structures
 //! Tasks are kept in an augmented red-black tree sorted by deadline. Each node
 //! caches the minimum vruntime in its subtree (`subtree_min_vruntime`), allowing
 //! `pickBest()` to prune ineligible subtrees and select the best eligible task

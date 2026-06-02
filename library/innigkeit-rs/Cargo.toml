@@ -1,0 +1,8 @@
+[package]
+name = "innigkeit-rs"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "innigkeit_rs"
+crate-type = ["rlib"]

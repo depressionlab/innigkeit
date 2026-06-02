@@ -15,6 +15,17 @@ const Options = @import("Options.zig");
 const Wrapper = @import("Wrapper.zig");
 const Tool = @import("Tool.zig");
 
+/// An extra binary to embed in the initfs alongside the normal Zig apps.
+/// `step` must complete before the initfs_builder run step executes.
+pub const ExtraBinary = struct {
+    /// Name used as the initfs entry (e.g. `"rust_hello"`).
+    name: []const u8,
+    /// Absolute path to the built ELF; only valid after `step` has run.
+    binary_path: []const u8,
+    /// Build step that produces the binary (e.g. a cargo invocation).
+    step: *std.Build.Step,
+};
+
 pub const Collection = std.AutoHashMapUnmanaged(Bundle.Architecture, Kernel);
 
 /// The name of the root component from which DAG traversal begins.
@@ -34,6 +45,7 @@ pub fn getKernels(
     architectures: []const Bundle.Architecture,
     apps: App.Collection,
     tools: Tool.Collection,
+    extra_binaries: ?[]const ExtraBinary,
 ) !Kernel.Collection {
     var kernels: Kernel.Collection = .empty;
     try kernels.ensureTotalCapacity(
@@ -50,6 +62,7 @@ pub fn getKernels(
             architecture,
             apps,
             tools,
+            extra_binaries,
         ));
     }
 
@@ -64,9 +77,10 @@ fn buildKernel(
     arch: Bundle.Architecture,
     apps: App.Collection,
     tools: Tool.Collection,
+    extra_binaries: ?[]const ExtraBinary,
 ) !Kernel {
     // Build the initfs archive once; share between check and release modules.
-    const initfs_archive = buildInitfs(b, arch, apps, tools);
+    const initfs_archive = buildInitfs(b, arch, apps, tools, extra_binaries);
 
     // Check compilation: verifies correctness without emitting a binary.
     wrapper.registerCheck(b.addExecutable(.{
@@ -129,9 +143,10 @@ pub fn buildTestKernel(
     arch: Bundle.Architecture,
     apps: App.Collection,
     tools: Tool.Collection,
+    extra_binaries: ?[]const ExtraBinary,
 ) !Kernel {
     // TODO: unify this with buildKernel()
-    const initfs_archive = buildInitfs(b, arch, apps, tools);
+    const initfs_archive = buildInitfs(b, arch, apps, tools, extra_binaries);
 
     // Build the component graph exactly as the normal kernel does.
     const graph = try resolveComponentGraph(b);
@@ -208,6 +223,7 @@ fn buildInitfs(
     arch: Bundle.Architecture,
     apps: App.Collection,
     tools: Tool.Collection,
+    extra_binaries: ?[]const ExtraBinary,
 ) std.Build.LazyPath {
     const initfs_builder = tools.get("initfs_builder").?.release_safe_exe;
     const run = b.addRunArtifact(initfs_builder);
@@ -218,6 +234,15 @@ fn buildInitfs(
         const exe = entry.value_ptr.executables.get(bundle) orelse continue;
         run.addArg(entry.key_ptr.*);
         run.addFileArg(exe.getEmittedBin());
+    }
+
+    // Embed extra (non-Zig) binaries such as Rust no_std apps.
+    if (arch == .x64) {
+        for (extra_binaries.?) |eb| {
+            run.step.dependOn(eb.step);
+            run.addArg(eb.name);
+            run.addArg(eb.binary_path);
+        }
     }
 
     const archive = run.captureStdOut(.{});

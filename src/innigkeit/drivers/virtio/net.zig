@@ -10,8 +10,8 @@ const std = @import("std");
 const innigkeit = @import("innigkeit");
 const architecture = @import("architecture");
 const core = @import("core");
-const net = @import("../../net/root.zig");
-const PortIo = @import("IoPort.zig").PortIo;
+const net = innigkeit.net;
+const PortIo = @import("PortIo.zig");
 
 const log = innigkeit.debug.log.scoped(.virtio_net);
 
@@ -263,7 +263,7 @@ fn populateRx(q: *Queue) void {
 }
 
 var tx_bufs: [QUEUE_SIZE][1536]u8 align(PAGE_SIZE) = undefined;
-var tx_hdr: [QUEUE_SIZE]NetHdr = .{.{}} ** QUEUE_SIZE;
+var tx_hdr: [QUEUE_SIZE]NetHdr = std.mem.zeroes([QUEUE_SIZE]NetHdr);
 
 /// Send a raw Ethernet frame. Returns true on success.
 pub fn send(frame: []const u8) bool {

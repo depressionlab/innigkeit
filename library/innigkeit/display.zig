@@ -41,6 +41,30 @@ pub fn kbdRead(buf: []u8) usize {
     return @intCast(result);
 }
 
+/// Decoded PS/2 mouse event (matches kernel ABI exactly).
+pub const MouseEvent = extern struct {
+    /// Button state: bit 0=left, bit 1=right, bit 2=middle.
+    buttons: u8,
+    /// Signed X movement delta (positive = right).
+    dx: i8,
+    /// Signed Y movement delta (positive = up in PS/2 coords).
+    dy: i8,
+    _pad: u8 = 0,
+};
+
+/// Non-blocking drain of PS/2 mouse events. Returns count of events read.
+pub fn mouseRead(events: []MouseEvent) usize {
+    const result = innigkeit.Syscall.invoke(.mouse_read, .{ @intFromPtr(events.ptr), events.len });
+    if (result < 0) return 0;
+    return @intCast(result);
+}
+
+/// Flush the virtio-gpu backing store (w×h pixels) to the host display.
+/// No-op if virtio-gpu is not present.
+pub fn gpuFlush(w: u32, h: u32) void {
+    _ = innigkeit.Syscall.invoke(.gpu_flush, .{ w, h });
+}
+
 /// Map the bootloader framebuffer into the calling process's address space.
 ///
 /// Returns a pointer to the pixel buffer and metadata.

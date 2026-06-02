@@ -1203,7 +1203,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         },
 
         // ------------------------------------------------------------------ //
-        // efi_var_get / efi_var_set — stubs, not yet implemented.            //
+        // efi_var_get / efi_var_set: stubs, not yet implemented.             //
         // ------------------------------------------------------------------ //
         .efi_var_get, .efi_var_set => {
             arch_frame.rax = errCode(e.ENOSYS);
@@ -1221,6 +1221,94 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             } else {
                 arch_frame.rax = errCode(e.ENODEV);
             }
+        },
+
+        // ------------------------------------------------------------------ //
+        // mouse_read(buf_ptr: usize, buf_len: usize) -> count                //
+        //   Non-blocking drain of decoded PS/2 mouse events into a user      //
+        //   buffer.  buf_len is event count; returns events written.         //
+        // ------------------------------------------------------------------ //
+        .mouse_read => {
+            const buf_ptr = syscall_frame.arg(.one);
+            const buf_len = syscall_frame.arg(.two);
+            const current_task: innigkeit.Task.Current = .get();
+            arch_frame.rax = handlers.framebuffer.syscallMouseRead(buf_ptr, buf_len, current_task);
+        },
+
+        // ------------------------------------------------------------------ //
+        // gpu_flush(w: u32, h: u32) -> 0                                     //
+        //   Flush the virtio-gpu backing store to the host display.          //
+        //   No-op (returns 0) if virtio-gpu is not initialized.              //
+        // ------------------------------------------------------------------ //
+        .gpu_flush => {
+            const w: u32 = @truncate(syscall_frame.arg(.one));
+            const h: u32 = @truncate(syscall_frame.arg(.two));
+            innigkeit.drivers.virtio.gpu.flush(w, h) catch {};
+            arch_frame.rax = 0;
+        },
+
+        // ------------------------------------------------------------------ //
+        // net_set_ip(ip: u32) -> 0                                           //
+        //   Set NIC IPv4 address.  ip is packed big-endian.                  //
+        // ------------------------------------------------------------------ //
+        .net_set_ip => {
+            arch_frame.rax = handlers.net.syscallNetSetIp(syscall_frame.arg(.one));
+        },
+
+        // ------------------------------------------------------------------ //
+        // net_get_mac(buf_ptr: usize) -> 0|ENODEV                            //
+        // ------------------------------------------------------------------ //
+        .net_get_mac => {
+            arch_frame.rax = handlers.net.syscallNetGetMac(syscall_frame.arg(.one));
+        },
+
+        // ------------------------------------------------------------------ //
+        // net_udp_open(port: u16) -> sock_id|err                             //
+        // ------------------------------------------------------------------ //
+        .net_udp_open => {
+            arch_frame.rax = handlers.net.syscallNetUdpOpen(syscall_frame.arg(.one));
+        },
+
+        // ------------------------------------------------------------------ //
+        // net_udp_send(sock, dst_ip, dst_port, buf_ptr, buf_len) -> 0|err    //
+        // ------------------------------------------------------------------ //
+        .net_udp_send => {
+            arch_frame.rax = handlers.net.syscallNetUdpSend(
+                syscall_frame.arg(.one),
+                syscall_frame.arg(.two),
+                syscall_frame.arg(.three),
+                syscall_frame.arg(.four),
+                syscall_frame.arg(.five),
+            );
+        },
+
+        // ------------------------------------------------------------------ //
+        // net_udp_recv(sock, from_ptr, buf_ptr, buf_len) -> bytes|EAGAIN|err //
+        // ------------------------------------------------------------------ //
+        .net_udp_recv => {
+            arch_frame.rax = handlers.net.syscallNetUdpRecv(
+                syscall_frame.arg(.one),
+                syscall_frame.arg(.two),
+                syscall_frame.arg(.three),
+                syscall_frame.arg(.four),
+            );
+        },
+
+        // ------------------------------------------------------------------ //
+        // net_udp_close(sock_id: u32) -> 0                                   //
+        // ------------------------------------------------------------------ //
+        .net_udp_close => {
+            arch_frame.rax = handlers.net.syscallNetUdpClose(syscall_frame.arg(.one));
+        },
+
+        // ------------------------------------------------------------------ //
+        // net_ping(dst_ip: u32, timeout_ms: u32) -> rtt_ms|ENODEV           //
+        // ------------------------------------------------------------------ //
+        .net_ping => {
+            arch_frame.rax = handlers.net.syscallNetPing(
+                syscall_frame.arg(.one),
+                syscall_frame.arg(.two),
+            );
         },
     }
 }

@@ -24,6 +24,41 @@ pub fn parseEcho(data: []const u8) ?struct {
     };
 }
 
+/// Build an ICMP echo request into `out`.
+pub fn buildEchoRequest(
+    out: []u8,
+    our_mac: *const [6]u8,
+    dst_mac: *const [6]u8,
+    our_ip: *const [4]u8,
+    dst_ip: *const [4]u8,
+    id: u16,
+    seq: u16,
+    payload: []const u8,
+    ip_id: u16,
+) usize {
+    const total = eth.HEADER_LEN + ipv4.HEADER_LEN + HEADER_LEN + payload.len;
+    if (out.len < total) return 0;
+
+    eth.writeHeader(out[0..14], dst_mac, our_mac, .ipv4);
+
+    const ip_buf = out[eth.HEADER_LEN..];
+    ipv4.writeHeader(ip_buf[0..20], ip_id, .icmp, our_ip, dst_ip, HEADER_LEN + payload.len);
+
+    const icmp = ip_buf[ipv4.HEADER_LEN..];
+    icmp[0] = ICMP_ECHO_REQUEST;
+    icmp[1] = 0;
+    std.mem.writeInt(u16, icmp[2..4], 0, .big);
+    std.mem.writeInt(u16, icmp[4..6], id, .big);
+    std.mem.writeInt(u16, icmp[6..8], seq, .big);
+    @memcpy(icmp[8..][0..payload.len], payload);
+
+    const icmp_len = HEADER_LEN + payload.len;
+    const csum = ipv4.checksum(icmp[0..icmp_len]);
+    std.mem.writeInt(u16, icmp[2..4], csum, .big);
+
+    return total;
+}
+
 /// Build an ICMP echo reply into `out`.
 /// `out` must have room for eth_header(14) + ip_header(20) + icmp_header(8) + payload.
 pub fn buildEchoReply(

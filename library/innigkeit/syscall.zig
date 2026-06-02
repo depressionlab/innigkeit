@@ -104,6 +104,28 @@ pub const Syscall = enum(usize) {
     /// Return the size in 512-byte sectors of virtio-blk device dev_idx.
     /// (dev_idx: u32) -> sectors:u64|error
     blk_disk_size = 38,
+    /// Non-blocking drain of PS/2 mouse events into a user buffer of MouseEvent structs.
+    /// (buf_ptr: usize, buf_len: usize) -> count (count = events read, not bytes)
+    mouse_read = 39,
+    /// Transfer backing store to virtio-gpu resource and flush scanout.
+    /// (w: u32, h: u32) -> 0 No-op if virtio-gpu is not present.
+    gpu_flush = 40,
+    /// Set the NIC's IPv4 address: (ip: u32) -> 0
+    /// ip is packed big-endian (192.168.1.10 = 0xC0A8010A).
+    net_set_ip = 41,
+    /// Read the NIC's MAC address into a 6-byte user buffer: (buf_ptr: usize) -> 0|err
+    net_get_mac = 42,
+    /// Open a UDP socket bound to a local port: (port: u16) -> sock_id|err
+    net_udp_open = 43,
+    /// Send a UDP datagram: (sock_id, dst_ip, dst_port, buf_ptr, buf_len) -> 0|err
+    net_udp_send = 44,
+    /// Non-blocking receive: (sock_id, from_ptr, buf_ptr, buf_len) -> bytes|EAGAIN|err
+    /// from_ptr -> NetFrom { ip:[4]u8, port:u16, pad:u16 }
+    net_udp_recv = 45,
+    /// Close a UDP socket: (sock_id: u32) -> 0
+    net_udp_close = 46,
+    /// ICMP echo (ping): (dst_ip: u32, timeout_ms: u32) -> rtt_ms|ENODEV
+    net_ping = 47,
 
     /// Decode a raw syscall return value into a success count or a `SyscallError`.
     ///

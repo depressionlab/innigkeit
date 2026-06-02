@@ -174,7 +174,7 @@ fn fillInPrimaryGptHeader(
         1,
         root.disk_block_size,
     );
-    primary_header.* = filesystem.gpt.Header{
+    primary_header.* = .{
         .my_lba = 1,
         .alternate_lba = number_of_blocks - 1,
         .first_usable_lba = first_usable_block,

@@ -54,6 +54,12 @@ fn buildQemuCommand(
     run.addArgs(&.{ "-device", "virtio-blk-pci,drive=drive0,bootindex=0,disable-modern=on,disable-legacy=off", "-drive" });
     run.addDecoratedDirectoryArg("file=", image, ",format=raw,if=none,id=drive0");
 
+    // Network: user-mode networking (slirp). Guest IP 10.0.2.15, gateway 10.0.2.2.
+    run.addArgs(&.{
+        "-netdev", "user,id=net0",
+        "-device", "virtio-net-pci,netdev=net0,disable-modern=on,disable-legacy=off",
+    });
+
     if (emu.interrupt_details) {
         run.addArgs(&.{ "-d", "int" });
         // Suppress SMM-generated noise before the kernel starts on x64.

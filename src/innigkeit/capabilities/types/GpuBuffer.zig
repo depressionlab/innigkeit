@@ -54,6 +54,11 @@ pub const Usage = packed struct(u32) {
 /// contiguous-page allocator.
 pub fn create(page_count: usize, usage: Usage) error{OutOfMemory}!*GpuBuffer {
     if (page_count == 0) return error.OutOfMemory;
+    // Contiguous-page allocator not yet implemented. Silently allowing
+    // page_count > 1 would produce a struct claiming N pages of memory while
+    // only one page is actually allocated, so any GPU access past the first page
+    // corrupts unrelated physical memory. Reject until the allocator exists.
+    if (page_count > 1) return error.OutOfMemory;
 
     // Allocate the metadata struct from the kernel heap.
     const self = innigkeit.mem.heap.allocator.create(GpuBuffer) catch return error.OutOfMemory;
@@ -66,7 +71,7 @@ pub fn create(page_count: usize, usage: Usage) error{OutOfMemory}!*GpuBuffer {
 
     self.* = .{
         .phys_base = first_page.baseAddress(),
-        .size_bytes = page_count * @import("architecture").paging.standard_page_size.value,
+        .size_bytes = @import("architecture").paging.standard_page_size.value,
         .usage = usage,
     };
     return self;
@@ -109,11 +114,15 @@ test "gpu_buffer: create returns non-null with correct size" {
     try std.testing.expect(buf.phys_base.value != 0);
 }
 
-test "gpu_buffer: multi-page size is page_count * page_size" {
-    const buf = try GpuBuffer.create(4, .{ .vertex_buffer = true, .cpu_visible = true });
+test "gpu_buffer: multi-page create returns OutOfMemory (contiguous allocator not implemented)" {
+    try std.testing.expectError(error.OutOfMemory, GpuBuffer.create(4, .{ .vertex_buffer = true, .cpu_visible = true }));
+}
+
+test "gpu_buffer: single-page has correct size and usage" {
+    const buf = try GpuBuffer.create(1, .{ .vertex_buffer = true, .cpu_visible = true });
     defer buf.unref();
 
-    try std.testing.expectEqual(@as(usize, 4 * pageSize()), buf.size_bytes);
+    try std.testing.expectEqual(pageSize(), buf.size_bytes);
     try std.testing.expect(buf.usage.vertex_buffer);
     try std.testing.expect(buf.usage.cpu_visible);
     try std.testing.expect(!buf.usage.texture);

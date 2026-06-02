@@ -13,6 +13,7 @@ const log = innigkeit.debug.log.scoped(.ps2);
 const PORT_DATA: u16 = 0x60;
 const PORT_STATUS: u16 = 0x64;
 const STATUS_OUTPUT_FULL: u8 = 0x01;
+const STATUS_AUX_DATA: u8 = 0x20; // byte in OBF is from mouse, not keyboard
 
 /// PS/2 keyboard IOAPIC GSI.
 const KEYBOARD_GSI: u32 = 1;
@@ -90,7 +91,12 @@ fn onInterrupt(
     const data_port = architecture.io.Port.from(PORT_DATA) catch unreachable;
     const status_port = architecture.io.Port.from(PORT_STATUS) catch unreachable;
 
-    if (status_port.read(u8) & STATUS_OUTPUT_FULL == 0) return;
+    const status = status_port.read(u8);
+    if (status & STATUS_OUTPUT_FULL == 0) return;
+    if (status & STATUS_AUX_DATA != 0) {
+        _ = data_port.read(u8); // consume mouse byte to clear OBF
+        return;
+    }
     const scancode = data_port.read(u8);
 
     // Feed raw byte to the game keyboard ring buffer (includes 0xE0 prefix and break bit).

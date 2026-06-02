@@ -136,7 +136,7 @@ fn updateFire() void {
         while (x < FIRE_W) : (x += 1) {
             const r = xrand();
             // Spread 0 or -1 pixels horizontally
-            const spread: i32 = @as(i32, @intCast(r & 3)) - 1; // -1, 0, 1, 2
+            const spread: i32 = @as(i32, @intCast(r % 3)) - 1; // -1, 0, +1
             const src_x: u32 = blk: {
                 const s: i32 = @as(i32, @intCast(x)) + spread;
                 if (s < 0) break :blk 0;

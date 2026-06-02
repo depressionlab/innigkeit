@@ -141,11 +141,33 @@ fn fillRandomKey(key: *[Aead.key_length]u8) void {
     }
 }
 
+/// Returns true if RDRAND is supported on the current x86_64 CPU.
+///
+/// Executes CPUID leaf 1 and tests ECX bit 30 (RDRAND feature flag).
+/// Called once per `hwRand64` invocation; the result is a single CPUID
+/// instruction that the CPU typically executes in ~100 ns, which is negligible
+/// for a key-generation path that runs at vault creation / seal time.
+fn x64RdrandSupported() bool {
+    var ecx: u32 = undefined;
+    asm volatile ("cpuid"
+        : [ecx] "={ecx}" (ecx),
+        : [leaf] "{eax}" (@as(u32, 1)),
+        : .{ .eax = true, .ebx = true, .edx = true });
+    return (ecx >> 30) & 1 != 0;
+}
+
 /// Architecture-specific hardware random number.
 /// Returns null if not available or the instruction signals failure.
 inline fn hwRand64() ?u64 {
     return switch (builtin.cpu.arch) {
         .x86_64 => blk: {
+            // Guard: RDRAND is not universally supported on x86_64. It was
+            // introduced with Ivy Bridge (Intel, 2012) and Jaguar (AMD, 2013).
+            // Issuing the instruction on an older CPU causes #UD (illegal
+            // opcode), which would fault the kernel. Check CPUID leaf 1
+            // ECX[30] before attempting the instruction.
+            if (!x64RdrandSupported()) break :blk null;
+
             // Intel recommends retrying RDRAND up to 10 times; brief failure is
             // common under high system load (DRNG reseeding, contention).
             var attempts: usize = 0;

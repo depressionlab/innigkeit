@@ -26,7 +26,7 @@ pub fn main() void {
         while (x < info.width) : (x += 1) {
             const r: u8 = @intCast(x * 255 / info.width);
             const g: u8 = @intCast(y * 255 / info.height);
-            canvas.putPixel(x, y, .{ .r = r, .g = g, .b = 128 });
+            canvas.putPixel(x, y, .init(r, g, 128));
         }
     }
 

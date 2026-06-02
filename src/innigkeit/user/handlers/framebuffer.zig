@@ -42,8 +42,14 @@ const FramebufferInfo = extern struct {
     _pad: [3]u8 = .{0} ** 3,
 };
 
-/// Map the bootloader framebuffer into the calling process's address space.
+/// Map the bootloader framebuffer (or virtio-gpu backing store if present)
+/// into the calling process's address space.
 pub fn syscallFramebufferMap(info_ptr: usize, current_task: innigkeit.Task.Current) usize {
+    // Prefer virtio-gpu backing store when the driver is up.
+    if (innigkeit.drivers.virtio.gpu.state) |gpu| {
+        return syscallFramebufferMapGpu(info_ptr, current_task, gpu);
+    }
+
     const info = innigkeit.init.Output.framebuffer.getPhysInfo() orelse {
         log.debug("framebuffer_map: no framebuffer available", .{});
         return errCode(e.ENODEV);
@@ -194,6 +200,89 @@ pub fn syscallKbdRead(buf_ptr: usize, buf_len: usize, current_task: innigkeit.Ta
     current_task.decrementEnableAccessToUserMemory();
 
     return n;
+}
+
+const MouseEvent = innigkeit.drivers.input.ps2_mouse.MouseEvent;
+
+/// Non-blocking drain of PS/2 mouse events.
+/// buf_ptr points to a []MouseEvent; buf_len is the number of events (not bytes).
+/// Returns the number of events written.
+pub fn syscallMouseRead(buf_ptr: usize, buf_len: usize, current_task: innigkeit.Task.Current) usize {
+    if (buf_len == 0) return 0;
+    const byte_len = buf_len *| @sizeOf(MouseEvent);
+    if (!validateUserBuffer(buf_ptr, byte_len)) return errCode(e.EFAULT);
+
+    var tmp: [16]MouseEvent = undefined;
+    const to_read = @min(buf_len, tmp.len);
+    const n = innigkeit.drivers.input.ps2_mouse.raw_mouse.drain(tmp[0..to_read]);
+    if (n == 0) return 0;
+
+    current_task.incrementEnableAccessToUserMemory();
+    @memcpy(
+        @as([*]MouseEvent, @ptrFromInt(buf_ptr))[0..n],
+        tmp[0..n],
+    );
+    current_task.decrementEnableAccessToUserMemory();
+
+    return n;
+}
+
+/// Map the virtio-gpu backing-store pages into the calling process's address space.
+fn syscallFramebufferMapGpu(
+    info_ptr: usize,
+    current_task: innigkeit.Task.Current,
+    gpu: *innigkeit.drivers.virtio.gpu.GpuState,
+) usize {
+    if (!validateUserBuffer(info_ptr, @sizeOf(FramebufferInfo))) return errCode(e.EFAULT);
+
+    const process = innigkeit.user.Process.from(current_task.task);
+    const page_size = architecture.paging.standard_page_size;
+    const n_pages = gpu.fb_pages.len;
+    const total_bytes = n_pages * page_size.value;
+
+    const virt_range = process.address_space.map(.{
+        .size = core.Size.from(total_bytes, .byte),
+        .protection = .{ .read = true, .write = true },
+        .max_protection = .all,
+        .type = .zero_fill,
+    }) catch {
+        return errCode(e.ENOMEM);
+    };
+
+    const map_type: innigkeit.mem.MapType = .{
+        .type = .user,
+        .protection = .{ .read = true, .write = true },
+        .cache = .write_combining,
+    };
+
+    process.address_space.page_table_lock.lock();
+    for (gpu.fb_pages, 0..) |pg, i| {
+        const virt_addr = innigkeit.VirtualAddress.from(virt_range.address.value + i * page_size.value);
+        innigkeit.mem.mapSinglePage(
+            process.address_space.page_table,
+            virt_addr,
+            pg,
+            map_type,
+            innigkeit.mem.PhysicalPage.allocator,
+        ) catch {
+            process.address_space.page_table_lock.unlock();
+            process.address_space.unmap(virt_range) catch {};
+            return errCode(e.ENOMEM);
+        };
+    }
+    process.address_space.page_table_lock.unlock();
+
+    current_task.incrementEnableAccessToUserMemory();
+    const user_info: *FramebufferInfo = @ptrFromInt(info_ptr);
+    user_info.* = .{
+        .width = gpu.fb_width,
+        .height = gpu.fb_height,
+        .pitch = gpu.fb_width * 4,
+        .bpp = 32,
+    };
+    current_task.decrementEnableAccessToUserMemory();
+
+    return virt_range.address.value;
 }
 
 /// ABI layout for blk_read / blk_write syscalls (spec_ptr points to this struct in user memory).

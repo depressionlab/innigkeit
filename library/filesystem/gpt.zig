@@ -44,7 +44,7 @@ pub fn protectiveMBR(
     // TODO: calulate this from the `number_of_lba`
     const ending_chs: u24 = 0xFFFFFF;
 
-    mbr.* = MBR{
+    mbr.* = .{
         // `boot_code` unused by UEFI systems.
         .boot_code = [_]u8{0} ** 440,
 

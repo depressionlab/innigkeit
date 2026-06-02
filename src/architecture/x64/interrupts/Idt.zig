@@ -95,7 +95,7 @@ pub fn load(idt: *const Idt) void {
         address: u64,
     };
 
-    const idtr = Idtr{
+    const idtr: Idtr = .{
         .address = @intFromPtr(idt),
         .limit = @sizeOf(Idt) - 1,
     };

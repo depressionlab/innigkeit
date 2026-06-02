@@ -17,6 +17,7 @@ pub const storage = @import("storage.zig");
 pub const display = @import("display.zig");
 pub const graphics = @import("graphics.zig");
 pub const fs = @import("fs.zig");
+pub const net = @import("net.zig");
 
 const std = @import("std");
 comptime {

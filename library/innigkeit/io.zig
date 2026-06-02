@@ -149,6 +149,6 @@ pub const Reader = struct {
     }
 };
 
-pub const stdin = Reader{ .fd = .stdin };
-pub const stdout = Writer{ .fd = .stdout };
-pub const stderr = Writer{ .fd = .stderr };
+pub const stdin: Reader = .{ .fd = .stdin };
+pub const stdout: Writer = .{ .fd = .stdout };
+pub const stderr: Writer = .{ .fd = .stderr };

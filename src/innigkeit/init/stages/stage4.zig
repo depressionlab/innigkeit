@@ -68,6 +68,8 @@ pub fn start() !void {
 
     log.debug("initializing virtio-net driver", .{});
     innigkeit.drivers.virtio.net.init();
+    innigkeit.drivers.virtio.net.setIp(.{ 10, 0, 2, 15 }); // QEMU user-mode default
+    try startNetPollThread();
 
     if (innigkeit.drivers.virtio.blk.isBootReady()) {
         var sector: [512]u8 = undefined;
@@ -86,21 +88,51 @@ pub fn start() !void {
         log.err("PS/2 keyboard init failed: {t}", .{err});
     };
 
-    log.debug("starting shell", .{});
-    const shell_process: *innigkeit.user.Process = try .create(
-        .{ .name = try .fromSlice("shell") },
-    );
-    defer shell_process.decrementReferenceCount();
+    log.debug("initializing PS/2 mouse", .{});
+    innigkeit.drivers.input.ps2_mouse.init() catch |err| {
+        log.err("PS/2 mouse init failed: {t}", .{err});
+    };
 
-    const shell_main_thread = try shell_process.createThread(
-        .{ .entry = .prepare(loadShell, .{}) },
+    log.debug("initializing virtio-gpu", .{});
+    // innigkeit.drivers.virtio.gpu.init();
+
+    const initial_app = if (innigkeit.drivers.virtio.gpu.state != null) "wm" else "shell";
+    log.debug("starting {s}", .{initial_app});
+    const initial_process: *innigkeit.user.Process = try .create(
+        .{ .name = try .fromSlice(initial_app) },
     );
+    defer initial_process.decrementReferenceCount();
+
+    const initial_thread = if (innigkeit.drivers.virtio.gpu.state != null)
+        try initial_process.createThread(.{ .entry = .prepare(loadWm, .{}) })
+    else
+        try initial_process.createThread(.{ .entry = .prepare(loadShell, .{}) });
 
     const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
     defer scheduler_handle.unlock();
-    scheduler_handle.queueTask(&shell_main_thread.task, .{ .initial = true });
+    scheduler_handle.queueTask(&initial_thread.task, .{ .initial = true });
+}
 
-    // try innigkeit.init.Output.experimentalRegister(.full);
+fn startNetPollThread() !void {
+    const proc: *innigkeit.user.Process = try .create(.{ .name = try .fromSlice("net_poll") });
+    defer proc.decrementReferenceCount();
+    const thread = try proc.createThread(.{ .entry = .prepare(netPollLoop, .{}) });
+    const h: innigkeit.Task.Scheduler.Handle = .get();
+    defer h.unlock();
+    h.queueTask(&thread.task, .{ .initial = true });
+}
+
+fn netPollLoop() !void {
+    while (true) {
+        innigkeit.drivers.virtio.net.pollRx(innigkeit.net.socket.handleFrame);
+        const h: innigkeit.Task.Scheduler.Handle = .get();
+        h.yield();
+        h.unlock();
+    }
+}
+
+fn loadWm() !void {
+    try loadElfFromInitfs("wm");
 }
 
 fn loadShell() !void {
