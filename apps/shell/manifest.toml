@@ -1,0 +1,10 @@
+name = "shell"
+version = "0.1.0"
+description = "Interactive command-line shell"
+
+[entitlements]
+keyboard = true
+storage = true
+spawn = true
+
+[trust]

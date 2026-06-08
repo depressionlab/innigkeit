@@ -126,6 +126,18 @@ pub const Syscall = enum(usize) {
     net_udp_close = 46,
     /// ICMP echo (ping): (dst_ip: u32, timeout_ms: u32) -> rtt_ms|ENODEV
     net_ping = 47,
+    /// Open a TCP listener on a local port: (port: u16) -> sock_id|err
+    net_tcp_listen = 48,
+    /// Accept an inbound TCP connection: (listener_id: u8) -> sock_id|EAGAIN|err
+    net_tcp_accept = 49,
+    /// Initiate an outbound TCP connection: (dst_ip: u32, dst_port: u16, src_port: u16) -> sock_id|err
+    net_tcp_connect = 50,
+    /// Send data on a TCP socket (blocking until sent): (sock_id, buf_ptr, buf_len) -> bytes|err
+    net_tcp_send = 51,
+    /// Receive data from a TCP socket (non-blocking): (sock_id, buf_ptr, buf_len) -> bytes|EAGAIN
+    net_tcp_recv = 52,
+    /// Close a TCP socket: (sock_id: u32) -> 0
+    net_tcp_close = 53,
 
     /// Decode a raw syscall return value into a success count or a `SyscallError`.
     ///

@@ -17,6 +17,28 @@ pub fn custom(
         module.addImport("kernel_options", options.kernel_options);
     }
 
+    // Codesign public key: read from keys/codesign_public.key at build time.
+    // Falls back to an all-zero key if the file is absent (acceptable in debug
+    // builds where enforce_code_signing is off).
+    {
+        const io = b.graph.io;
+        const codesign_opts = b.addOptions();
+        const key_bytes = b.build_root.handle.readFileAlloc(
+            io,
+            "keys/codesign_public.key",
+            b.allocator,
+            .limited(64),
+        ) catch |err| blk: {
+            if (err != error.FileNotFound)
+                std.debug.print("warning: could not read keys/codesign_public.key: {s}\n", .{@errorName(err)});
+            break :blk b.allocator.alloc(u8, 32) catch @panic("OOM");
+        };
+        defer b.allocator.free(key_bytes);
+        const default_key: [32]u8 = if (key_bytes.len >= 32) key_bytes[0..32].* else [_]u8{0} ** 32;
+        codesign_opts.addOption([32]u8, "default_public_key", default_key);
+        module.addImport("codesign_key_options", codesign_opts.createModule());
+    }
+
     // uacpi
     {
         // in uACPI DEBUG is more verbose than TRACE

@@ -4,6 +4,7 @@ const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
 
+pub const codesign = @import("codesign/root.zig");
 pub const elf = @import("elf/root.zig");
 pub const Process = @import("Process.zig");
 pub const Thread = @import("Thread.zig");
@@ -688,6 +689,10 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 // Reply capabilities are created by the kernel (recv_call), not by userspace.
                 .reply => arch_frame.rax = errCode(e.EINVAL),
                 .secure_vault => {
+                    if (!checkEntitlement(current_task, "secure_vault")) {
+                        arch_frame.rax = errCode(e.EPERM);
+                        return;
+                    }
                     // arg2: 0 = software-only, 1 = prefer TPM-backed.
                     // TPM-backed mode will be wired up once the TPM 2.0 CRB driver
                     // lands; for now always software-only.
@@ -707,6 +712,10 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 },
 
                 .gpu_buffer => {
+                    if (!checkEntitlement(current_task, "gpu")) {
+                        arch_frame.rax = errCode(e.EPERM);
+                        return;
+                    }
                     // arg2: page_count (must be >= 1)
                     // arg3: usage bitmask (GpuBuffer.Usage packed struct as u32)
                     const page_count: usize = syscall_frame.arg(.two);
@@ -767,6 +776,11 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
 
             if (protection.equal(.none)) {
                 arch_frame.rax = errCode(e.EINVAL); // must have at least one permission
+                return;
+            }
+
+            if (protection.write and protection.execute) {
+                arch_frame.rax = errCode(e.EINVAL); // W^X: writable+executable disallowed
                 return;
             }
 
@@ -894,8 +908,12 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         //   is signalled when the child exits.                               //
         // ------------------------------------------------------------------ //
         .spawn => {
-            const spec_ptr = syscall_frame.arg(.one);
             const current_task: innigkeit.Task.Current = .get();
+            if (!checkEntitlement(current_task, "spawn")) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
+            const spec_ptr = syscall_frame.arg(.one);
             arch_frame.rax = handlers.spawn.syscallSpawn(spec_ptr, current_task);
         },
 
@@ -988,8 +1006,12 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         //   Returns the virtual base address of the mapping.                 //
         // ------------------------------------------------------------------ //
         .framebuffer_map => {
-            const info_ptr = syscall_frame.arg(.one);
             const current_task: innigkeit.Task.Current = .get();
+            if (!checkEntitlement(current_task, "framebuffer")) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
+            const info_ptr = syscall_frame.arg(.one);
             arch_frame.rax = handlers.framebuffer.syscallFramebufferMap(info_ptr, current_task);
         },
 
@@ -1030,9 +1052,13 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         //   break bit) into a user buffer. Returns 0 when no keys pending.   //
         // ------------------------------------------------------------------ //
         .kbd_read => {
+            const current_task: innigkeit.Task.Current = .get();
+            if (!checkEntitlement(current_task, "keyboard")) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
             const buf_ptr = syscall_frame.arg(.one);
             const buf_len = syscall_frame.arg(.two);
-            const current_task: innigkeit.Task.Current = .get();
             arch_frame.rax = handlers.framebuffer.syscallKbdRead(buf_ptr, buf_len, current_task);
         },
 
@@ -1138,8 +1164,12 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         //   Offset and length must be multiples of 512 (sector size).              //
         // ------------------------------------------------------------------------ //
         .blk_write => {
-            const spec_ptr = syscall_frame.arg(.one);
             const current_task: innigkeit.Task.Current = .get();
+            if (!checkEntitlement(current_task, "storage")) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
+            const spec_ptr = syscall_frame.arg(.one);
             arch_frame.rax = handlers.framebuffer.syscallBlkWrite(spec_ptr, current_task);
         },
 
@@ -1229,9 +1259,13 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         //   buffer.  buf_len is event count; returns events written.         //
         // ------------------------------------------------------------------ //
         .mouse_read => {
+            const current_task: innigkeit.Task.Current = .get();
+            if (!checkEntitlement(current_task, "mouse")) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
             const buf_ptr = syscall_frame.arg(.one);
             const buf_len = syscall_frame.arg(.two);
-            const current_task: innigkeit.Task.Current = .get();
             arch_frame.rax = handlers.framebuffer.syscallMouseRead(buf_ptr, buf_len, current_task);
         },
 
@@ -1252,6 +1286,11 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         //   Set NIC IPv4 address.  ip is packed big-endian.                  //
         // ------------------------------------------------------------------ //
         .net_set_ip => {
+            const current_task: innigkeit.Task.Current = .get();
+            if (!checkEntitlement(current_task, "network")) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
             arch_frame.rax = handlers.net.syscallNetSetIp(syscall_frame.arg(.one));
         },
 
@@ -1259,6 +1298,11 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         // net_get_mac(buf_ptr: usize) -> 0|ENODEV                            //
         // ------------------------------------------------------------------ //
         .net_get_mac => {
+            const current_task: innigkeit.Task.Current = .get();
+            if (!checkEntitlement(current_task, "network")) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
             arch_frame.rax = handlers.net.syscallNetGetMac(syscall_frame.arg(.one));
         },
 
@@ -1266,6 +1310,11 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         // net_udp_open(port: u16) -> sock_id|err                             //
         // ------------------------------------------------------------------ //
         .net_udp_open => {
+            const current_task: innigkeit.Task.Current = .get();
+            if (!checkEntitlement(current_task, "network")) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
             arch_frame.rax = handlers.net.syscallNetUdpOpen(syscall_frame.arg(.one));
         },
 
@@ -1273,6 +1322,11 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         // net_udp_send(sock, dst_ip, dst_port, buf_ptr, buf_len) -> 0|err    //
         // ------------------------------------------------------------------ //
         .net_udp_send => {
+            const current_task_net_send: innigkeit.Task.Current = .get();
+            if (!checkEntitlement(current_task_net_send, "network")) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
             arch_frame.rax = handlers.net.syscallNetUdpSend(
                 syscall_frame.arg(.one),
                 syscall_frame.arg(.two),
@@ -1286,6 +1340,11 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         // net_udp_recv(sock, from_ptr, buf_ptr, buf_len) -> bytes|EAGAIN|err //
         // ------------------------------------------------------------------ //
         .net_udp_recv => {
+            const current_task_net_recv: innigkeit.Task.Current = .get();
+            if (!checkEntitlement(current_task_net_recv, "network")) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
             arch_frame.rax = handlers.net.syscallNetUdpRecv(
                 syscall_frame.arg(.one),
                 syscall_frame.arg(.two),
@@ -1298,6 +1357,11 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         // net_udp_close(sock_id: u32) -> 0                                   //
         // ------------------------------------------------------------------ //
         .net_udp_close => {
+            const current_task_net_close: innigkeit.Task.Current = .get();
+            if (!checkEntitlement(current_task_net_close, "network")) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
             arch_frame.rax = handlers.net.syscallNetUdpClose(syscall_frame.arg(.one));
         },
 
@@ -1305,10 +1369,135 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         // net_ping(dst_ip: u32, timeout_ms: u32) -> rtt_ms|ENODEV           //
         // ------------------------------------------------------------------ //
         .net_ping => {
+            const current_task_net_ping: innigkeit.Task.Current = .get();
+            if (!checkEntitlement(current_task_net_ping, "network")) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
             arch_frame.rax = handlers.net.syscallNetPing(
                 syscall_frame.arg(.one),
                 syscall_frame.arg(.two),
             );
+        },
+
+        // ------------------------------------------------------------------ //
+        // net_tcp_listen(port: u16) -> sock_id|err                           //
+        // ------------------------------------------------------------------ //
+        .net_tcp_listen => {
+            const task_tcp_listen: innigkeit.Task.Current = .get();
+            if (!checkEntitlement(task_tcp_listen, "network")) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
+            const port: u16 = @truncate(syscall_frame.arg(.one));
+            const id = innigkeit.net.socket.openTcpListener(port) orelse {
+                arch_frame.rax = errCode(e.ENOMEM);
+                return;
+            };
+            arch_frame.rax = id;
+        },
+
+        // ------------------------------------------------------------------ //
+        // net_tcp_accept(listener_id: u8) -> sock_id|EAGAIN|err              //
+        // ------------------------------------------------------------------ //
+        .net_tcp_accept => {
+            const task_tcp_accept: innigkeit.Task.Current = .get();
+            if (!checkEntitlement(task_tcp_accept, "network")) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
+            const lid: u8 = @truncate(syscall_frame.arg(.one));
+            const id = innigkeit.net.socket.tcpAccept(lid) orelse {
+                arch_frame.rax = errCode(e.EAGAIN);
+                return;
+            };
+            arch_frame.rax = id;
+        },
+
+        // ------------------------------------------------------------------ //
+        // net_tcp_connect(dst_ip: u32, dst_port: u16, src_port: u16)         //
+        //   -> sock_id|err                                                    //
+        // ------------------------------------------------------------------ //
+        .net_tcp_connect => {
+            const task_tcp_connect: innigkeit.Task.Current = .get();
+            if (!checkEntitlement(task_tcp_connect, "network")) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
+            const dst_ip_raw: u32 = @truncate(syscall_frame.arg(.one));
+            const dst_port: u16 = @truncate(syscall_frame.arg(.two));
+            const src_port: u16 = @truncate(syscall_frame.arg(.three));
+            const dst_ip: [4]u8 = @bitCast(std.mem.nativeToBig(u32, dst_ip_raw));
+            const id = innigkeit.net.socket.openTcpConnect(src_port, dst_ip, dst_port) orelse {
+                arch_frame.rax = errCode(e.ENOMEM);
+                return;
+            };
+            // Block until ESTABLISHED (or fail).
+            if (!innigkeit.net.socket.tcpWaitConnected(id)) {
+                innigkeit.net.socket.closeTcp(id);
+                arch_frame.rax = errCode(e.ENODEV);
+                return;
+            }
+            arch_frame.rax = id;
+        },
+
+        // ------------------------------------------------------------------ //
+        // net_tcp_send(sock_id, buf_ptr, buf_len) -> bytes|err               //
+        // ------------------------------------------------------------------ //
+        .net_tcp_send => {
+            const task_tcp_send: innigkeit.Task.Current = .get();
+            if (!checkEntitlement(task_tcp_send, "network")) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
+            const sock_id_s: u8 = @truncate(syscall_frame.arg(.one));
+            const buf_ptr = syscall_frame.arg(.two);
+            const buf_len = syscall_frame.arg(.three);
+            if (!validateUserBuffer(buf_ptr, buf_len)) {
+                arch_frame.rax = errCode(e.EFAULT);
+                return;
+            }
+            task_tcp_send.incrementEnableAccessToUserMemory();
+            defer task_tcp_send.decrementEnableAccessToUserMemory();
+            const buf_send: []const u8 = @as([*]const u8, @ptrFromInt(buf_ptr))[0..buf_len];
+            const sent = innigkeit.net.socket.tcpSend(sock_id_s, buf_send);
+            arch_frame.rax = sent;
+        },
+
+        // ------------------------------------------------------------------ //
+        // net_tcp_recv(sock_id, buf_ptr, buf_len) -> bytes|EAGAIN            //
+        // ------------------------------------------------------------------ //
+        .net_tcp_recv => {
+            const task_tcp_recv: innigkeit.Task.Current = .get();
+            if (!checkEntitlement(task_tcp_recv, "network")) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
+            const sock_id_r: u8 = @truncate(syscall_frame.arg(.one));
+            const buf_ptr = syscall_frame.arg(.two);
+            const buf_len = syscall_frame.arg(.three);
+            if (!validateUserBuffer(buf_ptr, buf_len)) {
+                arch_frame.rax = errCode(e.EFAULT);
+                return;
+            }
+            task_tcp_recv.incrementEnableAccessToUserMemory();
+            defer task_tcp_recv.decrementEnableAccessToUserMemory();
+            const buf_recv: []u8 = @as([*]u8, @ptrFromInt(buf_ptr))[0..buf_len];
+            const n = innigkeit.net.socket.tcpRecv(sock_id_r, buf_recv);
+            if (n == 0) {
+                arch_frame.rax = errCode(e.EAGAIN);
+            } else {
+                arch_frame.rax = n;
+            }
+        },
+
+        // ------------------------------------------------------------------ //
+        // net_tcp_close(sock_id: u32) -> 0                                   //
+        // ------------------------------------------------------------------ //
+        .net_tcp_close => {
+            const sock_id_c: u8 = @truncate(syscall_frame.arg(.one));
+            innigkeit.net.socket.closeTcp(sock_id_c);
+            arch_frame.rax = 0;
         },
     }
 }
@@ -1329,6 +1518,14 @@ pub const init = struct {
         try architecture.user.init.initialize();
     }
 };
+
+/// Returns true if the calling process holds the given entitlement.
+/// In non-enforcing mode always returns true so the syscall proceeds normally.
+inline fn checkEntitlement(task: innigkeit.Task.Current, comptime field: []const u8) bool {
+    if (!innigkeit.config.security.enforce_entitlements) return true;
+    const process = Process.from(task.task);
+    return @field(process.entitlements, field);
+}
 
 /// Cast a signed error code to the bit pattern expected in rax / a0 / x0.
 inline fn errCode(code: i64) usize {

@@ -159,13 +159,10 @@ fn buildQemuCommand(
 /// Build a QEMU run step for `test_{arch}`.
 ///
 /// Pass/fail convention:
-/// - x64 pass: ACPI S5 soft-off via ICH9 PM1a_CNT port 0x604 -> QEMU exits 0.
-/// - x64 fail: ISA debug-exit (port 0xf4) write 1 -> QEMU exits 3.
-/// - arm pass: AArch64 semihosting SYS_EXIT subcode 0 -> QEMU exits 0.
-/// - arm fail: AArch64 semihosting SYS_EXIT subcode 1 -> QEMU exits 1.
-///
-/// Pass = QEMU exits 0. No expectExitCode needed: standard exit-0-success
-/// works with .inherit stdio (always visible on terminal).
+/// - x64: ISA debug-exit (port 0xf4). write 0 -> QEMU exits 1 (pass),
+///        write 1 -> QEMU exits 3 (fail). Step uses expectExitCode(1).
+/// - arm: AArch64 semihosting SYS_EXIT subcode 0 (pass) / 1 (fail).
+///        QEMU exits 0 on pass; standard exit-0-success applies.
 pub fn buildTestQemuStep(
     b: *std.Build,
     arch: Bundle.Architecture,
@@ -185,8 +182,14 @@ pub fn buildTestQemuStep(
     }
 
     run.addArg("-no-reboot");
-    // buildQemuCommand already sets stdio = .inherit; test output is always
-    // visible on the terminal. Pass = exit 0 = step success; no expectExitCode.
+    // buildQemuCommand sets stdio = .inherit; reset so expectExitCode works.
+    // With .infer_from_args, output is captured and printed only on failure.
+    run.stdio = .infer_from_args;
+    switch (arch) {
+        .x64 => run.expectExitCode(1), // (0 << 1) | 1 = 1 means all tests passed
+        .arm => {}, // semihosting SYS_EXIT subcode 0 → QEMU exits 0 (default success)
+        .riscv => {},
+    }
     return run;
 }
 

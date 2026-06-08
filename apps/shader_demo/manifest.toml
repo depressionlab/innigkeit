@@ -1,0 +1,10 @@
+name = "shader_demo"
+version = "0.1.0"
+description = "GPU shader demonstration"
+
+[entitlements]
+framebuffer = true
+gpu = true
+spawn = false
+
+[trust]

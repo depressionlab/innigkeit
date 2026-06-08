@@ -36,11 +36,16 @@
             .url = "git+https://github.com/ozkl/doomgeneric#dcb7a8dbc7a16ce3dda29382ac9aae9d77d21284",
             .hash = "N-V-__8AAJMtRADYgnFFWaSNURiX55QppO-9EWd4mUF8BoQG",
         },
+        .toml = .{
+            .url = "git+https://github.com/sam701/zig-toml.git#24e0deeceaad1b7f1b12027ebae1c65ff1d86e33",
+            .hash = "toml-0.3.0-bV14BVqIAQANb68hDuVPZ72hrcIhT-fv_fcIbetQIAyg",
+        },
     },
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "src",
+        "library",
         "LICENSE",
         "README.md",
     },

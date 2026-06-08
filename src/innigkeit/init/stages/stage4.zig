@@ -9,34 +9,22 @@ const log = innigkeit.debug.log.scoped(.init);
 pub fn start() !void {
     // In test builds, run all collected unit tests then signal QEMU to exit.
     //
-    // Convention: QEMU exit code 0 = all tests passed; non-zero = failure.
-    // This lets the build step use the standard "exit 0 = success" rule with
-    // stdio = .inherit (which always shows test output on the terminal).
-    //
-    // - x64 pass: ACPI S5 soft-off via ICH9 PM1a_CNT port 0x604 -> QEMU exits 0.
-    // - x64 fail: ISA debug-exit (port 0xf4) write 1 -> QEMU exits 3.
-    // - arm pass: AArch64 semihosting SYS_EXIT subcode 0 -> QEMU exits 0.
-    // - arm fail: AArch64 semihosting SYS_EXIT subcode 1 -> QEMU exits 1.
+    // - x64: ISA debug-exit (port 0xf4). write 0 -> QEMU exits 1 (pass),
+    //        write 1 -> QEMU exits 3 (fail). Build step expectExitCode(1).
+    // - arm: AArch64 semihosting SYS_EXIT subcode 0 (pass) / 1 (fail).
+    //        QEMU exits 0 on pass (standard success).
     if (comptime builtin.is_test) {
         const failed = innigkeit.testing.runner.runAll();
         switch (comptime builtin.cpu.arch) {
             .x86_64 => {
-                if (failed == 0) {
-                    // ACPI soft power-off: SLP_EN=1, SLP_TYP=7 (S5) -> QEMU exits 0.
-                    // Port 0x604 = ICH9 PM1a_CNT_BLK on the QEMU q35 machine.
-                    asm volatile ("outw %[val], %[port]"
-                        :
-                        : [val] "{ax}" (@as(u16, 0x3C00)),
-                          [port] "{dx}" (@as(u16, 0x604)),
-                    );
-                } else {
-                    // ISA debug-exit: write 1 -> QEMU exits (1<<1)|1 = 3.
-                    asm volatile ("outb %[val], %[port]"
-                        :
-                        : [val] "{al}" (@as(u8, 1)),
-                          [port] "{dx}" (@as(u16, 0xf4)),
-                    );
-                }
+                // ISA debug-exit: write 0 -> QEMU exits (0<<1)|1 = 1 (pass).
+                //                 write 1 -> QEMU exits (1<<1)|1 = 3 (fail).
+                const exit_val: u8 = if (failed == 0) 0 else 1;
+                asm volatile ("outb %[val], %[port]"
+                    :
+                    : [val] "{al}" (exit_val),
+                      [port] "{dx}" (@as(u16, 0xf4)),
+                );
                 while (true) asm volatile ("hlt");
             },
             .aarch64 => {

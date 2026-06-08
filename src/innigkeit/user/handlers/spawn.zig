@@ -14,6 +14,7 @@ const std = @import("std");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
 const validateUserBuffer = @import("../validate.zig").validateUserBuffer;
+const codesign = innigkeit.user.codesign;
 
 const log = innigkeit.debug.log.scoped(.spawn);
 
@@ -81,6 +82,9 @@ const max_single_env_len: usize = 4095;
 /// Maximum total byte length of all environment strings combined.
 const max_total_env_len: usize = 16 * 1024;
 
+/// Fallback process name used when the real name is too long.
+const fallback_process_name = "?";
+
 /// Execute the `spawn` syscall.
 ///
 /// Returns the raw usize to store in rax (Notify handle on success, negated
@@ -106,6 +110,10 @@ pub fn syscallSpawn(
 
     const path_buf = innigkeit.mem.heap.allocator.alloc(u8, spec.path_len + 1) catch
         return errCode(e.ENOMEM);
+    // Free path_buf on any early return. loadAndStart takes ownership on the
+    // happy path (it frees after use), so we track ownership with a sentinel.
+    var path_buf_owned = true;
+    defer if (path_buf_owned) innigkeit.mem.heap.allocator.free(path_buf);
 
     current_task.incrementEnableAccessToUserMemory();
     @memcpy(path_buf[0..spec.path_len], @as([*]const u8, @ptrFromInt(spec.path))[0..spec.path_len]);
@@ -113,10 +121,8 @@ pub fn syscallSpawn(
     path_buf[spec.path_len] = 0;
 
     // Reject embedded nulls, they would silently truncate the path passed to the ELF loader.
-    if (std.mem.indexOfScalar(u8, path_buf[0..spec.path_len], 0) != null) {
-        innigkeit.mem.heap.allocator.free(path_buf);
+    if (std.mem.indexOfScalar(u8, path_buf[0..spec.path_len], 0) != null)
         return errCode(e.EINVAL);
-    }
 
     const path: [:0]const u8 = path_buf[0..spec.path_len :0];
 
@@ -131,74 +137,46 @@ pub fn syscallSpawn(
     //
     // When both argc=0 and envc=0, proc_init is an empty slice.
     var proc_init: []u8 = &.{};
+    var proc_init_owned = false;
+    defer if (proc_init_owned) innigkeit.mem.heap.allocator.free(proc_init);
 
     // Validate argc/argv
-    if (spec.argc > max_argc) {
-        innigkeit.mem.heap.allocator.free(path_buf);
-        return errCode(e.EINVAL);
-    }
+    if (spec.argc > max_argc) return errCode(e.EINVAL);
     var user_args: [max_argc]Arg = undefined;
     var total_arg_str_len: usize = 0;
     if (spec.argc > 0) {
         const user_args_size = @as(usize, spec.argc) * @sizeOf(Arg);
-        if (!validateUserBuffer(spec.argv, user_args_size)) {
-            innigkeit.mem.heap.allocator.free(path_buf);
-            return errCode(e.EFAULT);
-        }
+        if (!validateUserBuffer(spec.argv, user_args_size)) return errCode(e.EFAULT);
 
         current_task.incrementEnableAccessToUserMemory();
         @memcpy(user_args[0..spec.argc], @as([*]const Arg, @ptrFromInt(spec.argv))[0..spec.argc]);
         current_task.decrementEnableAccessToUserMemory();
 
         for (user_args[0..spec.argc]) |ua| {
-            if (ua._pad != 0 or ua.len > max_single_arg_len) {
-                innigkeit.mem.heap.allocator.free(path_buf);
-                return errCode(e.EINVAL);
-            }
-            if (!validateUserBuffer(ua.ptr, ua.len)) {
-                innigkeit.mem.heap.allocator.free(path_buf);
-                return errCode(e.EFAULT);
-            }
+            if (ua._pad != 0 or ua.len > max_single_arg_len) return errCode(e.EINVAL);
+            if (!validateUserBuffer(ua.ptr, ua.len)) return errCode(e.EFAULT);
             total_arg_str_len += ua.len;
         }
-        if (total_arg_str_len > max_total_arg_len) {
-            innigkeit.mem.heap.allocator.free(path_buf);
-            return errCode(e.EINVAL);
-        }
+        if (total_arg_str_len > max_total_arg_len) return errCode(e.EINVAL);
     }
 
     // Validate envc/envp
-    if (spec.envc > max_envc) {
-        innigkeit.mem.heap.allocator.free(path_buf);
-        return errCode(e.EINVAL);
-    }
+    if (spec.envc > max_envc) return errCode(e.EINVAL);
     var user_envs: [max_envc]Arg = undefined;
     var total_env_str_len: usize = 0;
     if (spec.envc > 0) {
         const user_envs_size = @as(usize, spec.envc) * @sizeOf(Arg);
-        if (!validateUserBuffer(spec.envp, user_envs_size)) {
-            innigkeit.mem.heap.allocator.free(path_buf);
-            return errCode(e.EFAULT);
-        }
+        if (!validateUserBuffer(spec.envp, user_envs_size)) return errCode(e.EFAULT);
         current_task.incrementEnableAccessToUserMemory();
         @memcpy(user_envs[0..spec.envc], @as([*]const Arg, @ptrFromInt(spec.envp))[0..spec.envc]);
         current_task.decrementEnableAccessToUserMemory();
 
         for (user_envs[0..spec.envc]) |ue| {
-            if (ue._pad != 0 or ue.len > max_single_env_len) {
-                innigkeit.mem.heap.allocator.free(path_buf);
-                return errCode(e.EINVAL);
-            }
-            if (!validateUserBuffer(ue.ptr, ue.len)) {
-                innigkeit.mem.heap.allocator.free(path_buf);
-                return errCode(e.EFAULT);
-            }
+            if (ue._pad != 0 or ue.len > max_single_env_len) return errCode(e.EINVAL);
+            if (!validateUserBuffer(ue.ptr, ue.len)) return errCode(e.EFAULT);
             total_env_str_len += ue.len;
         }
-        if (total_env_str_len > max_total_env_len) {
-            innigkeit.mem.heap.allocator.free(path_buf);
-            return errCode(e.EINVAL);
-        }
+        if (total_env_str_len > max_total_env_len) return errCode(e.EINVAL);
     }
 
     // Build combined proc_init buffer if either argv or envp is non-empty.
@@ -206,10 +184,10 @@ pub fn syscallSpawn(
         const header_size = @sizeOf(usize) * (2 + spec.argc + spec.envc);
         const total_size = header_size + total_arg_str_len + total_env_str_len;
 
-        const buf = innigkeit.mem.heap.allocator.alloc(u8, total_size) catch {
-            innigkeit.mem.heap.allocator.free(path_buf);
+        const buf = innigkeit.mem.heap.allocator.alloc(u8, total_size) catch
             return errCode(e.ENOMEM);
-        };
+        proc_init = buf;
+        proc_init_owned = true;
 
         const S = @sizeOf(usize);
         std.mem.writeInt(usize, buf[0..S], spec.argc, .little);
@@ -241,25 +219,15 @@ pub fn syscallSpawn(
             str_off += ue.len;
         }
         current_task.decrementEnableAccessToUserMemory();
-
-        proc_init = buf;
     }
 
     // -- 4. Validate and copy capability grants
-    if (spec.cap_grant_count > max_cap_grants) {
-        innigkeit.mem.heap.allocator.free(path_buf);
-        if (proc_init.len > 0) innigkeit.mem.heap.allocator.free(proc_init);
-        return errCode(e.EINVAL);
-    }
+    if (spec.cap_grant_count > max_cap_grants) return errCode(e.EINVAL);
     const grants_size = spec.cap_grant_count *| @sizeOf(CapGrant);
     var grants_buf: [max_cap_grants]CapGrant = undefined;
 
     if (spec.cap_grant_count > 0) {
-        if (!validateUserBuffer(spec.cap_grants, grants_size)) {
-            innigkeit.mem.heap.allocator.free(path_buf);
-            if (proc_init.len > 0) innigkeit.mem.heap.allocator.free(proc_init);
-            return errCode(e.EFAULT);
-        }
+        if (!validateUserBuffer(spec.cap_grants, grants_size)) return errCode(e.EFAULT);
         current_task.incrementEnableAccessToUserMemory();
         @memcpy(
             grants_buf[0..spec.cap_grant_count],
@@ -270,26 +238,19 @@ pub fn syscallSpawn(
     const grants = grants_buf[0..spec.cap_grant_count];
 
     // -- 5. Create the exit Notify
-    const exit_notify = innigkeit.capabilities.Notify.create() catch {
-        innigkeit.mem.heap.allocator.free(path_buf);
-        if (proc_init.len > 0) innigkeit.mem.heap.allocator.free(proc_init);
-        return errCode(e.ENOMEM);
-    };
+    const exit_notify = innigkeit.capabilities.Notify.create() catch return errCode(e.ENOMEM);
     // Give an extra ref to the process (so it can signal on exit).
     exit_notify.ref();
+    // If we return early the caller ref is freed by the defer below; the process
+    // ref will be freed once the child process is destroyed.
+    var exit_notify_caller_owned = true;
+    defer if (exit_notify_caller_owned) exit_notify.unref();
 
     // -- 6. Create the child process
     const child_process = innigkeit.user.Process.create(.{
-        .name = innigkeit.user.Process.Name.fromSlice(path) catch blk: {
-            break :blk innigkeit.user.Process.Name.fromSlice("?") catch unreachable;
-        },
-    }) catch {
-        exit_notify.unref(); // process ref
-        exit_notify.unref(); // caller ref
-        innigkeit.mem.heap.allocator.free(path_buf);
-        if (proc_init.len > 0) innigkeit.mem.heap.allocator.free(proc_init);
-        return errCode(e.ENOMEM);
-    };
+        .name = innigkeit.user.Process.Name.fromSlice(path) catch
+            innigkeit.user.Process.Name.fromSlice(fallback_process_name) catch unreachable,
+    }) catch return errCode(e.ENOMEM);
     // Process.create adds 1 reference; we hold it until we spawn the thread.
     defer child_process.decrementReferenceCount();
 
@@ -320,17 +281,13 @@ pub fn syscallSpawn(
             _ = child_process.cap_table.insertLocked(info.cap_type, info.ptr, requested_rights) catch {
                 innigkeit.capabilities.CapabilityTable.unrefObject(info.cap_type, info.ptr);
                 log.warn("cap grant: child table full for slot {}", .{grant.src_slot});
-                innigkeit.mem.heap.allocator.free(path_buf);
-                if (proc_init.len > 0) innigkeit.mem.heap.allocator.free(proc_init);
                 return errCode(e.ENOMEM);
             };
         }
     }
 
-    // -- 8. Create kernel thread that will load the ELF
-    // TypeErasedCall fits up to 5 usize args: path ptr+len, child_process,
-    // proc_init ptr+len. Ownership of path_buf and proc_init transfers to
-    // loadAndStart (it frees them on all exit paths).
+    // -- 8. Create kernel thread that will load the ELF.
+    // Ownership of path_buf and proc_init transfers to loadAndStart on success.
     const load_thread = child_process.createThread(.{
         .entry = .prepare(loadAndStart, .{
             path_buf.ptr,
@@ -339,12 +296,11 @@ pub fn syscallSpawn(
             @as(usize, if (proc_init.len > 0) @intFromPtr(proc_init.ptr) else 0),
             proc_init.len,
         }),
-    }) catch {
-        innigkeit.mem.heap.allocator.free(path_buf);
-        if (proc_init.len > 0) innigkeit.mem.heap.allocator.free(proc_init);
-        return errCode(e.ENOMEM);
-    };
-    // loadAndStart owns path_buf and proc_init now.
+    }) catch return errCode(e.ENOMEM);
+
+    // Transfer buffer ownership to loadAndStart; disable the defers.
+    path_buf_owned = false;
+    proc_init_owned = false;
 
     const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
     defer scheduler_handle.unlock();
@@ -359,10 +315,11 @@ pub fn syscallSpawn(
         exit_notify,
         .{ .read = true, .write = false }, // read-only: can wait but not re-signal
     ) catch {
-        // Undo: we already gave the process its ref, which will be cleaned up
-        // by the cleanup task when the child eventually terminates.
+        // Undo: the process already holds its ref and will signal on exit.
         return errCode(e.ENOMEM);
     };
+    // Caller's ref is now in the table; don't free it via the defer.
+    exit_notify_caller_owned = false;
 
     // Sanitize path: replace non-printable bytes with '?' to prevent log injection.
     var safe_path_buf: [max_path_len + 1]u8 = undefined;
@@ -401,8 +358,48 @@ fn loadAndStart(
 
     const elf_data = innigkeit.fs.initfs.findFile(path) orelse {
         log.err("spawn: '{s}' not found in initfs", .{path});
-        return; // thread exits; process cleanup runs and signals exit_notify
+        return;
     };
+
+    // -- Signature verification -----------------------------------------------
+    // Build the sidecar name: "<path>.codesig" (max_path_len + 8 bytes).
+    var sig_name_buf: [max_path_len + 8]u8 = undefined;
+    const sig_name = std.fmt.bufPrint(&sig_name_buf, "{s}.codesig", .{path}) catch unreachable;
+
+    const opt_sig_data = innigkeit.fs.initfs.findFile(sig_name);
+
+    const entitlements: codesign.Manifest.Entitlements = blk: {
+        if (opt_sig_data) |sig_data| {
+            const result = codesign.verify(elf_data, sig_data);
+            if (result) |ents| {
+                break :blk ents;
+            } else |err| {
+                log.err("spawn: '{s}' signature verification failed: {s}", .{ path, @errorName(err) });
+                // Signature present but invalid: always refuse regardless of mode.
+                return;
+            }
+        } else {
+            if (innigkeit.config.security.enforce_code_signing) {
+                log.err("spawn: '{s}' has no .codesig and enforcement is on", .{path});
+                return;
+            }
+            log.warn("spawn: '{s}' has no .codesig, proceeding with full entitlements (debug mode)", .{path});
+            // In permissive mode grant all entitlements so unsigned dev binaries work.
+            break :blk .{
+                .framebuffer = true,
+                .storage = true,
+                .network = true,
+                .keyboard = true,
+                .mouse = true,
+                .spawn = true,
+                .gpu = true,
+                .secure_vault = true,
+            };
+        }
+    };
+
+    child_process.entitlements = entitlements;
+    // -------------------------------------------------------------------------
 
     const current_task: innigkeit.Task.Current = .get();
     const thread: *innigkeit.user.Thread = .from(current_task.task);

@@ -1,0 +1,13 @@
+name = "installer"
+version = "0.1.0"
+description = "System installer"
+
+[entitlements]
+framebuffer = true
+network = true
+keyboard = true
+mouse = true
+spawn = true
+storage = true
+
+[trust]

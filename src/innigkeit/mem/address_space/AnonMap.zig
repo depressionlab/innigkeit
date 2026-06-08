@@ -136,7 +136,62 @@ pub fn copy(self: *AddressSpace, entry: *Entry, faulting_address: innigkeit.Virt
         return;
     }
 
-    @panic("NOT IMPLEMENTED - AnonMap.copy"); // TODO https://github.com/openbsd/src/blob/9222ee7ab44f0e3155b861a0c0a6dd8396d03df3/sys/uvm/uvm_amap.c#L576
+    const old_map = entry.anonymous_map_reference.anonymous_map.?;
+    old_map.lock.writeLock();
+
+    if (old_map.reference_count == 1) {
+        // This entry is the sole owner: no copy needed.
+        old_map.lock.writeUnlock();
+        entry.needs_copy = false;
+        return;
+    }
+
+    // Create a new anonymous map covering exactly this entry's range.
+    const new_map = create(entry.range.size) catch {
+        old_map.lock.writeUnlock();
+        return error.OutOfMemory;
+    };
+
+    // Copy populated anon-page slots from the entry's window in the old map,
+    // incrementing each page's reference count (shared read).
+    const page_size = architecture.paging.standard_page_size;
+    const start_page: u32 = @intCast(entry.anonymous_map_reference.start_offset.divide(page_size));
+    const entry_pages: u32 = @intCast(entry.range.size.divide(page_size));
+
+    var chunk_iter = old_map.anonymous_page_chunks.chunks.iterator();
+    while (chunk_iter.next()) |kv| {
+        const slots_per_chunk: u32 = @intCast(kv.value_ptr.*.len);
+        const chunk_base: u32 = kv.key_ptr.* * slots_per_chunk;
+        for (kv.value_ptr.*, 0..) |opt_page, slot_off| {
+            const slot_index: u32 = chunk_base + @as(u32, @intCast(slot_off));
+            if (slot_index < start_page or slot_index >= start_page + entry_pages) continue;
+            const anon_page = opt_page orelse continue;
+
+            anon_page.lock.writeLock();
+            anon_page.incrementReferenceCount();
+            anon_page.lock.writeUnlock();
+
+            const new_index: u32 = slot_index - start_page;
+            const new_chunk = new_map.anonymous_page_chunks.ensureChunk(new_index) catch {
+                // OOM mid-copy: the partial new_map leaks.
+                // TODO: unwind incremented refcounts and destroy new_map on OOM.
+                old_map.lock.writeUnlock();
+                return error.OutOfMemory;
+            };
+            new_chunk[AnonPageChunkMap.chunkOffset(new_index)] = anon_page;
+            new_map.pages_in_use.increment();
+        }
+    }
+
+    // Hand the entry its private copy of the map.
+    entry.anonymous_map_reference.anonymous_map = new_map;
+    entry.anonymous_map_reference.start_offset = .zero;
+    entry.needs_copy = false;
+
+    // Release this entry's hold on the old map (may unlock and/or destroy it).
+    var deallocate_page_list: innigkeit.mem.PhysicalPage.List = .{};
+    old_map.decrementReferenceCount(&deallocate_page_list);
+    innigkeit.mem.PhysicalPage.allocator.deallocate(deallocate_page_list);
 }
 
 pub const Reference = struct {
@@ -211,7 +266,11 @@ pub const Reference = struct {
                 if (core.is_debug) std.debug.assert(chunk[chunk_offset] == null);
                 anonymous_map.pages_in_use.increment();
             },
-            .replace => @panic("NOT IMPLEMENTED"), // TODO https://github.com/openbsd/src/blob/9222ee7ab44f0e3155b861a0c0a6dd8396d03df3/sys/uvm/uvm_amap.c#L1223
+            .replace => {
+                // The caller has already decremented the old page's refcount.
+                // pages_in_use is unchanged (replacing an existing slot).
+                if (core.is_debug) std.debug.assert(chunk[chunk_offset] != null);
+            },
         }
         chunk[chunk_offset] = anonymous_page;
     }

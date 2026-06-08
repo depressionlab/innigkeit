@@ -43,7 +43,7 @@ page_table_lock: innigkeit.sync.Mutex = .{},
 /// Called a `vm_map` in uvm.
 ///
 /// Sorted by `base`.
-entries: std.ArrayListUnmanaged(*Entry), // TODO: better data structure
+entries: std.ArrayList(*Entry), // TODO: better data structure
 
 /// Protects the `entries` field.
 entries_lock: innigkeit.sync.RwLock = .{},
@@ -268,11 +268,11 @@ pub fn map(self: *AddressSpace, options: MapOptions) MapError!innigkeit.VirtualR
         },
         .copy_on_write = switch (options.type) {
             .zero_fill => true,
-            .object => @panic("NOT IMPLEMENTED"), // TODO
+            .object => true, // object-based entries use CoW for private writes
         },
         .needs_copy = switch (options.type) {
             .zero_fill => true,
-            .object => @panic("NOT IMPLEMENTED"), // TODO
+            .object => true, // entry needs a private anonymous map on the first write
         },
         .wired_count = 0,
     };
@@ -347,7 +347,18 @@ pub fn map(self: *AddressSpace, options: MapOptions) MapError!innigkeit.VirtualR
 
         switch (options.type) {
             .zero_fill => {},
-            .object => @panic("HANDLE OBJECT REFERENCE COUNT"), // TODO: is this only for new entries?
+            .object => |obj_ref| {
+                // Increment the object's reference count for the new map entry.
+                // This is only done when merges == 0 (a fresh entry was inserted).
+                // When merges > 0, Entry.merge() already handled the refcount.
+                if (merges == 0) {
+                    if (obj_ref.object) |object| {
+                        object.lock.writeLock();
+                        defer object.lock.writeUnlock();
+                        object.incrementReferenceCount();
+                    }
+                }
+            },
         }
 
         self.entries_version +%= 1;
@@ -1098,8 +1109,13 @@ pub fn handlePageFault(self: *AddressSpace, page_fault_details: innigkeit.mem.Pa
         };
 
         if (opt_anonymous_page) |anonymous_page| {
-            _ = anonymous_page;
-            @panic("NOT IMPLEMENTED"); // TODO https://github.com/openbsd/src/blob/9222ee7ab44f0e3155b861a0c0a6dd8396d03df3/sys/uvm/uvm_fault.c#L685
+            fault_info.faultUpper(anonymous_page) catch |err| switch (err) {
+                error.Restart => {
+                    log.verbose("restarting fault (upper)", .{});
+                    continue;
+                },
+                else => |narrow_err| return @errorCast(narrow_err),
+            };
         } else {
             fault_info.faultObjectOrZeroFill() catch |err| switch (err) {
                 error.Restart => {

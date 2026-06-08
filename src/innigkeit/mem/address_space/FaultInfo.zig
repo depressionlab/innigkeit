@@ -298,7 +298,8 @@ pub fn faultObjectOrZeroFill(self: *FaultInfo) error{ Restart, OutOfMemory }!voi
             map_type,
             innigkeit.mem.PhysicalPage.allocator,
         ) catch {
-            @panic("NOT IMPLEMENTED"); // TODO https://github.com/openbsd/src/blob/9222ee7ab44f0e3155b861a0c0a6dd8396d03df3/sys/uvm/uvm_fault.c#L1545-L1568
+            self.unlockAll(opt_anonymous_map, opt_object);
+            return error.OutOfMemory;
         };
     }
 
@@ -309,6 +310,121 @@ pub fn faultObjectOrZeroFill(self: *FaultInfo) error{ Restart, OutOfMemory }!voi
     // TODO: might need https://github.com/openbsd/src/blob/9222ee7ab44f0e3155b861a0c0a6dd8396d03df3/sys/uvm/uvm_fault.c#L1571-L1604
 
     self.unlockAll(opt_anonymous_map, opt_object);
+}
+
+/// Handle a fault where the anonymous map already has a page for the faulting address.
+///
+/// Three sub-cases:
+///   - Read access: map the existing page read-only.
+///   - Write access, sole owner (refcount == 1): map writable in-place.
+///   - Write access, shared page (refcount > 1): copy-on-write, soallocate a
+///     new physical page, copy content, replace in the amap, unshare.
+///
+/// Called `uvm_fault_upper` in OpenBSD uvm.
+pub fn faultUpper(self: *FaultInfo, anonymous_page: *AnonPage) error{ Restart, OutOfMemory }!void {
+    const anonymous_map = self.entry.anonymous_map_reference.anonymous_map.?;
+    const opt_object = self.entry.object_reference.object;
+
+    // Lock the anonymous page before inspecting its refcount.
+    anonymous_page.lock.writeLock();
+
+    var physical_page = anonymous_page.physical_page;
+
+    if (self.access_type == .write and anonymous_page.reference_count > 1) {
+        // Copy-on-write: this page is shared; we must make a private copy.
+
+        // Upgrade the anonymous map lock from read -> write (needed to replace
+        // the slot). faultAnonymousMapLockUpgrade releases the lock on failure.
+        if (!self.faultAnonymousMapLockUpgrade(anonymous_map)) {
+            anonymous_page.lock.writeUnlock();
+            // anonymous_map lock already released; manually unlock the rest.
+            if (opt_object) |object| {
+                switch (self.object_lock_type) {
+                    .read => object.lock.readUnlock(),
+                    .write => object.lock.writeUnlock(),
+                }
+            }
+            self.address_space.entries_lock.readUnlock();
+            return error.Restart;
+        }
+
+        // Allocate a new physical page.
+        const new_phys = innigkeit.mem.PhysicalPage.allocator.allocate() catch {
+            anonymous_page.lock.writeUnlock();
+            self.unlockAll(anonymous_map, opt_object);
+            return error.OutOfMemory;
+        };
+
+        // Copy content from old page to new page via the direct-map window.
+        const page_size = architecture.paging.standard_page_size.value;
+        const src = anonymous_page.physical_page.baseAddress().toDirectMap()
+            .toPtr(*align(page_size) const volatile [page_size]u8);
+        const dst = new_phys.baseAddress().toDirectMap()
+            .toPtr(*align(page_size) volatile [page_size]u8);
+        @memcpy(dst, src);
+
+        // Allocate a new AnonPage wrapper for the new physical page.
+        const new_anon = AnonPage.create(new_phys) catch {
+            var pl: PhysicalPage.List = .{};
+            pl.prepend(new_phys);
+            innigkeit.mem.PhysicalPage.allocator.deallocate(pl);
+            anonymous_page.lock.writeUnlock();
+            self.unlockAll(anonymous_map, opt_object);
+            return error.OutOfMemory;
+        };
+
+        // Decrement the old page's refcount; decrementReferenceCount unlocks it.
+        var free_list: PhysicalPage.List = .{};
+        anonymous_page.decrementReferenceCount(&free_list);
+
+        // Replace the old slot in the amap with the new page.
+        self.entry.anonymous_map_reference.add(
+            self.entry,
+            self.faulting_address,
+            new_anon,
+            .replace,
+        ) catch {
+            // OOM replacing slot: free the page we just allocated.
+            var pl: PhysicalPage.List = .{};
+            pl.prepend(new_phys);
+            innigkeit.mem.PhysicalPage.allocator.deallocate(pl);
+            innigkeit.mem.PhysicalPage.allocator.deallocate(free_list);
+            self.unlockAll(anonymous_map, opt_object);
+            return error.OutOfMemory;
+        };
+
+        physical_page = new_phys;
+        innigkeit.mem.PhysicalPage.allocator.deallocate(free_list);
+    } else {
+        // No CoW needed: read access or we are the sole owner.
+        anonymous_page.lock.writeUnlock();
+    }
+
+    // Map the physical page (new or existing) into the page table.
+    {
+        const map_type: innigkeit.mem.MapType = .{
+            .type = self.address_space.context,
+            .protection = self.enter_protection,
+        };
+
+        log.verbose("faultUpper: mapping {f} with {f}", .{ self.faulting_address, map_type });
+
+        self.address_space.page_table_lock.lock();
+        defer self.address_space.page_table_lock.unlock();
+
+        innigkeit.mem.mapSinglePage(
+            self.address_space.page_table,
+            self.faulting_address,
+            physical_page,
+            map_type,
+            innigkeit.mem.PhysicalPage.allocator,
+        ) catch {
+            self.unlockAll(anonymous_map, opt_object);
+            return error.OutOfMemory;
+        };
+    }
+
+    self.unlockAll(anonymous_map, opt_object);
 }
 
 /// Look up the entry that contains the faulting address.
@@ -366,13 +482,17 @@ fn promote(
     if (core.is_debug) std.debug.assert(opt_object == null or (opt_object.?.lock.isReadLocked() or opt_object.?.lock.isWriteLocked()));
 
     const allocated_physical_page = innigkeit.mem.PhysicalPage.allocator.allocate() catch {
-        @panic("NOT IMPLEMENTED"); // TODO https://github.com/openbsd/src/blob/9222ee7ab44f0e3155b861a0c0a6dd8396d03df3/sys/uvm/uvm_fault.c#L520
+        self.unlockAll(self.entry.anonymous_map_reference.anonymous_map, self.entry.object_reference.object);
+        return error.OutOfMemory;
     };
     physical_page.* = allocated_physical_page;
 
     anonymous_page.* = AnonPage.create(allocated_physical_page) catch {
-        @panic("NOT IMPLEMENTED"); // TODO https://github.com/openbsd/src/blob/9222ee7ab44f0e3155b861a0c0a6dd8396d03df3/sys/uvm/uvm_fault.c#L520
-        // MUST clean up `page` as well
+        var pl: PhysicalPage.List = .{};
+        pl.prepend(allocated_physical_page);
+        innigkeit.mem.PhysicalPage.allocator.deallocate(pl);
+        self.unlockAll(self.entry.anonymous_map_reference.anonymous_map, self.entry.object_reference.object);
+        return error.OutOfMemory;
     };
 
     log.verbose(

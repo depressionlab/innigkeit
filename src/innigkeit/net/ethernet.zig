@@ -19,7 +19,7 @@ pub const Header = extern struct {
 };
 
 /// Parse an Ethernet frame. Returns the header and payload slice, or null if too short.
-pub fn parse(frame: []const u8) ?struct { hdr: *const Header, payload: []const u8 } {
+pub fn parse(frame: []const u8) ?struct { hdr: *align(1) const Header, payload: []const u8 } {
     if (frame.len < HEADER_LEN) return null;
     return .{
         .hdr = @ptrCast(frame[0..HEADER_LEN]),

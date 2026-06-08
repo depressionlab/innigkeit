@@ -1,0 +1,13 @@
+name = "wm"
+version = "0.1.0"
+description = "Compositor and window manager"
+
+[entitlements]
+framebuffer = true
+keyboard = true
+mouse = true
+gpu = true
+spawn = true
+
+[trust]
+internal_service = true

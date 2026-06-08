@@ -1,0 +1,9 @@
+name = "pixels"
+version = "0.1.0"
+description = "Framebuffer pixel demo"
+
+[entitlements]
+framebuffer = true
+spawn = false
+
+[trust]

@@ -1,0 +1,11 @@
+name = "doom"
+version = "0.1.0"
+description = "DOOM game"
+
+[entitlements]
+framebuffer = true
+keyboard = true
+mouse = true
+spawn = false
+
+[trust]

@@ -98,6 +98,9 @@ pub fn seal(
     var nonce: [Aead.nonce_length]u8 = undefined;
     var i: usize = 0;
     while (i < Aead.nonce_length) : (i += 8) {
+        // Pass the byte-slot index as a domain-separation constant so that
+        // successive calls to counterFallback produce distinct values even if
+        // the hardware clock doesn't advance between iterations.
         const v: u64 = hwRand64() orelse counterFallback(i);
         @memcpy(nonce[i..][0..8], &std.mem.toBytes(v));
     }
@@ -205,8 +208,9 @@ inline fn hwRand64() ?u64 {
 }
 
 /// Counter-based fallback when hardware random is unavailable.
-/// Mixes in a constant to ensure successive calls differ.
-inline fn counterFallback(slot: usize) u64 {
+/// `slot_index` is mixed in as a domain-separation constant so repeated calls
+/// with a stalled clock produce distinct output.
+inline fn counterFallback(slot_index: usize) u64 {
     const raw: u64 = switch (builtin.cpu.arch) {
         .x86_64 => blk: {
             var low: u32 = undefined;
@@ -234,7 +238,7 @@ inline fn counterFallback(slot: usize) u64 {
         },
         else => 0,
     };
-    return raw ^ (slot *% 0x9E3779B97F4A7C15);
+    return raw ^ (slot_index *% 0x9E3779B97F4A7C15);
 }
 
 test "secure_vault: seal/unseal roundtrip" {

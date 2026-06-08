@@ -216,7 +216,7 @@ pub fn buildTestKernel(
 /// Build the initfs ustar archive for the given architecture.
 ///
 /// The archive is produced by running the `initfs_builder` host tool which
-/// packs the compiled hello_world ELF (and any future init binaries) into a
+/// packs the compiled app ELFs and their .codesig sidecar blobs into a
 /// POSIX ustar archive that is later embedded in the kernel via @embedFile.
 fn buildInitfs(
     b: *std.Build,
@@ -226,22 +226,49 @@ fn buildInitfs(
     extra_binaries: ?[]const ExtraBinary,
 ) std.Build.LazyPath {
     const initfs_builder = tools.get("initfs_builder").?.release_safe_exe;
+    const codesign_exe = tools.get("codesign").?.release_safe_exe;
     const run = b.addRunArtifact(initfs_builder);
     const bundle: Bundle = .{ .architecture = arch, .context = .internal };
 
     var it = apps.iterator();
     while (it.next()) |entry| {
+        const name = entry.key_ptr.*;
         const exe = entry.value_ptr.executables.get(bundle) orelse continue;
-        run.addArg(entry.key_ptr.*);
-        run.addFileArg(exe.getEmittedBin());
+        const elf_bin = exe.getEmittedBin();
+
+        // Sign the ELF and produce a .codesig sidecar.
+        const entitlements_path = b.path(b.pathJoin(&.{ "apps", name, "manifest.toml" }));
+        const sign_run = b.addRunArtifact(codesign_exe);
+        sign_run.addArg("sign");
+        sign_run.addFileArg(elf_bin);
+        sign_run.addFileArg(entitlements_path);
+        const sig_name = b.fmt("{s}.codesig", .{name});
+        const sig_file = sign_run.addOutputFileArg(sig_name);
+
+        run.addArg(name);
+        run.addFileArg(elf_bin);
+        run.addArg(sig_name);
+        run.addFileArg(sig_file);
     }
 
     // Embed extra (non-Zig) binaries such as Rust no_std apps.
+    // Each extra binary is signed the same way as Zig apps.
     if (arch == .x64) {
         for (extra_binaries.?) |eb| {
+            const entitlements_path = b.path(b.pathJoin(&.{ "apps", eb.name, "manifest.toml" }));
+            const sign_run = b.addRunArtifact(codesign_exe);
+            sign_run.step.dependOn(eb.step);
+            sign_run.addArg("sign");
+            sign_run.addArg(eb.binary_path);
+            sign_run.addFileArg(entitlements_path);
+            const sig_name = b.fmt("{s}.codesig", .{eb.name});
+            const sig_file = sign_run.addOutputFileArg(sig_name);
+
             run.step.dependOn(eb.step);
             run.addArg(eb.name);
             run.addArg(eb.binary_path);
+            run.addArg(sig_name);
+            run.addFileArg(sig_file);
         }
     }
 

@@ -154,16 +154,24 @@ pub fn revokeLocked(self: *CapabilityTable, idx: u32) error{ NotFound, NoRevokeR
     incrementObjectGeneration(slot.type, @ptrFromInt(slot.ptr_or_next));
 }
 
+/// Map each non-null ObjectType tag to its Zig type.
+fn TypeForTag(comptime tag: ObjectType) type {
+    return switch (tag) {
+        .null => unreachable,
+        .frame => @import("types/Frame.zig"),
+        .notify => @import("types/Notify.zig"),
+        .endpoint => @import("types/Endpoint.zig"),
+        .reply => @import("types/Reply.zig"),
+        .secure_vault => @import("types/SecureVault.zig"),
+        .gpu_buffer => @import("types/GpuBuffer.zig"),
+    };
+}
+
 /// Read the current generation counter of a capability object.
 fn objectGeneration(cap_type: ObjectType, ptr: *anyopaque) u32 {
     return switch (cap_type) {
         .null => unreachable,
-        .frame => @as(*@import("types/Frame.zig"), @ptrCast(@alignCast(ptr))).generation.load(.acquire),
-        .notify => @as(*@import("types/Notify.zig"), @ptrCast(@alignCast(ptr))).generation.load(.acquire),
-        .endpoint => @as(*@import("types/Endpoint.zig"), @ptrCast(@alignCast(ptr))).generation.load(.acquire),
-        .reply => @as(*@import("types/Reply.zig"), @ptrCast(@alignCast(ptr))).generation.load(.acquire),
-        .secure_vault => @as(*@import("types/SecureVault.zig"), @ptrCast(@alignCast(ptr))).generation.load(.acquire),
-        .gpu_buffer => @as(*@import("types/GpuBuffer.zig"), @ptrCast(@alignCast(ptr))).generation.load(.acquire),
+        inline else => |tag| @as(*TypeForTag(tag), @ptrCast(@alignCast(ptr))).generation.load(.acquire),
     };
 }
 
@@ -172,12 +180,7 @@ fn objectGeneration(cap_type: ObjectType, ptr: *anyopaque) u32 {
 fn incrementObjectGeneration(cap_type: ObjectType, ptr: *anyopaque) void {
     switch (cap_type) {
         .null => unreachable,
-        .frame => _ = @as(*@import("types/Frame.zig"), @ptrCast(@alignCast(ptr))).generation.fetchAdd(1, .acq_rel),
-        .notify => _ = @as(*@import("types/Notify.zig"), @ptrCast(@alignCast(ptr))).generation.fetchAdd(1, .acq_rel),
-        .endpoint => _ = @as(*@import("types/Endpoint.zig"), @ptrCast(@alignCast(ptr))).generation.fetchAdd(1, .acq_rel),
-        .reply => _ = @as(*@import("types/Reply.zig"), @ptrCast(@alignCast(ptr))).generation.fetchAdd(1, .acq_rel),
-        .secure_vault => _ = @as(*@import("types/SecureVault.zig"), @ptrCast(@alignCast(ptr))).generation.fetchAdd(1, .acq_rel),
-        .gpu_buffer => _ = @as(*@import("types/GpuBuffer.zig"), @ptrCast(@alignCast(ptr))).generation.fetchAdd(1, .acq_rel),
+        inline else => |tag| _ = @as(*TypeForTag(tag), @ptrCast(@alignCast(ptr))).generation.fetchAdd(1, .acq_rel),
     }
 }
 
@@ -190,24 +193,14 @@ fn rightsSubset(sub: Rights, sup: Rights) bool {
 pub fn refObject(cap_type: ObjectType, ptr: *anyopaque) void {
     switch (cap_type) {
         .null => unreachable,
-        .frame => (@as(*@import("types/Frame.zig"), @ptrCast(@alignCast(ptr)))).ref(),
-        .notify => (@as(*@import("types/Notify.zig"), @ptrCast(@alignCast(ptr)))).ref(),
-        .endpoint => (@as(*@import("types/Endpoint.zig"), @ptrCast(@alignCast(ptr)))).ref(),
-        .reply => (@as(*@import("types/Reply.zig"), @ptrCast(@alignCast(ptr)))).ref(),
-        .secure_vault => (@as(*@import("types/SecureVault.zig"), @ptrCast(@alignCast(ptr)))).ref(),
-        .gpu_buffer => (@as(*@import("types/GpuBuffer.zig"), @ptrCast(@alignCast(ptr)))).ref(),
+        inline else => |tag| @as(*TypeForTag(tag), @ptrCast(@alignCast(ptr))).ref(),
     }
 }
 
 pub fn unrefObject(cap_type: ObjectType, ptr: *anyopaque) void {
     switch (cap_type) {
         .null => unreachable,
-        .frame => (@as(*@import("types/Frame.zig"), @ptrCast(@alignCast(ptr)))).unref(),
-        .notify => (@as(*@import("types/Notify.zig"), @ptrCast(@alignCast(ptr)))).unref(),
-        .endpoint => (@as(*@import("types/Endpoint.zig"), @ptrCast(@alignCast(ptr)))).unref(),
-        .reply => (@as(*@import("types/Reply.zig"), @ptrCast(@alignCast(ptr)))).unref(),
-        .secure_vault => (@as(*@import("types/SecureVault.zig"), @ptrCast(@alignCast(ptr)))).unref(),
-        .gpu_buffer => (@as(*@import("types/GpuBuffer.zig"), @ptrCast(@alignCast(ptr)))).unref(),
+        inline else => |tag| @as(*TypeForTag(tag), @ptrCast(@alignCast(ptr))).unref(),
     }
 }
 

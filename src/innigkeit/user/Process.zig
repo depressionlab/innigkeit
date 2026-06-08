@@ -44,6 +44,21 @@ exit_notify: ?*innigkeit.capabilities.Notify = null,
 /// Exit status set by exit_process syscall; 0 if never set (killed/crashed).
 exit_status: u8 = 0,
 
+/// Entitlements verified from the binary's .codesig blob at spawn time.
+/// The kernel enforces these at syscall boundaries.
+/// Processes created directly by the kernel (e.g. init) get all entitlements.
+entitlements: innigkeit.user.codesign.Manifest.Entitlements = .{
+    .framebuffer = true,
+    .storage = true,
+    .network = true,
+    .keyboard = true,
+    .mouse = true,
+    .spawn = true,
+    .gpu = true,
+    .secure_vault = true,
+    .internal_service = true,
+},
+
 /// Simple flat filesystem open file table.
 /// FD 3..14 map to indices 0..11 respectively.
 open_files: [12]?innigkeit.fs.simple_fs.OpenFile = .{null} ** 12,

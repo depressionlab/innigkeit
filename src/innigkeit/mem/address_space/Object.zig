@@ -52,9 +52,11 @@ pub fn decrementReferenceCount(self: *Object) void {
     self.lock.writeUnlock();
 
     if (reference_count == 1) {
-        // reference count is now zero, destroy the object
-
-        if (true) @panic("NOT IMPLEMENTED"); // TODO
+        @branchHint(.cold);
+        // Object destruction requires an object cache and pager integration.
+        // No pager is wired up yet so no Object is ever created; this branch
+        // is dead code for now.
+        @panic("Object.decrementReferenceCount: object destruction not yet implemented");
     }
 }
 
@@ -98,13 +100,12 @@ pub fn print(self: *Object, writer: *std.Io.Writer, indent: usize) !void {
     const new_indent = indent + 2;
 
     self.lock.readLock();
-    defer self.lock.readLock();
+    defer self.lock.readUnlock();
 
     try writer.writeAll("Object{\n");
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.writeAll("TODO\n");
-    if (true) @panic("NOT IMPLEMENTED"); // TODO: implement object debug printing
+    try writer.print("reference_count: {d},\n", .{self.reference_count});
 
     try writer.splatByteAll(' ', indent);
     try writer.writeAll("}");

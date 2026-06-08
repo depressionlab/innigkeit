@@ -9,6 +9,7 @@ pub const apps: []const AppDescription = &.{
     .{ .name = "shader_demo" },
     .{ .name = "wm" },
     .{ .name = "installer" },
+    .{ .name = "tcp_echo" },
     .{
         .name = "doom",
         .configuration = .{ .custom = @import("doom/custom.zig").custom },

@@ -960,7 +960,7 @@ pub const Ext4 = struct {
             return error.IoError;
     }
 
-    /// Append a directory entry for `name` → `child_ino` in `dir_ino`.
+    /// Append a directory entry for `name` -> `child_ino` in `dir_ino`.
     /// Only works when the last directory block has enough space; otherwise
     /// allocates a new block.
     fn addDirEntry(self: *Ext4, dir_ino: u32, name: []const u8, child_ino: u32, file_type: u8) !void {
@@ -1026,8 +1026,8 @@ pub const Ext4 = struct {
         try self.writeInode(dir_ino, &dir);
     }
 
-    /// Append a single leaf extent mapping logical block `lb` → physical `pb`
-    /// into the inode's inline extent tree.  Panics if the tree is full (>4 extents).
+    /// Append a single leaf extent mapping logical block `lb` -> physical `pb`
+    /// into the inode's inline extent tree. Panics if the tree is full (>4 extents).
     fn appendExtent(self: *const Ext4, inode: *const Inode, inode_num: u32, lb: u32, pb: u64) !void {
         var i_block = inode.i_block;
         var hdr: ExtentHeader = undefined;

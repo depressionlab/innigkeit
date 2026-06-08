@@ -1,0 +1,8 @@
+name = "rust_cat"
+version = "0.1.0"
+description = "cat utility in Rust (no_std)"
+
+[entitlements]
+spawn = false
+
+[trust]

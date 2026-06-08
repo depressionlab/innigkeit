@@ -184,7 +184,7 @@ pub fn allocateMany(self: *RawCache, items: [][]u8) AllocateError!void {
 
     log.verbose("{s}: allocating {} items", .{ self.name(), items.len });
 
-    var allocated_items: std.ArrayListUnmanaged([]u8) = .initBuffer(items);
+    var allocated_items: std.ArrayList([]u8) = .initBuffer(items);
     errdefer self.deallocateMany(allocated_items.items);
 
     self.lock.lock();

@@ -38,6 +38,23 @@ pub fn build(b: *std.Build) !void {
 
     try QEMU.registerQemuSteps(b, image_steps, options, architectures);
 
+    {
+        const native_test_step = b.step("test_native", "Run native (host) unit tests without QEMU");
+        for (&[_]struct { name: []const u8, path: []const u8 }{
+            .{ .name = "tcp_segment", .path = "src/innigkeit/net/tcp/Segment.zig" },
+        }) |entry| {
+            const mod = b.createModule(.{ .root_source_file = b.path(entry.path) });
+            mod.resolved_target = b.resolveTargetQuery(.{});
+            const test_exe = b.addTest(.{
+                .name = entry.name,
+                .root_module = mod,
+            });
+            const run = b.addRunArtifact(test_exe);
+            native_test_step.dependOn(&run.step);
+            wrapper.tools_test_step.dependOn(&run.step);
+        }
+    }
+
     // Test steps: build a test kernel (builtin.is_test = true), assemble a disk
     // image, and run it in QEMU. Exit code 1 = all tests passed.
     inline for (.{

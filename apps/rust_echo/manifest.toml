@@ -1,0 +1,9 @@
+name = "rust_echo"
+version = "0.1.0"
+description = "Network echo server in Rust (no_std)"
+
+[entitlements]
+network = true
+spawn = false
+
+[trust]

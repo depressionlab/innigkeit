@@ -1,0 +1,8 @@
+name = "hello_world"
+version = "0.1.0"
+description = "Hello world demonstration app"
+
+[entitlements]
+spawn = false
+
+[trust]

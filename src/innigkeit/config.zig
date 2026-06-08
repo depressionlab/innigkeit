@@ -77,4 +77,17 @@ pub const capabilities = struct {
     pub const null_slot: u32 = std.math.maxInt(u32);
 };
 
+pub const security = struct {
+    /// When true, `spawn` refuses the load binaries that have no `.codesig`
+    /// sidecar in initfs, or whose signature fails Ed25519 verification.
+    /// Off by default in Debug so unsigned development builds still boot.
+    pub const enforce_code_signing: bool = builtin.mode != .Debug;
+
+    /// When true, syscalls that require an entitlement the process was not
+    /// granted return EPERM instead of silently succeeding.
+    /// Off by default in Debug for the same reason.
+    pub const enforce_entitlements: bool = builtin.mode != .Debug;
+};
+
 const std = @import("std");
+const builtin = @import("builtin");

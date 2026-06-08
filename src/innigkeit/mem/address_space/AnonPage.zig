@@ -41,7 +41,7 @@ pub fn create(physical_page: PhysicalPage.Index) !*AnonPage {
 pub fn incrementReferenceCount(self: *AnonPage) void {
     if (core.is_debug) {
         std.debug.assert(self.reference_count != 0);
-        std.debug.assert(self.lock.isLockedByCurrent());
+        std.debug.assert(self.lock.isWriteLocked());
     }
 
     self.reference_count += 1;

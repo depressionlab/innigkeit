@@ -1,0 +1,9 @@
+name = "tcp_echo"
+version = "0.1.0"
+description = "Listens on port 7777, echoes all received data"
+
+[entitlements]
+network = true
+spawn = false
+
+[trust]

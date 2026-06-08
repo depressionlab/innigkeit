@@ -1,0 +1,18 @@
+.{
+    .name = .innigkeit_hello,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.16.0",
+    .fingerprint = 0x794217736b93c6da,
+    .dependencies = .{
+        // Path dependency for local development alongside the SDK.
+        // When distributing, replace with a git+URL + hash pointing to the
+        // published SDK release.
+        .innigkeit_sdk = .{ .path = ".." },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "manifest.toml",
+    },
+}

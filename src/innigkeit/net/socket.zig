@@ -1,10 +1,10 @@
-//! Kernel UDP socket table and ARP cache.
+//! Kernel network socket table: UDP and TCP.
 //!
 //! Provides:
-//!  - openSocket / closeSocket: allocate/free a UDP port binding
-//!  - sendUdp: ARP-resolving send (yields to poll thread if ARP miss)
-//!  - recvUdp: non-blocking single-frame receive
+//!  - UDP: openSocket / closeSocket, sendUdp, recvUdp
+//!  - TCP: openTcpListener, openTcpConnect, tcpAccept, tcpSend, tcpRecv, closeTcp
 //!  - handleFrame: passed to virtio.net.pollRx; dispatches inbound frames
+//!  - arpLookup: shared ARP cache lookup used by TCP
 //!
 //! All functions are safe to call from syscall handlers (user-thread context) or
 //! from the dedicated net-poll kernel thread. A single TicketSpinLock protects
@@ -17,6 +17,7 @@ const arp_pkt = @import("arp.zig");
 const ip4 = @import("ipv4.zig");
 const udp_pkt = @import("udp.zig");
 const icmp_pkt = @import("icmp.zig");
+const tcp_sock = @import("tcp/Socket.zig");
 
 const log = innigkeit.debug.log.scoped(.net_socket);
 
@@ -254,7 +255,8 @@ fn handleIp(payload: []const u8) void {
     switch (pkt.proto) {
         .udp => handleUdp(pkt.src, pkt.payload),
         .icmp => handleIcmp(pkt.src, payload, pkt.payload),
-        else => {},
+        .tcp => tcp_sock.handleSegment(pkt.src, pkt.dst, pkt.payload),
+        _ => {},
     }
 }
 
@@ -358,6 +360,34 @@ fn lookupArpCache(ip: [4]u8) ?[6]u8 {
         if (e.valid and std.mem.eql(u8, &e.ip, &ip)) return e.mac;
     }
     return null;
+}
+
+/// Public ARP lookup used by tcp/Socket.zig (no lock held here; Socket.zig
+/// calls this outside its own lock).
+pub fn arpLookup(ip: [4]u8) ?[6]u8 {
+    return lookupArpCache(ip);
+}
+
+pub fn openTcpListener(port: u16) ?u8 {
+    return tcp_sock.openListener(port);
+}
+pub fn openTcpConnect(src_port: u16, dst_ip: [4]u8, dst_port: u16) ?u8 {
+    return tcp_sock.openConnect(src_port, dst_ip, dst_port);
+}
+pub fn tcpWaitConnected(id: u8) bool {
+    return tcp_sock.waitConnected(id);
+}
+pub fn tcpAccept(listener_id: u8) ?u8 {
+    return tcp_sock.accept(listener_id);
+}
+pub fn tcpSend(id: u8, data: []const u8) usize {
+    return tcp_sock.sendData(id, data);
+}
+pub fn tcpRecv(id: u8, buf: []u8) u16 {
+    return tcp_sock.recvData(id, buf);
+}
+pub fn closeTcp(id: u8) void {
+    return tcp_sock.closeSocket(id);
 }
 
 /// Resolve dst_ip -> MAC.  Sends an ARP request if not cached; yields up to 100
