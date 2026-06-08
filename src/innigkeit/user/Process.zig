@@ -74,6 +74,21 @@ pub fn create(options: CreateOptions) !*Process {
         const process = try globals.cache.allocate();
         errdefer globals.cache.deallocate(process);
 
+        // Slab slots are reused without re-running the constructor, so stale
+        // entitlements from a previous spawned process persist on reuse.
+        // Explicitly reset to full trust here; spawn overwrites with codesig.
+        process.entitlements = .{
+            .framebuffer = true,
+            .storage = true,
+            .network = true,
+            .keyboard = true,
+            .mouse = true,
+            .spawn = true,
+            .gpu = true,
+            .secure_vault = true,
+            .internal_service = true,
+        };
+
         if (core.is_debug) std.debug.assert(process.reference_count.load(.monotonic) == 0);
 
         process.name = options.name;

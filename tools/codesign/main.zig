@@ -175,7 +175,7 @@ fn cmdSign(init: std.process.Init, elf_path: []const u8, manifest_path: []const 
     blob.elf_hash = digest;
     blob.entitlements_raw = entitlements_raw;
 
-    // Signed message: elf_sha256 || entitlements_le64 || key_id_le32
+    // Signed message: elf_hash || entitlements_le64 || key_id_le32
     var msg: [44]u8 = undefined;
     @memcpy(msg[0..32], &blob.elf_hash);
     std.mem.writeInt(u64, msg[32..40], blob.entitlements_raw, .little);

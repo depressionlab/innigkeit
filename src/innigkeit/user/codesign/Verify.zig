@@ -56,7 +56,7 @@ test "verify: tampered signature is rejected" {
     @memcpy(&blob.magic, &@import("SigBlob.zig").magic);
     blob.entitlements_raw = @bitCast(Manifest.Entitlements{});
     blob.key_id = 0;
-    Blake3.hash(&elf, &blob.elf_sha256, .{});
+    Blake3.hash(&elf, &blob.elf_hash, .{});
     // blob.signature stays all-zero: cryptographically invalid.
 
     var sig_bytes: [SigBlob.size]u8 = undefined;

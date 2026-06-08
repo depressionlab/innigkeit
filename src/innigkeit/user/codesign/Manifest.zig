@@ -18,7 +18,7 @@ pub const Entitlements = packed struct(u64) {
     /// May call `framebuffer_map`
     framebuffer: bool = false, // bit 0
     /// May call `blk_write`
-    storage: bool = true, // bit 1
+    storage: bool = false, // bit 1
     /// May call any `net_*` syscall
     network: bool = false, // bit 2
     /// May call `kbd_read`

@@ -4,6 +4,7 @@ const std = @import("std");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
 
+const Message = @import("Message.zig").Message;
 const ObjectType = @import("ObjectType.zig").ObjectType;
 const Rights = @import("Rights.zig").Rights;
 const Slot = @import("Slot.zig").Slot;
@@ -202,6 +203,48 @@ pub fn unrefObject(cap_type: ObjectType, ptr: *anyopaque) void {
         .null => unreachable,
         inline else => |tag| @as(*TypeForTag(tag), @ptrCast(@alignCast(ptr))).unref(),
     }
+}
+
+/// Transfer capability handles embedded in `msg` from `sender_task` to `receiver_task`.
+///
+/// Holds both tables' locks simultaneously for the entire transfer to prevent
+/// TOCTOU races with concurrent revocation. Locks are acquired in ascending
+/// pointer order to prevent deadlock when src and dst are different tables.
+pub fn transferCaps(msg: *Message, sender_task: *innigkeit.Task, receiver_task: *innigkeit.Task) void {
+    if (sender_task.type != .user or receiver_task.type != .user) return;
+
+    const src_table = innigkeit.user.Process.from(sender_task).cap_table;
+    const dst_table = innigkeit.user.Process.from(receiver_task).cap_table;
+
+    const same = @intFromPtr(src_table) == @intFromPtr(dst_table);
+    if (!same) {
+        if (@intFromPtr(src_table) < @intFromPtr(dst_table)) {
+            src_table.lock.lock();
+            dst_table.lock.lock();
+        } else {
+            dst_table.lock.lock();
+            src_table.lock.lock();
+        }
+    } else {
+        src_table.lock.lock();
+    }
+
+    for (&msg.caps) |*handle| {
+        if (handle.* == 0) continue;
+        const info = src_table.getAndRefLocked(handle.*) orelse {
+            handle.* = 0;
+            continue;
+        };
+        const new_handle = dst_table.insertLocked(info.cap_type, info.ptr, info.rights) catch {
+            unrefObject(info.cap_type, info.ptr);
+            handle.* = 0;
+            continue;
+        };
+        handle.* = new_handle;
+    }
+
+    src_table.lock.unlock();
+    if (!same) dst_table.lock.unlock();
 }
 
 const Notify = @import("types/Notify.zig");

@@ -59,7 +59,7 @@ This caused the envp pointer table to overlap the string data region, corrupting
     - [ ] blake2b hash
     - [ ] track `limine.conf` as a build input
     - [ ] programmatic `limine.conf`
-  - [ ] EFI stub?
+  - [ ] EFI stub
   - [ ] multiboot for grub support, mayb (ew)
 - target bios
   - [x] uefi
@@ -75,18 +75,18 @@ This caused the envp pointer table to overlap the string data region, corrupting
   - [x] basic serial support
   - [x] io terminal support + colors
   - [ ] better display support
-  - [ ] some sort of graphics library (basicgl)
-  - [ ] window manager and maybe some cool tuis as well
+  - [x] some sort of graphics library (basicgl)
+  - [x] window manager and maybe some cool tuis as well
   - [ ] physics engine???
-  - [ ] make it run DOOM
+  - [x] make it run DOOM
 - userspace support
-  - [ ] export libraries needed so that all the apps aren't in the same repo
+  - [x] export libraries needed so that all the apps aren't in the same repo
   - [ ] good, fast syscalls
   - [ ] good standard library support
   - [ ] good Zig support
-  - [ ] print hello world from the user level
-  - [ ] make a small CLI
-  - [ ] re-implement a small CLI
+  - [x] print hello world from the user level
+  - [x] make a small CLI
+  - [x] re-implement a small CLI
   - [ ] create a target to build existing apps for innigkeit
 
 ## q & a

@@ -6,10 +6,10 @@
 //!   magic        [8]u8   "IKSIG\x01\x00\x00"
 //!   key_id       u32     key slot (0 = default embedded key)
 //!   flags        u32     reserved, must be 0
-//!   elf_sha256   [32]u8  SHA-256 of the full ELF binary
+//!   elf_hash     [32]u8  Blake3 hash of the full ELF binary
 //!   entitlements u64     packed Entitlements struct
 //!   _pad         [24]u8  reserved, must be 0
-//!   signature    [64]u8  Ed25519 over (elf_sha256 || entitlements_le || key_id_le)
+//!   signature    [64]u8  Ed25519 over (elf_hash || entitlements_le || key_id_le)
 
 const std = @import("std");
 const Manifest = @import("Manifest.zig");
@@ -39,11 +39,11 @@ pub const SigBlob = extern struct {
     }
 
     pub fn entitlements(self: *const SigBlob) Manifest.Entitlements {
-        return @bitCast(std.mem.readInt(u64, &std.mem.toBytes(self.entitlements_raw), .little));
+        return @bitCast(self.entitlements_raw);
     }
 
     /// Build the 44-byte message that Ed25519 signs/verifies.
-    /// message = elf_sha256(32) || entitlements_le64(8) || key_id_le32(4)
+    /// message = elf_hash(32) || entitlements_le64(8) || key_id_le32(4)
     pub fn signedMessage(self: *const SigBlob) [44]u8 {
         var msg: [44]u8 = undefined;
         @memcpy(msg[0..32], &self.elf_hash);
@@ -75,12 +75,12 @@ test "sig_blob: size and layout" {
 
 test "sig_blob: signed_message covers expected fields" {
     var blob: SigBlob = std.mem.zeroes(SigBlob);
-    blob.elf_sha256 = [_]u8{0xAB} ** 32;
+    blob.elf_hash = [_]u8{0xAB} ** 32;
     blob.entitlements_raw = 0x0102030405060708;
     blob.key_id = 0xDEADBEEF;
 
     const msg = blob.signedMessage();
-    try std.testing.expectEqualSlices(u8, &blob.elf_sha256, msg[0..32]);
+    try std.testing.expectEqualSlices(u8, &blob.elf_hash, msg[0..32]);
     try std.testing.expectEqual(blob.entitlements_raw, std.mem.readInt(u64, msg[32..40], .little));
     try std.testing.expectEqual(blob.key_id, std.mem.readInt(u32, msg[40..44], .little));
 }

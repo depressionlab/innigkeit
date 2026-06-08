@@ -356,7 +356,7 @@ pub const Ext4 = struct {
     // Iterative descent: reuses a single scratch buffer per level, so stack
     // usage is O(1) regardless of depth. Max depth enforced at MAX_EXTENT_DEPTH.
 
-    fn mapBlock(self: *const Ext4, inode: *const Inode, logical: u32) !u32 {
+    fn mapBlock(self: *const Ext4, inode: *const Inode, logical: u32) !u64 {
         if (inode.flags & EXT4_EXTENTS_FL == 0) {
             if (inode.flags & EXT4_INLINE_DATA_FL != 0) return 0; // inline, handled above
             return error.IndirectBlocksUnsupported;
@@ -412,8 +412,7 @@ pub const Ext4 = struct {
             if (logical >= ee_block and logical < ee_block + ee_len) {
                 const start_lo = std.mem.littleToNative(u32, ext.start_lo);
                 const start_hi = std.mem.littleToNative(u16, ext.start_hi);
-                const phys: u64 = (@as(u64, start_hi) << 32 | start_lo) + (logical - ee_block);
-                return @intCast(phys);
+                return (@as(u64, start_hi) << 32 | start_lo) + (logical - ee_block);
             }
         }
         return 0; // sparse hole

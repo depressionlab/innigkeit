@@ -223,6 +223,9 @@ pub fn allocateMany(self: *RawCache, items: [][]u8) AllocateError!void {
 
                         log.warn("{s}: failed to add large item to lookup table", .{self.name()});
 
+                        // Release the lock before returning so the errdefer
+                        // (deallocateMany) can re-acquire it without deadlocking.
+                        self.lock.unlock();
                         return error.LargeItemAllocationFailed;
                     };
 

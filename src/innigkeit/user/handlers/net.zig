@@ -55,11 +55,13 @@ pub fn syscallNetSetIp(ip_u32: usize) usize {
     return 0;
 }
 
-pub fn syscallNetGetMac(buf_ptr: usize) usize {
+pub fn syscallNetGetMac(buf_ptr: usize, current_task: innigkeit.Task.Current) usize {
     const mac = innigkeit.drivers.virtio.net.getMac() orelse return errCode(e.ENODEV);
     if (!validateUserBuffer(buf_ptr, 6)) return errCode(e.EFAULT);
+    current_task.incrementEnableAccessToUserMemory();
     const dst: [*]u8 = @ptrFromInt(buf_ptr);
     @memcpy(dst[0..6], mac);
+    current_task.decrementEnableAccessToUserMemory();
     return 0;
 }
 
@@ -69,25 +71,22 @@ pub fn syscallNetUdpOpen(port_raw: usize) usize {
     return id;
 }
 
-pub fn syscallNetUdpSend(
-    sock_id: usize,
-    dst_ip_u32: usize,
-    dst_port_raw: usize,
-    buf_ptr: usize,
-    buf_len: usize,
-) usize {
+pub fn syscallNetUdpSend(sock_id: usize, dst_ip_u32: usize, dst_port_raw: usize, buf_ptr: usize, buf_len: usize, current_task: innigkeit.Task.Current) usize {
     const id: u8 = @intCast(sock_id & 0xFF);
     const dst_port: u16 = @truncate(dst_port_raw);
 
     const ip_be: u32 = @truncate(dst_ip_u32);
     const dst_ip: [4]u8 = @bitCast(std.mem.nativeToBig(u32, ip_be));
 
+    if (buf_len > socket.MAX_PAYLOAD) return errCode(e.EINVAL);
     if (!validateUserBuffer(buf_ptr, buf_len)) return errCode(e.EFAULT);
 
-    const data: []const u8 = @as([*]const u8, @ptrFromInt(buf_ptr))[0..buf_len];
-    if (data.len > socket.MAX_PAYLOAD) return errCode(e.EINVAL);
+    var bounce: [socket.MAX_PAYLOAD]u8 = undefined;
+    current_task.incrementEnableAccessToUserMemory();
+    @memcpy(bounce[0..buf_len], @as([*]const u8, @ptrFromInt(buf_ptr))[0..buf_len]);
+    current_task.decrementEnableAccessToUserMemory();
 
-    const ok = socket.sendUdp(id, dst_ip, dst_port, data);
+    const ok = socket.sendUdp(id, dst_ip, dst_port, bounce[0..buf_len]);
     return if (ok) 0 else errCode(e.ENODEV);
 }
 
@@ -96,20 +95,25 @@ pub fn syscallNetUdpRecv(
     from_ptr: usize,
     buf_ptr: usize,
     buf_len: usize,
+    current_task: innigkeit.Task.Current,
 ) usize {
     const id: u8 = @intCast(sock_id & 0xFF);
 
     if (!validateUserBuffer(from_ptr, @sizeOf(NetFrom))) return errCode(e.EFAULT);
     if (!validateUserBuffer(buf_ptr, buf_len)) return errCode(e.EFAULT);
 
+    var bounce: [socket.MAX_PAYLOAD]u8 = undefined;
+    const recv_len = @min(buf_len, socket.MAX_PAYLOAD);
     var from: socket.RecvFrom = .{ .ip = .{0} ** 4, .port = 0 };
-    const buf: []u8 = @as([*]u8, @ptrFromInt(buf_ptr))[0..buf_len];
-    const bytes = socket.recvUdp(id, buf, &from) orelse return errCode(e.EWOULDBLOCK);
+    const bytes = socket.recvUdp(id, bounce[0..recv_len], &from) orelse return errCode(e.EWOULDBLOCK);
 
+    current_task.incrementEnableAccessToUserMemory();
+    @memcpy(@as([*]u8, @ptrFromInt(buf_ptr))[0..bytes], bounce[0..bytes]);
     const nf: *NetFrom = @ptrFromInt(from_ptr);
     nf.ip = from.ip;
     nf.port = from.port;
     nf._pad = 0;
+    current_task.decrementEnableAccessToUserMemory();
 
     return bytes;
 }

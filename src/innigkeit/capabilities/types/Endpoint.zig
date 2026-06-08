@@ -70,53 +70,8 @@ pub fn unref(self: *Endpoint) void {
     innigkeit.mem.heap.allocator.destroy(self);
 }
 
-/// Transfer capability handles embedded in `msg` from `sender_task` to `receiver_task`.
-///
-/// For each non-zero caps[i]: copies the cap from sender's cap table into receiver's
-/// cap table with the same rights, then updates caps[i] to the new handle.
-/// If the copy fails (table full, cap not found, or revoked), caps[i] is set to 0.
-/// Skips transfer if either task is a kernel task (no process/cap table).
-///
-/// Holds both tables' locks for the duration to avoid TOCTOU races.
 fn transferCaps(msg: *Message, sender_task: *innigkeit.Task, receiver_task: *innigkeit.Task) void {
-    if (sender_task.type != .user or receiver_task.type != .user) return;
-
-    const CapabilityTable = innigkeit.capabilities.CapabilityTable;
-    const src_table = innigkeit.user.Process.from(sender_task).cap_table;
-    const dst_table = innigkeit.user.Process.from(receiver_task).cap_table;
-
-    // Lock in ascending pointer order to prevent deadlock.
-    const same = @intFromPtr(src_table) == @intFromPtr(dst_table);
-    if (!same) {
-        if (@intFromPtr(src_table) < @intFromPtr(dst_table)) {
-            src_table.lock.lock();
-            dst_table.lock.lock();
-        } else {
-            dst_table.lock.lock();
-            src_table.lock.lock();
-        }
-    } else {
-        src_table.lock.lock();
-    }
-
-    for (&msg.caps) |*handle| {
-        if (handle.* == 0) continue;
-        // getAndRefLocked validates generation (revocation) and bumps refcount for dst.
-        const info = src_table.getAndRefLocked(handle.*) orelse {
-            handle.* = 0;
-            continue;
-        };
-        // info.ptr is already ref'd; that ref is transferred to dst_table.insertLocked.
-        const new_handle = dst_table.insertLocked(info.cap_type, info.ptr, info.rights) catch {
-            CapabilityTable.unrefObject(info.cap_type, info.ptr);
-            handle.* = 0;
-            continue;
-        };
-        handle.* = new_handle;
-    }
-
-    src_table.lock.unlock();
-    if (!same) dst_table.lock.unlock();
+    innigkeit.capabilities.CapabilityTable.transferCaps(msg, sender_task, receiver_task);
 }
 
 /// Send a message and block until the receiver calls recv().

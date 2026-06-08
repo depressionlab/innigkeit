@@ -1303,7 +1303,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 arch_frame.rax = errCode(e.EPERM);
                 return;
             }
-            arch_frame.rax = handlers.net.syscallNetGetMac(syscall_frame.arg(.one));
+            arch_frame.rax = handlers.net.syscallNetGetMac(syscall_frame.arg(.one), current_task);
         },
 
         // ------------------------------------------------------------------ //
@@ -1333,6 +1333,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 syscall_frame.arg(.three),
                 syscall_frame.arg(.four),
                 syscall_frame.arg(.five),
+                current_task_net_send,
             );
         },
 
@@ -1350,6 +1351,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 syscall_frame.arg(.two),
                 syscall_frame.arg(.three),
                 syscall_frame.arg(.four),
+                current_task_net_recv,
             );
         },
 
