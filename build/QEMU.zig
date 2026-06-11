@@ -187,7 +187,7 @@ pub fn buildTestQemuStep(
     run.stdio = .infer_from_args;
     switch (arch) {
         .x64 => run.expectExitCode(1), // (0 << 1) | 1 = 1 means all tests passed
-        .arm => {}, // semihosting SYS_EXIT subcode 0 → QEMU exits 0 (default success)
+        .arm => {}, // semihosting SYS_EXIT subcode 0 -> QEMU exits 0 (default success)
         .riscv => {},
     }
     return run;

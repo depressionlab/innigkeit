@@ -103,8 +103,11 @@ fn pageFree(
     _: usize,
 ) void {
     const aligned = pageAlignUp(memory.len);
-    _ = innigkeit.Syscall.invoke(
+    const ret = innigkeit.Syscall.invoke(
         .munmap,
         .{ @intFromPtr(memory.ptr), aligned },
     );
+    // Freeing a valid allocation must not fail; surface kernel/allocator bugs
+    // in debug builds instead of silently leaking the mapping.
+    std.debug.assert(ret >= 0);
 }

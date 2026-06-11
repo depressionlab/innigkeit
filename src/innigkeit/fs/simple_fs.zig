@@ -91,19 +91,21 @@ fn findFreeSlot(dir_buf: *const [512]u8) ?usize {
 /// Scans the directory to find the highest used sector, then places the new
 /// file immediately after. Returns the start sector or an error.
 fn allocateSectors(dir_buf: *const [512]u8, sector_count: u32) !u32 {
-    var high_sector: u32 = DATA_START_SECTOR;
+    // Widen to u64 throughout: `size` and `start_sector` come from disk, so
+    // hostile values must not be able to wrap the end-of-file computation
+    // below an existing file's start and defeat the bounds check.
+    var high_sector: u64 = DATA_START_SECTOR;
 
     for (0..MAX_ENTRIES) |i| {
         const entry: *const DirEntry = @ptrCast(@alignCast(dir_buf[i * ENTRY_SIZE ..][0..ENTRY_SIZE]));
         if (!entry.isInUse()) continue;
-        const file_sectors = (entry.size + 511) / 512;
+        const file_sectors = (@as(u64, entry.size) + 511) / 512;
         const end = entry.start_sector + file_sectors;
         if (end > high_sector) high_sector = end;
     }
 
-    const start = high_sector;
-    if (start + sector_count > DATA_END_SECTOR) return error.NoSpace;
-    return start;
+    if (high_sector + sector_count > DATA_END_SECTOR) return error.NoSpace;
+    return @intCast(high_sector);
 }
 
 /// Flags for open().
@@ -272,4 +274,33 @@ pub fn close(file: *OpenFile) void {
             log.debug("simple_fs close: sync failed: {t}", .{err});
         };
     }
+}
+
+/// Test helper: write a directory entry into slot `idx` of a raw dir sector.
+fn writeTestEntry(dir_buf: *[512]u8, idx: usize, name: []const u8, size: u32, start_sector: u32) void {
+    var entry: DirEntry = .{
+        .name = [_]u8{0} ** 16,
+        .size = size,
+        .start_sector = start_sector,
+        .flags = 1, // in use
+    };
+    @memcpy(entry.name[0..name.len], name);
+    @memcpy(dir_buf[idx * ENTRY_SIZE ..][0..ENTRY_SIZE], std.mem.asBytes(&entry));
+}
+
+test "simple_fs: allocateSectors bounds check does not wrap near u32 max" {
+    var dir_buf: [512]u8 align(@alignOf(DirEntry)) = [_]u8{0} ** 512;
+
+    // Empty directory: allocation starts at the first data sector.
+    try std.testing.expectEqual(@as(u32, DATA_START_SECTOR), try allocateSectors(&dir_buf, 4));
+
+    // Normal entry: 1024 bytes starting at sector 2 occupy sectors 2..3,
+    // so the next allocation begins at sector 4.
+    writeTestEntry(&dir_buf, 0, "a", 1024, DATA_START_SECTOR);
+    try std.testing.expectEqual(@as(u32, 4), try allocateSectors(&dir_buf, 1));
+
+    // Hostile on-disk entry near u32 max: start + sector count must not
+    // wrap below DATA_END_SECTOR and defeat the bounds check.
+    writeTestEntry(&dir_buf, 1, "evil", std.math.maxInt(u32), std.math.maxInt(u32));
+    try std.testing.expectError(error.NoSpace, allocateSectors(&dir_buf, 1));
 }

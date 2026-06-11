@@ -4,21 +4,21 @@ const Color = innigkeit.graphics.Color;
 const Canvas = innigkeit.graphics.Canvas;
 const MouseEvent = innigkeit.display.MouseEvent;
 
-const C_BG_TOP: Color = .{ .r = 10, .g = 13, .b = 28 };
-const C_BG_BOT: Color = .{ .r = 5, .g = 7, .b = 16 };
-const C_MB_BG: Color = .{ .r = 16, .g = 18, .b = 28 };
-const C_MB_SEP: Color = .{ .r = 45, .g = 48, .b = 65 };
-const C_MB_FG: Color = .{ .r = 205, .g = 208, .b = 218 };
-const C_MB_DIM: Color = .{ .r = 95, .g = 98, .b = 115 };
-const C_DOCK_BG: Color = .{ .r = 20, .g = 22, .b = 35 };
-const C_DOCK_SEP: Color = .{ .r = 45, .g = 48, .b = 65 };
-const C_SEL: Color = .{ .r = 55, .g = 110, .b = 215 };
-const C_SEL_RIM: Color = .{ .r = 80, .g = 140, .b = 240 };
-const C_LABEL: Color = .{ .r = 190, .g = 192, .b = 205 };
-const C_RUN_DOT: Color = .{ .r = 75, .g = 185, .b = 255 };
-const C_WHITE: Color = .{ .r = 245, .g = 246, .b = 252 };
-const C_CURSOR: Color = .{ .r = 255, .g = 255, .b = 255 };
-const C_CURSOR_SH: Color = .{ .r = 0, .g = 0, .b = 0 };
+const C_BG_TOP: Color = .init(10, 13, 28);
+const C_BG_BOT: Color = .init(5, 7, 16);
+const C_MB_BG: Color = .init(16, 18, 28);
+const C_MB_SEP: Color = .init(45, 48, 65);
+const C_MB_FG: Color = .init(205, 208, 218);
+const C_MB_DIM: Color = .init(95, 98, 115);
+const C_DOCK_BG: Color = .init(20, 22, 35);
+const C_DOCK_SEP: Color = .init(45, 48, 65);
+const C_SEL: Color = .init(55, 110, 215);
+const C_SEL_RIM: Color = .init(80, 140, 240);
+const C_LABEL: Color = .init(190, 192, 205);
+const C_RUN_DOT: Color = .init(75, 185, 255);
+const C_WHITE: Color = .init(245, 246, 252);
+const C_CURSOR: Color = .init(255, 255, 255);
+const C_CURSOR_SH: Color = .init(0, 0, 0);
 
 const AppEntry = struct {
     name: [:0]const u8,
@@ -28,12 +28,12 @@ const AppEntry = struct {
 };
 
 const APPS = [_]AppEntry{
-    .{ .name = "shader_demo", .label = "Shader Demo", .abbrev = "SD", .bg = .{ .r = 32, .g = 72, .b = 148 } },
-    .{ .name = "gfx_demo", .label = "Graphics", .abbrev = "GX", .bg = .{ .r = 28, .g = 90, .b = 45 } },
-    .{ .name = "pixels", .label = "Pixels", .abbrev = "PX", .bg = .{ .r = 80, .g = 32, .b = 110 } },
-    .{ .name = "calculator", .label = "Calculator", .abbrev = "CA", .bg = .{ .r = 105, .g = 72, .b = 12 } },
-    .{ .name = "doom", .label = "Doom", .abbrev = "DM", .bg = .{ .r = 110, .g = 18, .b = 18 } },
-    .{ .name = "shell", .label = "Terminal", .abbrev = "SH", .bg = .{ .r = 18, .g = 80, .b = 100 } },
+    .{ .name = "shader_demo", .label = "Shader Demo", .abbrev = "SD", .bg = .init(32, 72, 148) },
+    .{ .name = "gfx_demo", .label = "Graphics", .abbrev = "GX", .bg = .init(28, 90, 45) },
+    .{ .name = "pixels", .label = "Pixels", .abbrev = "PX", .bg = .init(80, 32, 110) },
+    .{ .name = "calculator", .label = "Calculator", .abbrev = "CA", .bg = .init(105, 72, 12) },
+    .{ .name = "doom", .label = "Doom", .abbrev = "DM", .bg = .init(110, 18, 18) },
+    .{ .name = "shell", .label = "Terminal", .abbrev = "SH", .bg = .init(18, 80, 100) },
 };
 
 const MB_H: u32 = 28; // menu bar height
@@ -209,7 +209,7 @@ fn drawDesktop(c: Canvas, W: u32, H: u32, sel: ?usize) void {
     }
 }
 
-// Draw a full-screen "launching <name>…" splash to give immediate feedback.
+// Draw a full-screen "launching <name>..." splash to give immediate feedback.
 fn drawLaunchSplash(c: Canvas, W: u32, H: u32, app: *const AppEntry) void {
     c.fillRect(0, 0, W, H, C_BG_BOT);
     // Large icon in center
@@ -217,7 +217,7 @@ fn drawLaunchSplash(c: Canvas, W: u32, H: u32, app: *const AppEntry) void {
     const ix: u32 = (W -| ic) / 2;
     const iy: u32 = (H -| ic) / 2 -| 20;
     drawAppIcon(c, ix, iy, ic, 18, app.*, 3, false);
-    // "Launching…" label
+    // "Launching..." label
     const msg = "Launching...";
     const mw = Canvas.textWidth(msg) * 2;
     c.drawTextScaled((W -| mw) / 2, iy + ic + 16, msg, 2, C_LABEL, null);

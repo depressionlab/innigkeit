@@ -71,16 +71,15 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 return;
             }
 
-            if (!validateUserBuffer(buf_ptr, buf_len)) {
+            // The terminal writer consumes the user buffer in place, so keep a
+            // single explicit access window around the streaming write.
+            const buffer = validate.userSliceConst(buf_ptr, buf_len) catch {
                 arch_frame.rax = errCode(e.EFAULT);
                 return;
-            }
+            };
 
-            const current_task: innigkeit.Task.Current = .get();
-            current_task.incrementEnableAccessToUserMemory();
-            defer current_task.decrementEnableAccessToUserMemory();
-
-            const buffer: []const u8 = @as([*]const u8, @ptrFromInt(buf_ptr))[0..buf_len];
+            const access: validate.UserAccess = .acquire();
+            defer access.release();
 
             // TODO: route through per-process file descriptor table.
             const output = innigkeit.init.Output.terminal;
@@ -120,16 +119,15 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 return;
             }
 
-            if (!validateUserBuffer(buf_ptr, buf_len)) {
+            // The keyboard driver fills the user buffer in place, so keep a
+            // single explicit access window around the streaming read.
+            const buffer = validate.userSlice(buf_ptr, buf_len) catch {
                 arch_frame.rax = errCode(e.EFAULT);
                 return;
-            }
+            };
 
-            const current_task: innigkeit.Task.Current = .get();
-            current_task.incrementEnableAccessToUserMemory();
-            defer current_task.decrementEnableAccessToUserMemory();
-
-            const buffer: []u8 = @as([*]u8, @ptrFromInt(buf_ptr))[0..buf_len];
+            const access: validate.UserAccess = .acquire();
+            defer access.release();
 
             const bytes_read = innigkeit.drivers.input.ps2.keyboard_buffer.readLine(buffer);
             arch_frame.rax = @intCast(bytes_read);
@@ -271,14 +269,10 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                                 arch_frame.rax = errCode(e.EPERM);
                                 return;
                             }
-                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
+                            const msg = validate.readUser(innigkeit.capabilities.Message, arg3) catch {
                                 arch_frame.rax = errCode(e.EFAULT);
                                 return;
-                            }
-                            const msg_uptr: *const innigkeit.capabilities.Message = @ptrFromInt(arg3);
-                            current_task.incrementEnableAccessToUserMemory();
-                            const msg = msg_uptr.*;
-                            current_task.decrementEnableAccessToUserMemory();
+                            };
                             reply_cap.send(msg) catch {
                                 arch_frame.rax = errCode(e.EINVAL); // already replied
                                 return;
@@ -300,15 +294,11 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                                 arch_frame.rax = errCode(e.EPERM);
                                 return;
                             }
-                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
+                            // Copy message out of user memory before blocking.
+                            const msg = validate.readUser(innigkeit.capabilities.Message, arg3) catch {
                                 arch_frame.rax = errCode(e.EFAULT);
                                 return;
-                            }
-                            // Copy message out of user memory before blocking.
-                            const msg_uptr: *const innigkeit.capabilities.Message = @ptrFromInt(arg3);
-                            current_task.incrementEnableAccessToUserMemory();
-                            const msg = msg_uptr.*;
-                            current_task.decrementEnableAccessToUserMemory();
+                            };
                             endpoint.send(msg);
                             arch_frame.rax = 0;
                         },
@@ -317,16 +307,17 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                                 arch_frame.rax = errCode(e.EPERM);
                                 return;
                             }
+                            // Validate before blocking so a bad buffer faults without consuming a message.
                             if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
                                 arch_frame.rax = errCode(e.EFAULT);
                                 return;
                             }
                             // Block first, then copy into user memory.
                             const msg = endpoint.recv();
-                            const msg_uptr: *innigkeit.capabilities.Message = @ptrFromInt(arg3);
-                            current_task.incrementEnableAccessToUserMemory();
-                            msg_uptr.* = msg;
-                            current_task.decrementEnableAccessToUserMemory();
+                            validate.writeUser(arg3, msg) catch {
+                                arch_frame.rax = errCode(e.EFAULT);
+                                return;
+                            };
                             arch_frame.rax = 0;
                         },
                         .call => {
@@ -335,18 +326,17 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                                 return;
                             }
                             // arg3 = pointer to Message (in: request, out: reply).
-                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
+                            // Copy the request out before blocking; copy the
+                            // reply back after unblocking.
+                            const request = validate.readUser(innigkeit.capabilities.Message, arg3) catch {
                                 arch_frame.rax = errCode(e.EFAULT);
                                 return;
-                            }
-                            const msg_uptr: *innigkeit.capabilities.Message = @ptrFromInt(arg3);
-                            current_task.incrementEnableAccessToUserMemory();
-                            const request = msg_uptr.*;
-                            current_task.decrementEnableAccessToUserMemory();
+                            };
                             const reply = endpoint.call(request);
-                            current_task.incrementEnableAccessToUserMemory();
-                            msg_uptr.* = reply;
-                            current_task.decrementEnableAccessToUserMemory();
+                            validate.writeUser(arg3, reply) catch {
+                                arch_frame.rax = errCode(e.EFAULT);
+                                return;
+                            };
                             arch_frame.rax = 0;
                         },
                         .reply => {
@@ -354,14 +344,10 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                                 arch_frame.rax = errCode(e.EPERM);
                                 return;
                             }
-                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
+                            const msg = validate.readUser(innigkeit.capabilities.Message, arg3) catch {
                                 arch_frame.rax = errCode(e.EFAULT);
                                 return;
-                            }
-                            const msg_uptr: *const innigkeit.capabilities.Message = @ptrFromInt(arg3);
-                            current_task.incrementEnableAccessToUserMemory();
-                            const msg = msg_uptr.*;
-                            current_task.decrementEnableAccessToUserMemory();
+                            };
                             endpoint.reply(msg) catch {
                                 arch_frame.rax = errCode(e.EINVAL); // no pending sender
                                 return;
@@ -374,18 +360,17 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                                 return;
                             }
                             // arg3 = pointer to Message (in: reply to send, out: next request).
-                            if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
+                            // Copy the reply out before blocking; copy the
+                            // next request back after unblocking.
+                            const reply_msg = validate.readUser(innigkeit.capabilities.Message, arg3) catch {
                                 arch_frame.rax = errCode(e.EFAULT);
                                 return;
-                            }
-                            const msg_uptr: *innigkeit.capabilities.Message = @ptrFromInt(arg3);
-                            current_task.incrementEnableAccessToUserMemory();
-                            const reply_msg = msg_uptr.*;
-                            current_task.decrementEnableAccessToUserMemory();
+                            };
                             const next_request = endpoint.replyRecv(reply_msg);
-                            current_task.incrementEnableAccessToUserMemory();
-                            msg_uptr.* = next_request;
-                            current_task.decrementEnableAccessToUserMemory();
+                            validate.writeUser(arg3, next_request) catch {
+                                arch_frame.rax = errCode(e.EFAULT);
+                                return;
+                            };
                             arch_frame.rax = 0;
                         },
                         .recv_call => {
@@ -393,6 +378,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                                 arch_frame.rax = errCode(e.EPERM);
                                 return;
                             }
+                            // Validate before blocking so a bad buffer faults without consuming a message.
                             if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
                                 arch_frame.rax = errCode(e.EFAULT);
                                 return;
@@ -400,10 +386,10 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                             // Block until a message arrives.
                             const result = endpoint.recvCall();
                             // Copy message to user memory.
-                            const msg_uptr: *innigkeit.capabilities.Message = @ptrFromInt(arg3);
-                            current_task.incrementEnableAccessToUserMemory();
-                            msg_uptr.* = result.msg;
-                            current_task.decrementEnableAccessToUserMemory();
+                            validate.writeUser(arg3, result.msg) catch {
+                                arch_frame.rax = errCode(e.EFAULT);
+                                return;
+                            };
                             // If the sender used call(), create a Reply cap for them.
                             if (result.sender) |sender_task| {
                                 const reply_cap = innigkeit.capabilities.Reply.create(sender_task) catch {
@@ -449,14 +435,17 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                             const src_len: usize = syscall_frame.arg(.four);
                             const dst_ptr: usize = syscall_frame.arg(.five);
                             const dst_len: usize = syscall_frame.arg(.six);
-                            if (!validateUserBuffer(src_ptr, src_len) or !validateUserBuffer(dst_ptr, dst_len)) {
+                            // The vault streams directly from/to the user buffers, so keep one explicit access window.
+                            const plaintext = validate.userSliceConst(src_ptr, src_len) catch {
                                 arch_frame.rax = errCode(e.EFAULT);
                                 return;
-                            }
-                            const plaintext: []const u8 = @as([*]const u8, @ptrFromInt(src_ptr))[0..src_len];
-                            const out: []u8 = @as([*]u8, @ptrFromInt(dst_ptr))[0..dst_len];
-                            current_task.incrementEnableAccessToUserMemory();
-                            defer current_task.decrementEnableAccessToUserMemory();
+                            };
+                            const out = validate.userSlice(dst_ptr, dst_len) catch {
+                                arch_frame.rax = errCode(e.EFAULT);
+                                return;
+                            };
+                            const access: validate.UserAccess = .acquire();
+                            defer access.release();
                             const written = vault.seal(plaintext, out) catch |err| {
                                 arch_frame.rax = switch (err) {
                                     error.TooBig => errCode(e.EINVAL),
@@ -473,14 +462,18 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                             const src_len: usize = syscall_frame.arg(.four);
                             const dst_ptr: usize = syscall_frame.arg(.five);
                             const dst_len: usize = syscall_frame.arg(.six);
-                            if (!validateUserBuffer(src_ptr, src_len) or !validateUserBuffer(dst_ptr, dst_len)) {
+                            // The vault streams directly from/to the user
+                            // buffers, so keep one explicit access window.
+                            const blob = validate.userSliceConst(src_ptr, src_len) catch {
                                 arch_frame.rax = errCode(e.EFAULT);
                                 return;
-                            }
-                            const blob: []const u8 = @as([*]const u8, @ptrFromInt(src_ptr))[0..src_len];
-                            const out: []u8 = @as([*]u8, @ptrFromInt(dst_ptr))[0..dst_len];
-                            current_task.incrementEnableAccessToUserMemory();
-                            defer current_task.decrementEnableAccessToUserMemory();
+                            };
+                            const out = validate.userSlice(dst_ptr, dst_len) catch {
+                                arch_frame.rax = errCode(e.EFAULT);
+                                return;
+                            };
+                            const access: validate.UserAccess = .acquire();
+                            defer access.release();
                             const written = vault.unseal(blob, out) catch |err| {
                                 arch_frame.rax = switch (err) {
                                     error.TooSmall => errCode(e.EINVAL),
@@ -1455,13 +1448,14 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const sock_id_s: u8 = @truncate(syscall_frame.arg(.one));
             const buf_ptr = syscall_frame.arg(.two);
             const buf_len = syscall_frame.arg(.three);
-            if (!validateUserBuffer(buf_ptr, buf_len)) {
+            // tcpSend consumes the user buffer directly; keep one explicit
+            // access window around the streaming send.
+            const buf_send = validate.userSliceConst(buf_ptr, buf_len) catch {
                 arch_frame.rax = errCode(e.EFAULT);
                 return;
-            }
-            task_tcp_send.incrementEnableAccessToUserMemory();
-            defer task_tcp_send.decrementEnableAccessToUserMemory();
-            const buf_send: []const u8 = @as([*]const u8, @ptrFromInt(buf_ptr))[0..buf_len];
+            };
+            const access: validate.UserAccess = .acquire();
+            defer access.release();
             const sent = innigkeit.net.socket.tcpSend(sock_id_s, buf_send);
             arch_frame.rax = sent;
         },
@@ -1478,13 +1472,14 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const sock_id_r: u8 = @truncate(syscall_frame.arg(.one));
             const buf_ptr = syscall_frame.arg(.two);
             const buf_len = syscall_frame.arg(.three);
-            if (!validateUserBuffer(buf_ptr, buf_len)) {
+            // tcpRecv fills the user buffer directly; keep one explicit
+            // access window around the streaming receive.
+            const buf_recv = validate.userSlice(buf_ptr, buf_len) catch {
                 arch_frame.rax = errCode(e.EFAULT);
                 return;
-            }
-            task_tcp_recv.incrementEnableAccessToUserMemory();
-            defer task_tcp_recv.decrementEnableAccessToUserMemory();
-            const buf_recv: []u8 = @as([*]u8, @ptrFromInt(buf_ptr))[0..buf_len];
+            };
+            const access: validate.UserAccess = .acquire();
+            defer access.release();
             const n = innigkeit.net.socket.tcpRecv(sock_id_r, buf_recv);
             if (n == 0) {
                 arch_frame.rax = errCode(e.EAGAIN);

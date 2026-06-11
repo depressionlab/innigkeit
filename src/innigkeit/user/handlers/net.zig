@@ -56,12 +56,9 @@ pub fn syscallNetSetIp(ip_u32: usize) usize {
 }
 
 pub fn syscallNetGetMac(buf_ptr: usize, current_task: innigkeit.Task.Current) usize {
+    _ = current_task;
     const mac = innigkeit.drivers.virtio.net.getMac() orelse return errCode(e.ENODEV);
-    if (!validateUserBuffer(buf_ptr, 6)) return errCode(e.EFAULT);
-    current_task.incrementEnableAccessToUserMemory();
-    const dst: [*]u8 = @ptrFromInt(buf_ptr);
-    @memcpy(dst[0..6], mac);
-    current_task.decrementEnableAccessToUserMemory();
+    validate.copyToUser(buf_ptr, mac[0..6]) catch return errCode(e.EFAULT);
     return 0;
 }
 
@@ -71,7 +68,15 @@ pub fn syscallNetUdpOpen(port_raw: usize) usize {
     return id;
 }
 
-pub fn syscallNetUdpSend(sock_id: usize, dst_ip_u32: usize, dst_port_raw: usize, buf_ptr: usize, buf_len: usize, current_task: innigkeit.Task.Current) usize {
+pub fn syscallNetUdpSend(
+    sock_id: usize,
+    dst_ip_u32: usize,
+    dst_port_raw: usize,
+    buf_ptr: usize,
+    buf_len: usize,
+    current_task: innigkeit.Task.Current,
+) usize {
+    _ = current_task;
     const id: u8 = @intCast(sock_id & 0xFF);
     const dst_port: u16 = @truncate(dst_port_raw);
 
@@ -79,12 +84,8 @@ pub fn syscallNetUdpSend(sock_id: usize, dst_ip_u32: usize, dst_port_raw: usize,
     const dst_ip: [4]u8 = @bitCast(std.mem.nativeToBig(u32, ip_be));
 
     if (buf_len > socket.MAX_PAYLOAD) return errCode(e.EINVAL);
-    if (!validateUserBuffer(buf_ptr, buf_len)) return errCode(e.EFAULT);
-
     var bounce: [socket.MAX_PAYLOAD]u8 = undefined;
-    current_task.incrementEnableAccessToUserMemory();
-    @memcpy(bounce[0..buf_len], @as([*]const u8, @ptrFromInt(buf_ptr))[0..buf_len]);
-    current_task.decrementEnableAccessToUserMemory();
+    validate.copyFromUser(bounce[0..buf_len], buf_ptr) catch return errCode(e.EFAULT);
 
     const ok = socket.sendUdp(id, dst_ip, dst_port, bounce[0..buf_len]);
     return if (ok) 0 else errCode(e.ENODEV);
@@ -97,8 +98,11 @@ pub fn syscallNetUdpRecv(
     buf_len: usize,
     current_task: innigkeit.Task.Current,
 ) usize {
+    _ = current_task;
     const id: u8 = @intCast(sock_id & 0xFF);
 
+    // Validate both destinations up front so a bad buffer faults before a
+    // datagram is consumed from the socket.
     if (!validateUserBuffer(from_ptr, @sizeOf(NetFrom))) return errCode(e.EFAULT);
     if (!validateUserBuffer(buf_ptr, buf_len)) return errCode(e.EFAULT);
 
@@ -107,13 +111,13 @@ pub fn syscallNetUdpRecv(
     var from: socket.RecvFrom = .{ .ip = .{0} ** 4, .port = 0 };
     const bytes = socket.recvUdp(id, bounce[0..recv_len], &from) orelse return errCode(e.EWOULDBLOCK);
 
-    current_task.incrementEnableAccessToUserMemory();
-    @memcpy(@as([*]u8, @ptrFromInt(buf_ptr))[0..bytes], bounce[0..bytes]);
-    const nf: *NetFrom = @ptrFromInt(from_ptr);
-    nf.ip = from.ip;
-    nf.port = from.port;
-    nf._pad = 0;
-    current_task.decrementEnableAccessToUserMemory();
+    validate.copyToUser(buf_ptr, bounce[0..bytes]) catch
+        return errCode(e.EFAULT); // unreachable: validated above
+    validate.writeUser(from_ptr, NetFrom{
+        .ip = from.ip,
+        .port = from.port,
+        ._pad = 0,
+    }) catch return errCode(e.EFAULT); // unreachable: validated above
 
     return bytes;
 }

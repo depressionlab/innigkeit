@@ -108,6 +108,14 @@ pub const Interrupt = struct {
         )(self.arch_specific, external_interrupt);
     }
 
+    /// Route this interrupt to a PCI INTx GSI (level-triggered, active-low).
+    pub fn routePci(self: Interrupt, gsi: u32) callconv(core.inline_in_non_debug) RouteError!void {
+        return architecture.getFunction(
+            architecture.current_functions.interrupts,
+            "routeInterruptPci",
+        )(self.arch_specific, gsi);
+    }
+
     pub inline fn toUsize(self: Interrupt) usize {
         return @intFromEnum(self.arch_specific);
     }

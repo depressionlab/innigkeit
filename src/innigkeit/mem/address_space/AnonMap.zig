@@ -173,8 +173,19 @@ pub fn copy(self: *AddressSpace, entry: *Entry, faulting_address: innigkeit.Virt
 
             const new_index: u32 = slot_index - start_page;
             const new_chunk = new_map.anonymous_page_chunks.ensureChunk(new_index) catch {
-                // OOM mid-copy: the partial new_map leaks.
-                // TODO: unwind incremented refcounts and destroy new_map on OOM.
+                var deallocate_page_list: innigkeit.mem.PhysicalPage.List = .{};
+
+                // this page's refcount was incremented but it was never
+                // inserted into `new_map`, so undo that increment directly
+                anon_page.lock.writeLock();
+                anon_page.decrementReferenceCount(&deallocate_page_list);
+
+                // destroying the partial `new_map` releases the references
+                // taken on every page already inserted
+                new_map.lock.writeLock();
+                new_map.decrementReferenceCount(&deallocate_page_list);
+
+                innigkeit.mem.PhysicalPage.allocator.deallocate(deallocate_page_list);
                 old_map.lock.writeUnlock();
                 return error.OutOfMemory;
             };

@@ -192,7 +192,9 @@ pub const init = struct {
         }
 
         fn nextTablePhysicalAddressImpl(self: *TableIterator, comptime T: type) ?innigkeit.PhysicalAddress {
-            if (@intFromPtr(self.ptr) + @sizeOf(T) >= @intFromPtr(self.end_ptr)) return null;
+            // `>` not `>=`: when exactly one entry remains, ptr + sizeOf(T)
+            // lands exactly on end_ptr and that entry must still be yielded.
+            if (@intFromPtr(self.ptr) + @sizeOf(T) > @intFromPtr(self.end_ptr)) return null;
 
             const physical_address = std.mem.readInt(T, @ptrCast(self.ptr), .little);
 

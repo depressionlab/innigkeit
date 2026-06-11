@@ -350,7 +350,9 @@ fn handleSynReceived(s: *Socket, incoming: *const Segment) void {
     // Notify listener that a child socket is ready.
     for (&sockets) |*ls| {
         if (ls.is_listener and ls.state == .listen and ls.local_port == s.local_port) {
-            ls.accept_slot = @intCast((@intFromPtr(s) - @intFromPtr(&sockets)) / @sizeOf(Socket));
+            const idx = (@intFromPtr(s) - @intFromPtr(&sockets)) / @sizeOf(Socket);
+            std.debug.assert(idx < TCP_MAX); // `s` always lives in `sockets`
+            ls.accept_slot = @intCast(idx);
             break;
         }
     }

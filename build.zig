@@ -113,7 +113,7 @@ comptime {
 
     if (current_zig.order(min_zig) == .lt) {
         @compileError(std.fmt.comptimePrint(
-            "your zig version {} does meet the minimum build requirement of {}",
+            "your zig version {} does not meet the minimum build requirement of {}",
             .{ current_zig, min_zig },
         ));
     }

@@ -36,10 +36,12 @@ pub const SyscallFrame = extern struct {
             .one => self.rdi,
             .two => self.rsi,
             .three => self.rdx,
-            .four => self.rbx,
+            // arg4 arrives in r10 (rcx is clobbered by the `syscall`
+            // instruction); rbx is callee-saved and never used for arguments.
+            .four => self.r10,
             .five => self.r8,
             .six => self.r9,
-            .seven => self.r10,
+            .seven => self.rbx,
             .eight => self.r12,
             .nine => self.r13,
             .ten => self.r14,
@@ -63,13 +65,13 @@ pub const SyscallFrame = extern struct {
         try writer.print("arg1/rdi:  0x{x:0>16}, arg2/rsi:  0x{x:0>16},\n", .{ self.arg(.one), self.arg(.two) });
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("arg3/rdx:  0x{x:0>16}, arg4/rbx:   0x{x:0>16},\n", .{ self.arg(.three), self.arg(.four) });
+        try writer.print("arg3/rdx:  0x{x:0>16}, arg4/r10:   0x{x:0>16},\n", .{ self.arg(.three), self.arg(.four) });
 
         try writer.splatByteAll(' ', new_indent);
         try writer.print("arg5/r8:   0x{x:0>16}, arg6/r9:  0x{x:0>16},\n", .{ self.arg(.five), self.arg(.six) });
 
         try writer.splatByteAll(' ', new_indent);
-        try writer.print("arg7/r10:  0x{x:0>16}, arg8/r12:  0x{x:0>16},\n", .{ self.arg(.seven), self.arg(.eight) });
+        try writer.print("arg7/rbx:  0x{x:0>16}, arg8/r12:  0x{x:0>16},\n", .{ self.arg(.seven), self.arg(.eight) });
 
         try writer.splatByteAll(' ', new_indent);
         try writer.print("arg9/r13:  0x{x:0>16}, arg10/r14: 0x{x:0>16},\n", .{ self.arg(.nine), self.arg(.ten) });

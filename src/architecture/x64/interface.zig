@@ -19,6 +19,7 @@ pub const functions: architecture.Functions = .{
         .allocateInterrupt = x64.interrupts.Interrupt.allocate,
         .deallocateInterrupt = x64.interrupts.Interrupt.deallocate,
         .routeInterrupt = x64.interrupts.Interrupt.route,
+        .routeInterruptPci = x64.interrupts.Interrupt.routePci,
 
         .fillContext = x64.interrupts.InterruptFrame.fillContext,
         .instructionPointer = struct {

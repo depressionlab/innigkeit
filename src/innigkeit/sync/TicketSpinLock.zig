@@ -107,6 +107,26 @@ pub fn isLockedByCurrent(self: *const TicketSpinLock) bool {
     return self.holding_executor == executor;
 }
 
+test "TicketSpinLock: tryLock fails while held; isLockedByCurrent tracks holder" {
+    var spinlock: TicketSpinLock = .{};
+    try std.testing.expect(!spinlock.isLockedByCurrent());
+
+    spinlock.lock();
+    try std.testing.expect(spinlock.isLockedByCurrent());
+    // The lock is held: a tryLock (even from the holder) must fail without
+    // perturbing the interrupt-disable bookkeeping.
+    try std.testing.expect(!spinlock.tryLock());
+    try std.testing.expect(spinlock.isLockedByCurrent());
+    spinlock.unlock();
+    try std.testing.expect(!spinlock.isLockedByCurrent());
+
+    // tryLock on a free lock succeeds and pairs with unlock.
+    try std.testing.expect(spinlock.tryLock());
+    try std.testing.expect(spinlock.isLockedByCurrent());
+    spinlock.unlock();
+    try std.testing.expect(!spinlock.isLockedByCurrent());
+}
+
 const Container = extern union {
     contents: extern struct {
         current: u32 = 0,

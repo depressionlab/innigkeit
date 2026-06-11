@@ -212,7 +212,27 @@ pub const EevdfRunqueue = struct {
         }
         if (candidate != std.math.maxInt(u64) and candidate > self.min_vruntime) {
             self.min_vruntime = candidate;
+            self.maybeReanchor();
         }
+    }
+
+    /// Distance between `min_vruntime` and `zero_vruntime` at which the
+    /// anchor is pulled up. Keys are measured relative to `zero_vruntime`,
+    /// so re-anchoring keeps them (and `sum_w_vruntime`) small enough that
+    /// the weighted-average arithmetic cannot overflow on long uptimes:
+    /// with keys below ~2^33, max weight ~2^17, and ~2^10 queued tasks the
+    /// sum stays far below the i64 limit.
+    const reanchor_threshold: u64 = 1 << 32;
+
+    fn maybeReanchor(self: *EevdfRunqueue) void {
+        const delta = self.min_vruntime - self.zero_vruntime;
+        if (delta < reanchor_threshold) return;
+
+        // Every queued key shrinks by `delta`:
+        //   Σ w_i * (key_i - delta) = sum_w_vruntime - delta * sum_weight
+        const adjustment = @as(i128, delta) * @as(i128, self.sum_weight);
+        self.sum_w_vruntime = @intCast(@as(i128, self.sum_w_vruntime) - adjustment);
+        self.zero_vruntime = self.min_vruntime;
     }
 
     /// Eligibility check: is se's vruntime <= weighted average?
@@ -534,14 +554,23 @@ fn onRotate(old: *RbTree.Node, new_root: *RbTree.Node) void {
 
 /// Determine the node to pass to `fixupAugmentationUp` after `tree.remove(node)`.
 ///
-/// Must be called BEFORE `tree.remove` while the node is still in the tree.
+/// Must be called BEFORE `tree.remove()` while the node is still in the tree.
 /// - 2 children: the in-order successor is physically swapped into node's slot;
 ///   return that successor so fixup starts where the change is visible.
-/// - 0/1 child: node is spliced directly; fixup from node's parent upward.
+///   The successor is pre-seeded with `node`'s smin: it is about to inherit
+///   node's (larger) subtree, and its own cached smin only covers its old
+///   small subtree. Carrying that into the new position would be stale-HIGH
+///   (unsafe: pickBest could falsely prune). `node`'s smin covers the whole
+///   inherited subtree and is <= every true min involved, so rebalancing
+///   rotations only ever observe conservative (stale-low) values; the
+///   post-remove fixup then tightens it exactly.
+/// - 0 or 1 child: node is spliced directly; fixup from node's parent upward.
 fn augmentHintBeforeRemove(node: *RbTree.Node) ?*RbTree.Node {
     if (node.left != null and node.right != null) {
         var successor = node.right.?;
         while (successor.left) |l| successor = l;
+        SchedEntity.fromNode(successor).subtree_min_vruntime =
+            SchedEntity.fromNode(node).subtree_min_vruntime;
         return successor;
     }
     return node.parent();
@@ -882,6 +911,150 @@ test "pickBest: prunes ineligible subtree via subtree_min_vruntime" {
 
     const result = pickBest(&erq, tree.root);
     try std.testing.expectEqual(d.task(), result.?);
+}
+
+// Runqueue-level test helpers: perform the same steps as enqueue()/dequeue()
+// on a local EevdfRunqueue with stack-allocated SchedEntity fixtures, without
+// needing a full Task/Runqueue. updateMinVruntime is intentionally NOT called
+// so tests control exactly when re-anchoring may fire.
+
+fn testEnqueueRaw(erq: *EevdfRunqueue, se: *SchedEntity) void {
+    erq.addToAvg(se);
+    se.subtree_min_vruntime = std.math.maxInt(u64); // sentinel so fixup propagates past the leaf
+    _ = erq.tree.put(EevdfRunqueue.deadlineCmp, &se.rq_node);
+    fixupAugmentationUp(&se.rq_node);
+    erq.nr_queued += 1;
+}
+
+fn testDequeueRaw(erq: *EevdfRunqueue, se: *SchedEntity) void {
+    erq.removeFromAvg(se);
+    const hint = augmentHintBeforeRemove(&se.rq_node);
+    erq.tree.remove(&se.rq_node);
+    if (hint) |h| fixupAugmentationUp(h);
+    erq.nr_queued -= 1;
+}
+
+test "reanchor: zero_vruntime advances past threshold, eligibility and lag unchanged" {
+    const threshold = EevdfRunqueue.reanchor_threshold; // 1 << 32
+
+    // Two entities whose vruntimes already sit at/above the threshold.
+    // sum_weight = 3072; vruntimes are chosen so the weighted-average division
+    // is exact both before and after re-anchoring (no divTrunc rounding noise):
+    //   sum_w_vruntime = 1024*threshold + 2048*(threshold + 3072)
+    //                  = 3072*threshold + 2048*3072
+    //   weighted avg   = threshold + 2048 (exact)
+    var a: SchedEntity = .{ .vruntime = threshold, .deadline = 1 };
+    var b: SchedEntity = .{ .vruntime = threshold + 3072, .deadline = 2, .weight = 2 * nice_0_weight };
+    var erq: EevdfRunqueue = .{};
+    testEnqueueRaw(&erq, &a);
+    testEnqueueRaw(&erq, &b);
+
+    // Capture eligibility decisions and lags before the re-anchor.
+    const samples = [_]u64{ threshold - 1, threshold, threshold + 2048, threshold + 2049, threshold + 3072 };
+    var elig_before: [samples.len]bool = undefined;
+    for (samples, 0..) |s, i| elig_before[i] = erq.vruntimeEligible(s);
+    const lag_a_before = lag(&erq, &a);
+    const lag_b_before = lag(&erq, &b);
+    try std.testing.expectEqual(@as(u64, 0), erq.zero_vruntime);
+    try std.testing.expectEqual(@as(i64, 2048), lag_a_before); // avg - a = (T+2048) - T
+    try std.testing.expectEqual(@as(i64, -1024), lag_b_before); // avg - b = (T+2048) - (T+3072)
+
+    // min_vruntime jumps from 0 to `threshold`: delta == reanchor_threshold
+    // so maybeReanchor must pull the anchor up.
+    erq.updateMinVruntime();
+
+    try std.testing.expectEqual(threshold, erq.min_vruntime);
+    try std.testing.expectEqual(threshold, erq.zero_vruntime); // anchor advanced
+    // Keys relative to the new anchor: a=0, b=3072 -> sum = 2048*3072.
+    try std.testing.expectEqual(@as(i64, 2048 * 3072), erq.sum_w_vruntime);
+
+    // Eligibility decisions and lag values are invariant across the re-anchor.
+    for (samples, 0..) |s, i| try std.testing.expectEqual(elig_before[i], erq.vruntimeEligible(s));
+    try std.testing.expectEqual(lag_a_before, lag(&erq, &a));
+    try std.testing.expectEqual(lag_b_before, lag(&erq, &b));
+    // And they match the analytic boundary: eligible iff v <= threshold + 2048.
+    try std.testing.expect(erq.vruntimeEligible(threshold + 2048));
+    try std.testing.expect(!erq.vruntimeEligible(threshold + 2049));
+
+    // A second call is a no-op: min_vruntime did not advance further.
+    erq.updateMinVruntime();
+    try std.testing.expectEqual(threshold, erq.zero_vruntime);
+}
+
+test "augmentation: randomized enqueue/dequeue keeps invariant, pickBest matches linear scan" {
+    var prng = std.Random.DefaultPrng.init(0xdecafbad);
+    const random = prng.random();
+
+    const n = 24;
+    var entities: [n]SchedEntity = @splat(.{});
+    var in_tree = [_]bool{false} ** n;
+
+    var erq: EevdfRunqueue = .{};
+    var next_deadline: u64 = 1; // unique deadlines -> unambiguous linear-scan winner
+
+    for (0..300) |_| {
+        const idx = random.intRangeLessThan(usize, 0, n);
+        if (in_tree[idx]) {
+            testDequeueRaw(&erq, &entities[idx]);
+            in_tree[idx] = false;
+        } else {
+            entities[idx].vruntime = random.intRangeLessThan(u64, 0, 1_000_000);
+            entities[idx].deadline = next_deadline;
+            next_deadline += 1;
+            testEnqueueRaw(&erq, &entities[idx]);
+            in_tree[idx] = true;
+        }
+        // smin <= true_min must hold for every subtree after every operation.
+        _ = try auditSubtreeConservative(erq.tree.root);
+    }
+
+    // Cross-check O(log n) pickBest against a brute-force linear scan:
+    // eligible iff vruntime <= avg; winner is the earliest deadline among those.
+    const avg: u64 = 500_000;
+    var pick_erq: EevdfRunqueue = .{};
+    pick_erq.sum_w_vruntime = @as(i64, @intCast(avg)) * nice_0_weight;
+    pick_erq.sum_weight = nice_0_weight;
+
+    var expected: ?*SchedEntity = null;
+    for (&entities, in_tree) |*se, on| {
+        if (!on or se.vruntime > avg) continue;
+        if (expected == null or se.deadline < expected.?.deadline) expected = se;
+    }
+    const got = pickBest(&pick_erq, erq.tree.root);
+    if (expected) |e| {
+        try std.testing.expectEqual(e.task(), got.?);
+    } else {
+        try std.testing.expect(got == null);
+    }
+}
+
+test "fairness: double weight advances vruntime at half rate; underserved entity preferred" {
+    // Rate check: a weight-2048 entity accrues virtual time at exactly half
+    // the rate of a nice-0 (weight-1024) entity for the same real runtime.
+    try std.testing.expectEqual(@as(u64, 1_000_000), calcDeltaFair(1_000_000, nice_0_weight));
+    try std.testing.expectEqual(@as(u64, 500_000), calcDeltaFair(1_000_000, 2 * nice_0_weight));
+    var d: u64 = 2;
+    while (d < 10_000_000) : (d *= 10) {
+        try std.testing.expectEqual(calcDeltaFair(d, nice_0_weight) / 2, calcDeltaFair(d, 2 * nice_0_weight));
+    }
+
+    // Scenario: both start at vruntime 0 and each consumes 1 ms of real CPU.
+    var light: SchedEntity = .{ .deadline = 1 };
+    var heavy: SchedEntity = .{ .deadline = 2, .weight = 2 * nice_0_weight };
+    light.vruntime = calcDeltaFair(1_000_000, light.weight); // 1_000_000
+    heavy.vruntime = calcDeltaFair(1_000_000, heavy.weight); // 500_000
+
+    var erq: EevdfRunqueue = .{};
+    testEnqueueRaw(&erq, &light);
+    testEnqueueRaw(&erq, &heavy);
+
+    // Weighted avg = (1024*1e6 + 2048*5e5) / 3072 = 666_666.67: the heavy
+    // entity is underserved relative to its fair share, so only it is
+    // eligible -- and pickBest selects it despite its LATER deadline.
+    try std.testing.expect(!erq.entityEligible(&light));
+    try std.testing.expect(erq.entityEligible(&heavy));
+    const picked = pickBest(&erq, erq.tree.root);
+    try std.testing.expectEqual(heavy.task(), picked.?);
 }
 
 /// Update the utilization EWMA for a task.

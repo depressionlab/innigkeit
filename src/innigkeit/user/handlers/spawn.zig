@@ -13,7 +13,8 @@
 const std = @import("std");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
-const validateUserBuffer = @import("../validate.zig").validateUserBuffer;
+const validate = @import("../validate.zig");
+const validateUserBuffer = validate.validateUserBuffer;
 const codesign = innigkeit.user.codesign;
 
 const log = innigkeit.debug.log.scoped(.spawn);
@@ -96,11 +97,7 @@ pub fn syscallSpawn(
     const parent_process = innigkeit.user.Process.from(current_task.task);
 
     // -- 1. Validate and read SpawnSpec
-    if (!validateUserBuffer(spec_ptr_raw, @sizeOf(SpawnSpec))) return errCode(e.EFAULT);
-    current_task.incrementEnableAccessToUserMemory();
-    const spec = @as(*const SpawnSpec, @ptrFromInt(spec_ptr_raw)).*;
-    current_task.decrementEnableAccessToUserMemory();
-
+    const spec = validate.readUser(SpawnSpec, spec_ptr_raw) catch return errCode(e.EFAULT);
     if (spec._pad != 0 or spec._pad2 != 0) return errCode(e.EINVAL);
 
     // -- 2. Validate and copy path
@@ -115,9 +112,7 @@ pub fn syscallSpawn(
     var path_buf_owned = true;
     defer if (path_buf_owned) innigkeit.mem.heap.allocator.free(path_buf);
 
-    current_task.incrementEnableAccessToUserMemory();
-    @memcpy(path_buf[0..spec.path_len], @as([*]const u8, @ptrFromInt(spec.path))[0..spec.path_len]);
-    current_task.decrementEnableAccessToUserMemory();
+    validate.copyFromUser(path_buf[0..spec.path_len], spec.path) catch return errCode(e.EFAULT);
     path_buf[spec.path_len] = 0;
 
     // Reject embedded nulls, they would silently truncate the path passed to the ELF loader.
@@ -145,12 +140,10 @@ pub fn syscallSpawn(
     var user_args: [max_argc]Arg = undefined;
     var total_arg_str_len: usize = 0;
     if (spec.argc > 0) {
-        const user_args_size = @as(usize, spec.argc) * @sizeOf(Arg);
-        if (!validateUserBuffer(spec.argv, user_args_size)) return errCode(e.EFAULT);
-
-        current_task.incrementEnableAccessToUserMemory();
-        @memcpy(user_args[0..spec.argc], @as([*]const Arg, @ptrFromInt(spec.argv))[0..spec.argc]);
-        current_task.decrementEnableAccessToUserMemory();
+        validate.copyFromUser(
+            std.mem.sliceAsBytes(user_args[0..spec.argc]),
+            spec.argv,
+        ) catch return errCode(e.EFAULT);
 
         for (user_args[0..spec.argc]) |ua| {
             if (ua._pad != 0 or ua.len > max_single_arg_len) return errCode(e.EINVAL);
@@ -165,11 +158,10 @@ pub fn syscallSpawn(
     var user_envs: [max_envc]Arg = undefined;
     var total_env_str_len: usize = 0;
     if (spec.envc > 0) {
-        const user_envs_size = @as(usize, spec.envc) * @sizeOf(Arg);
-        if (!validateUserBuffer(spec.envp, user_envs_size)) return errCode(e.EFAULT);
-        current_task.incrementEnableAccessToUserMemory();
-        @memcpy(user_envs[0..spec.envc], @as([*]const Arg, @ptrFromInt(spec.envp))[0..spec.envc]);
-        current_task.decrementEnableAccessToUserMemory();
+        validate.copyFromUser(
+            std.mem.sliceAsBytes(user_envs[0..spec.envc]),
+            spec.envp,
+        ) catch return errCode(e.EFAULT);
 
         for (user_envs[0..spec.envc]) |ue| {
             if (ue._pad != 0 or ue.len > max_single_env_len) return errCode(e.EINVAL);
@@ -202,39 +194,37 @@ pub fn syscallSpawn(
             std.mem.writeInt(usize, buf[(2 + spec.argc + i) * S ..][0..S], ue.len, .little);
         }
 
-        // Copy argv string bytes
+        // Copy argv and envp string bytes inside a single access window
+        // (every ua.ptr/ue.ptr range was validated above).
         var str_off: usize = header_size;
-        current_task.incrementEnableAccessToUserMemory();
+        const access: validate.UserAccess = .acquire();
+        defer access.release();
         for (user_args[0..spec.argc]) |ua| {
             if (ua.len > 0) {
-                @memcpy(buf[str_off..][0..ua.len], @as([*]const u8, @ptrFromInt(ua.ptr))[0..ua.len]);
+                const src = validate.userSliceConst(ua.ptr, ua.len) catch
+                    return errCode(e.EFAULT); // unreachable: validated above
+                @memcpy(buf[str_off..][0..ua.len], src);
             }
             str_off += ua.len;
         }
-        // Copy envp string bytes
         for (user_envs[0..spec.envc]) |ue| {
             if (ue.len > 0) {
-                @memcpy(buf[str_off..][0..ue.len], @as([*]const u8, @ptrFromInt(ue.ptr))[0..ue.len]);
+                const src = validate.userSliceConst(ue.ptr, ue.len) catch
+                    return errCode(e.EFAULT); // unreachable: validated above
+                @memcpy(buf[str_off..][0..ue.len], src);
             }
             str_off += ue.len;
         }
-        current_task.decrementEnableAccessToUserMemory();
     }
 
     // -- 4. Validate and copy capability grants
     if (spec.cap_grant_count > max_cap_grants) return errCode(e.EINVAL);
-    const grants_size = spec.cap_grant_count *| @sizeOf(CapGrant);
     var grants_buf: [max_cap_grants]CapGrant = undefined;
 
-    if (spec.cap_grant_count > 0) {
-        if (!validateUserBuffer(spec.cap_grants, grants_size)) return errCode(e.EFAULT);
-        current_task.incrementEnableAccessToUserMemory();
-        @memcpy(
-            grants_buf[0..spec.cap_grant_count],
-            @as([*]const CapGrant, @ptrFromInt(spec.cap_grants))[0..spec.cap_grant_count],
-        );
-        current_task.decrementEnableAccessToUserMemory();
-    }
+    if (spec.cap_grant_count > 0) validate.copyFromUser(
+        std.mem.sliceAsBytes(grants_buf[0..spec.cap_grant_count]),
+        spec.cap_grants,
+    ) catch return errCode(e.EFAULT);
     const grants = grants_buf[0..spec.cap_grant_count];
 
     // -- 5. Create the exit Notify
@@ -441,10 +431,12 @@ fn loadAndStart(
         }
     }
 
-    // Copy ELF segment data.
+    // Copy ELF segment data. The destination ranges were just mapped by the
+    // kernel into this (child) address space; keep one access window around
+    // the whole multi-segment copy loop.
     {
-        current_task.incrementEnableAccessToUserMemory();
-        defer current_task.decrementEnableAccessToUserMemory();
+        const access: validate.UserAccess = .acquire();
+        defer access.release();
 
         var iter = header.loadableRegionIterator(program_header_table);
         while (iter.next() catch null) |region| {

@@ -14,6 +14,14 @@ pub fn start() !void {
     // - arm: AArch64 semihosting SYS_EXIT subcode 0 (pass) / 1 (fail).
     //        QEMU exits 0 on pass (standard success).
     if (comptime builtin.is_test) {
+        // Bring up PCI and the virtio-blk driver so the disk-I/O tests can
+        // exercise the real (interrupt-driven) completion path. Any failure
+        // just leaves the boot device unavailable and those tests skip.
+        if (comptime builtin.cpu.arch == .x86_64) {
+            innigkeit.pci.init.initializeECAM() catch |err|
+                log.warn("test setup: PCI ECAM init failed: {t}", .{err});
+            innigkeit.drivers.virtio.blk.init();
+        }
         const failed = innigkeit.testing.runner.runAll();
         switch (comptime builtin.cpu.arch) {
             .x86_64 => {
@@ -112,10 +120,16 @@ fn startNetPollThread() !void {
 
 fn netPollLoop() !void {
     while (true) {
+        // Blocks until the IRQ handler signals received frames; returns
+        // false immediately when running in poll-fallback mode.
+        const irq_mode = innigkeit.drivers.virtio.net.waitRx();
         innigkeit.drivers.virtio.net.pollRx(innigkeit.net.socket.handleFrame);
-        const h: innigkeit.Task.Scheduler.Handle = .get();
-        h.yield();
-        h.unlock();
+        if (!irq_mode) {
+            // Poll fallback: yield so a missing IRQ does not busy-spin.
+            const h: innigkeit.Task.Scheduler.Handle = .get();
+            h.yield();
+            h.unlock();
+        }
     }
 }
 

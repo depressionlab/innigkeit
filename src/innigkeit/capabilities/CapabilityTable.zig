@@ -343,3 +343,125 @@ test "capability: double revoke uses the new generation (second revoke works)" {
     try table.revokeLocked(slot_b);
     try std.testing.expect(table.getAndRefLocked(slot_b) == null);
 }
+
+test "capability: copyLocked rejects rights escalation, allows equal/subset" {
+    const notify = try Notify.create();
+    defer notify.unref();
+
+    var table: CapabilityTable = undefined;
+    table.init();
+    table.lock.lock();
+    defer table.lock.unlock();
+
+    notify.ref();
+    const src = try table.insertLocked(.notify, notify, .{ .read = true, .write = true });
+
+    // Adding any right the source lacks is an escalation.
+    try std.testing.expectError(error.RightsEscalation, table.copyLocked(src, .all));
+    try std.testing.expectError(
+        error.RightsEscalation,
+        table.copyLocked(src, .{ .read = true, .grant = true }),
+    );
+
+    // Equal rights and strict subsets are fine.
+    const equal_copy = try table.copyLocked(src, .{ .read = true, .write = true });
+    const subset_copy = try table.copyLocked(src, .{ .read = true });
+
+    const subset_slot = table.getLocked(subset_copy).?;
+    try std.testing.expect(subset_slot.rights.read);
+    try std.testing.expect(!subset_slot.rights.write);
+
+    try table.removeLocked(equal_copy);
+    try table.removeLocked(subset_copy);
+    try table.removeLocked(src);
+}
+
+test "capability: removeLocked frees the slot for reuse" {
+    const notify = try Notify.create();
+    defer notify.unref();
+
+    var table: CapabilityTable = undefined;
+    table.init();
+    table.lock.lock();
+    defer table.lock.unlock();
+
+    notify.ref();
+    const slot_a = try table.insertLocked(.notify, notify, .all);
+    notify.ref();
+    const slot_b = try table.insertLocked(.notify, notify, .all);
+    try std.testing.expect(slot_a != slot_b);
+
+    try table.removeLocked(slot_a);
+    try std.testing.expect(table.getLocked(slot_a) == null);
+    try std.testing.expectError(error.NotFound, table.removeLocked(slot_a));
+
+    // The freed index is at the head of the free list and is handed back.
+    notify.ref();
+    const slot_c = try table.insertLocked(.notify, notify, .all);
+    try std.testing.expectEqual(slot_a, slot_c);
+    try std.testing.expect(table.getLocked(slot_c) != null);
+
+    try table.removeLocked(slot_b);
+    try table.removeLocked(slot_c);
+}
+
+test "capability: table is full after all slots are used" {
+    const notify = try Notify.create();
+    defer notify.unref();
+    const baseline = notify.refcount.load(.acquire);
+
+    var table: CapabilityTable = undefined;
+    table.init();
+
+    table.lock.lock();
+    var inserted: u32 = 0;
+    while (inserted < cap_count) : (inserted += 1) {
+        notify.ref();
+        _ = table.insertLocked(.notify, notify, .all) catch unreachable;
+    }
+
+    notify.ref();
+    try std.testing.expectError(error.Full, table.insertLocked(.notify, notify, .all));
+    notify.unref(); // undo the ref taken for the failed insert
+    table.lock.unlock();
+
+    // deinitAll drops every table reference; no refs may leak.
+    table.deinitAll();
+    try std.testing.expectEqual(baseline, notify.refcount.load(.acquire));
+
+    // The free list has been rebuilt: the table is usable again.
+    table.lock.lock();
+    notify.ref();
+    const idx = table.insertLocked(.notify, notify, .all) catch unreachable;
+    try table.removeLocked(idx);
+    table.lock.unlock();
+    try std.testing.expectEqual(baseline, notify.refcount.load(.acquire));
+}
+
+test "capability: refcount returns to baseline after remove (no leak)" {
+    const notify = try Notify.create();
+    defer notify.unref();
+    const baseline = notify.refcount.load(.acquire);
+
+    var table: CapabilityTable = undefined;
+    table.init();
+    table.lock.lock();
+    defer table.lock.unlock();
+
+    // The caller takes the reference owned by the table slot.
+    notify.ref();
+    const idx = try table.insertLocked(.notify, notify, .all);
+    try std.testing.expectEqual(baseline + 1, notify.refcount.load(.acquire));
+
+    // getAndRefLocked hands out an extra reference...
+    const info = table.getAndRefLocked(idx).?;
+    try std.testing.expectEqual(baseline + 2, notify.refcount.load(.acquire));
+
+    // ...returned via unrefObject.
+    unrefObject(info.cap_type, info.ptr);
+    try std.testing.expectEqual(baseline + 1, notify.refcount.load(.acquire));
+
+    // removeLocked drops the slot's reference: back to baseline.
+    try table.removeLocked(idx);
+    try std.testing.expectEqual(baseline, notify.refcount.load(.acquire));
+}

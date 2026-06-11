@@ -54,6 +54,12 @@ pub const RSDP = extern struct {
 
     const BYTES_IN_ACPI_1_STRUCTURE = 20;
 
+    /// A sanity bound on the firmware-supplied ACPI 2.0 extended length.
+    ///
+    /// The ACPI 2.0 RSDP is 36 bytes; anything beyond a page is assumed to be corrupted
+    /// firmware data.
+    const MAXIMUM_TABLE_LENGTH = 4096;
+
     pub fn sdtAddress(rsdp: *const RSDP) innigkeit.PhysicalAddress {
         return switch (rsdp.revision) {
             0 => .from(rsdp.rsdt_addr),
@@ -72,9 +78,14 @@ pub const RSDP = extern struct {
 
         const bytes = blk: {
             const ptr: [*]const u8 = @ptrCast(rsdp);
-            const length_of_table = switch (rsdp.revision) {
+            const length_of_table: usize = switch (rsdp.revision) {
                 0 => BYTES_IN_ACPI_1_STRUCTURE,
-                2 => rsdp.length,
+                2 => extended: {
+                    // the extended length is firmware-supplied, bound it before using it to slice
+                    if (rsdp.length < @sizeOf(RSDP)) return false;
+                    if (rsdp.length > MAXIMUM_TABLE_LENGTH) return false;
+                    break :extended rsdp.length;
+                },
                 else => return false,
             };
             break :blk ptr[0..length_of_table];

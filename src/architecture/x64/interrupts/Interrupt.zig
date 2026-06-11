@@ -132,4 +132,12 @@ pub const Interrupt = enum(u8) {
 
         try x64.ioapic.routeInterrupt(@intCast(external_interrupt), interrupt);
     }
+
+    /// Route this interrupt to a PCI INTx GSI (level-triggered, active-low),
+    /// bypassing the ISA source-override defaults.
+    pub fn routePci(interrupt: Interrupt, gsi: u32) architecture.interrupts.Interrupt.RouteError!void {
+        log.debug("routing interrupt {} to PCI GSI {} (level/active-low)", .{ interrupt, gsi });
+
+        try x64.ioapic.routeInterruptPci(gsi, interrupt);
+    }
 };

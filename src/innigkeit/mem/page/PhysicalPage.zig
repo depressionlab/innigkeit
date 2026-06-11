@@ -127,3 +127,30 @@ pub fn freeContiguous(index: Index, order: u4) void {
     );
     globals.buddy.free(index, order);
 }
+
+test "physical pages: allocations are page-aligned, distinct, and reusable" {
+    const n = 8;
+
+    var indexes: [n]Index = undefined;
+    for (&indexes) |*index| index.* = try allocator.allocate();
+
+    for (indexes, 0..) |index, i| {
+        try std.testing.expect(index != .none);
+        try std.testing.expect(
+            index.baseAddress().aligned(architecture.paging.standard_page_size_alignment),
+        );
+        // Distinct from every previously allocated page.
+        for (indexes[0..i]) |previous| try std.testing.expect(index != previous);
+    }
+
+    // Return all pages to the allocator.
+    var list: List = .{};
+    for (indexes) |index| list.prepend(index);
+    allocator.deallocate(list);
+
+    // The allocator is still functional after the round trip.
+    const again = try allocator.allocate();
+    var single: List = .{};
+    single.prepend(again);
+    allocator.deallocate(single);
+}

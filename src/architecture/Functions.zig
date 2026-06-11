@@ -49,6 +49,12 @@ interrupts: struct {
         external_interrupt: u32,
     ) architecture.interrupts.Interrupt.RouteError!void = null,
 
+    /// Route the given interrupt to a PCI INTx GSI (level-triggered, active-low).
+    routeInterruptPci: ?fn (
+        interrupt: architecture.current_decls.interrupts.Interrupt,
+        gsi: u32,
+    ) architecture.interrupts.Interrupt.RouteError!void = null,
+
     /// Provides the context this interrupt was triggered from.
     fillContext: ?fn (
         interrupt_frame: *const architecture.current_decls.interrupts.InterruptFrame,

@@ -37,6 +37,29 @@ pub fn routeInterrupt(
     };
 }
 
+/// Route a PCI INTx GSI to `vector`.
+///
+/// PCI INTx lines are level-triggered and active-low; the MADT source
+/// overrides (and the edge/active-high default used for unknown ISA IRQs)
+/// must not be consulted for them, so this programs the redirection entry
+/// directly.
+pub fn routeInterruptPci(
+    gsi: u32,
+    vector: x64.interrupts.Interrupt,
+) architecture.interrupts.Interrupt.RouteError!void {
+    const ioapic = getIOAPIC(gsi) catch return error.UnableToRouteExternalInterrupt;
+
+    ioapic.setRedirectionTableEntry(
+        @intCast(gsi - ioapic.gsi_base),
+        vector,
+        .fixed,
+        .{ .physical = 0 }, // TODO: support routing to other/multiple processors
+        .active_low,
+        .level,
+        false,
+    ) catch return error.UnableToRouteExternalInterrupt;
+}
+
 fn getMapping(interrupt: u8) SourceOverride {
     return globals.source_overrides[interrupt] orelse .{
         .gsi = interrupt,

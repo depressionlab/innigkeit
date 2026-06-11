@@ -90,7 +90,7 @@ pub fn parse(data: []const u8) ?struct {
 } {
     if (data.len < HEADER_LEN) return null;
     const ihl: usize = (data[0] & 0x0F) * 4;
-    if (data.len < ihl) return null;
+    if (ihl < HEADER_LEN or data.len < ihl) return null;
     if (data[0] >> 4 != 4) return null; // not IPv4
     if (checksum(data[0..ihl]) != 0) return null; // bad header checksum
     const total = std.mem.readInt(u16, data[2..4], .big);

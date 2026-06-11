@@ -37,6 +37,21 @@ pub const Function = extern struct {
         );
     }
 
+    /// PCI configuration "Interrupt Line" register (offset 0x3c).
+    ///
+    /// On QEMU q35 firmware programs this with the GSI the function's INTx
+    /// pin is routed to (16-23 for PCI slots).
+    pub inline fn interruptLine(self: *const Function) u8 {
+        return self.read(u8, 0x3c);
+    }
+
+    /// PCI configuration "Interrupt Pin" register (offset 0x3d).
+    ///
+    /// 0 = the function does not use an interrupt pin, 1-4 = INTA#-INTD#.
+    pub inline fn interruptPin(self: *const Function) u8 {
+        return self.read(u8, 0x3d);
+    }
+
     comptime {
         core.testing.expectSize(Function, enhanced_configuration_space_size);
     }

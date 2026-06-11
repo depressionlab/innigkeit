@@ -46,8 +46,6 @@ pub fn verify(elf_data: []const u8, sig_data: []const u8) VerifyError!Manifest.E
 }
 
 test "verify: tampered signature is rejected" {
-    const testing = std.testing;
-
     // Use distinct bytes so the hash is non-trivial (not the hash of all-zero data).
     const elf = [_]u8{0xAB} ** 64;
 
@@ -63,12 +61,10 @@ test "verify: tampered signature is rejected" {
     @memcpy(&sig_bytes, std.mem.asBytes(&blob));
 
     // Hash passes, public key resolves; the zeroed signature must be rejected.
-    try testing.expectError(error.SignatureMismatch, verify(&elf, &sig_bytes));
+    try std.testing.expectError(error.SignatureMismatch, verify(&elf, &sig_bytes));
 }
 
 test "verify: tampered ELF is rejected" {
-    const testing = std.testing;
-
     // Build a minimal valid blob for a known ELF (all-zero 64 bytes).
     const elf = [_]u8{0} ** 64;
 
@@ -84,5 +80,5 @@ test "verify: tampered ELF is rejected" {
 
     const result = verify(&elf, &sig_bytes);
     // Hash is all-zero but real hash of 64-zero bytes is non-zero: mismatch.
-    try testing.expectError(error.HashMismatch, result);
+    try std.testing.expectError(error.HashMismatch, result);
 }

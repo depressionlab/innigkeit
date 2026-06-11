@@ -59,8 +59,18 @@ pub const SharedHeader = extern struct {
         return std.mem.asBytes(&shared_header.signature);
     }
 
+    /// A sanity bound on the firmware-supplied table length.
+    ///
+    /// No real system description table comes anywhere near this size; anything larger is
+    /// assumed to be corrupted firmware data.
+    pub const MAXIMUM_TABLE_LENGTH = core.Size.from(4, .mib); // 4 MiB
+
     /// Returns `true` is the table is valid.
     pub fn isValid(shared_header: *const SharedHeader) bool {
+        // the length is firmware-supplied, bound it before using it to slice
+        if (shared_header.length < @sizeOf(SharedHeader)) return false;
+        if (MAXIMUM_TABLE_LENGTH.lessThan(.from(shared_header.length, .byte))) return false;
+
         const bytes = blk: {
             const ptr: [*]const u8 = @ptrCast(shared_header);
             break :blk ptr[0..shared_header.length];

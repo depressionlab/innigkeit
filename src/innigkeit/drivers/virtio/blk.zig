@@ -1,66 +1,39 @@
-//! virtio-blk driver (legacy PCI transport, poll mode).
+//! virtio-blk driver (legacy PCI transport).
 //!
 //! Supports up to two legacy virtio-blk devices (vendor=0x1AF4, device=0x1001).
 //! Device 0 is the boot disk; device 1 is an optional data disk (e.g. WAD).
 //! Uses I/O port BAR0 registers (disable-modern=on, disable-legacy=off).
+//!
+//! Completion is interrupt-driven when the device's INTx line can be routed
+//! (the requesting task blocks until the IRQ handler wakes it); otherwise the
+//! driver falls back to the original bounded-spin poll mode.
 
 const std = @import("std");
 const innigkeit = @import("innigkeit");
 const architecture = @import("architecture");
 const core = @import("core");
 const PortIo = @import("PortIo.zig");
+const legacy = @import("legacy.zig");
 
 const log = innigkeit.debug.log.scoped(.virtio_blk);
 
 const VIRTIO_VENDOR_ID: u16 = 0x1AF4;
 const VIRTIO_BLK_DEVICE_ID: u16 = 0x1001; // legacy device ID
 
-const REG_DEVICE_FEATURES: u16 = 0x00;
-const REG_DRIVER_FEATURES: u16 = 0x04;
-const REG_QUEUE_PFN: u16 = 0x08;
-const REG_QUEUE_SIZE: u16 = 0x0C; // read-only in QEMU legacy: returns device max
-const REG_QUEUE_SEL: u16 = 0x0E;
-const REG_QUEUE_NOTIFY: u16 = 0x10;
-const REG_DEVICE_STATUS: u16 = 0x12;
-const REG_ISR: u16 = 0x13;
-const REG_CONFIG_CAPACITY_LO: u16 = 0x14;
-const REG_CONFIG_CAPACITY_HI: u16 = 0x18;
+// Block-specific config registers (legacy device config starts at 0x14).
+const REG_CONFIG_CAPACITY_LO: u16 = legacy.REG_DEVICE_CONFIG + 0x00;
+const REG_CONFIG_CAPACITY_HI: u16 = legacy.REG_DEVICE_CONFIG + 0x04;
 
-const STATUS_ACKNOWLEDGE: u8 = 0x01;
-const STATUS_DRIVER: u8 = 0x02;
-const STATUS_DRIVER_OK: u8 = 0x04;
-const STATUS_FAILED: u8 = 0x80;
+const STATUS_ACKNOWLEDGE = legacy.STATUS_ACKNOWLEDGE;
+const STATUS_DRIVER = legacy.STATUS_DRIVER;
+const STATUS_DRIVER_OK = legacy.STATUS_DRIVER_OK;
 
 const BLK_T_IN: u32 = 0; // read request type
 
-const VRING_DESC_F_NEXT: u16 = 1;
-const VRING_DESC_F_WRITE: u16 = 2;
+const VRING_DESC_F_NEXT = legacy.VRING_DESC_F_NEXT;
+const VRING_DESC_F_WRITE = legacy.VRING_DESC_F_WRITE;
 
-// Queue size.
-//
-// QEMU's legacy virtio-pci REG_QUEUE_SIZE is read-only (it always returns the
-// device maximum). Writes are silently ignored. We must therefore use the
-// device-reported queue size for all ring calculations.
-//
-// QUEUE_SIZE_MAX is the compile-time upper bound. The runtime value is
-// read from the device and stored in `queue_num`.
-const QUEUE_SIZE_MAX: u16 = 256;
-const PAGE_SIZE: usize = 4096;
-
-// With QUEUE_SIZE_MAX=256 the vring layout spans exactly 3 pages:
-//   Page 0 (PFN+0): descriptor table: 256 * 16 = 4096 bytes
-//   Page 1 (PFN+1): available ring: starts at offset 4096 from PFN
-//   Page 2 (PFN+2): used ring: align(avail_end, PAGE_SIZE) = 8192
-const DMA_PAGES: usize = 3;
 const MAX_DEVICES: usize = 2;
-
-// Virtqueue data structures (sized for QUEUE_SIZE_MAX)
-const VringDesc = extern struct {
-    addr: u64,
-    len: u32,
-    flags: u16,
-    next: u16,
-};
 
 /// Block request header.
 const BlkReqHeader = extern struct {
@@ -72,15 +45,23 @@ const BlkReqHeader = extern struct {
 const Device = struct {
     io: PortIo,
     capacity_sectors: u64,
-    queue_num: u16,
-    dma_pages: [DMA_PAGES]innigkeit.mem.PhysicalPage.Index,
-    avail_idx: u16,
-    used_last_seen: u16,
+    queue: legacy.LegacyQueue,
 
     /// Pre-allocated page for the block request header + status byte.
     req_page: innigkeit.mem.PhysicalPage.Index,
     /// Pre-allocated page for the data bounce buffer (up to 8 sectors = 4 KiB).
     scratch_page: innigkeit.mem.PhysicalPage.Index,
+
+    /// Serializes whole requests: the request/scratch bounce pages and the
+    /// single descriptor chain are shared, so exactly one request may be in
+    /// flight (from descriptor setup through copy-out) at a time.
+    request_mutex: innigkeit.sync.Mutex = .{},
+    /// Protects `completion_queue`; also taken by the IRQ handler.
+    completion_lock: innigkeit.sync.TicketSpinLock = .{},
+    /// The requesting task blocks here until the IRQ handler wakes it.
+    completion_queue: innigkeit.sync.WaitQueue = .{},
+    /// True once INTx is routed; false = bounded-spin poll fallback.
+    irq_enabled: bool = false,
 
     inline fn ior8(d: *const Device, offset: u16) u8 {
         return d.io.r8(offset);
@@ -105,8 +86,47 @@ const Device = struct {
 var devices: [MAX_DEVICES]?Device = .{ null, null };
 var device_count: usize = 0;
 
+/// Number of times the INTx handler observed a queue interrupt, per device.
+/// Diagnostic: proves the interrupt path is live (see the IRQ test below).
+var irq_count: [MAX_DEVICES]std.atomic.Value(u64) = .{ .init(0), .init(0) };
+
+/// Diagnostic: number of queue interrupts handled for `dev_idx`.
+pub fn irqFireCount(dev_idx: usize) u64 {
+    return irq_count[dev_idx].load(.monotonic);
+}
+
 pub fn init() void {
     innigkeit.pci.forEachFunction(tryInit);
+}
+
+/// INTx handler (one allocation per device, `dev_idx` bound at setup).
+///
+/// Services ALL initialized devices, not just `dev_idx`: PCI INTx lines may
+/// share a GSI, and routing the second device's vector to a shared GSI
+/// overwrites the first device's redirection entry. Whichever handler
+/// survives must de-assert and wake every device on the line.
+///
+/// Must read each ISR register on every invocation: the line is
+/// level-triggered and the read is what de-asserts it.
+fn onInterrupt(
+    _: architecture.interrupts.InterruptFrame,
+    _: innigkeit.Task.Current.StateBeforeInterrupt,
+    dev_idx: usize,
+) void {
+    _ = dev_idx;
+    for (&devices, 0..) |*slot, i| {
+        const dev: *Device = if (slot.*) |*d| d else continue;
+        if (!dev.irq_enabled) continue;
+
+        const isr = legacy.readIsr(dev.io);
+        if (isr & legacy.ISR_QUEUE == 0) continue;
+
+        _ = irq_count[i].fetchAdd(1, .monotonic);
+
+        dev.completion_lock.lock();
+        dev.completion_queue.wakeOne(&dev.completion_lock);
+        dev.completion_lock.unlock();
+    }
 }
 
 fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
@@ -133,20 +153,17 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
     var dev: Device = .{
         .io = .{ .base = io_base },
         .capacity_sectors = 0,
-        .queue_num = 0,
-        .dma_pages = undefined,
-        .avail_idx = 0,
-        .used_last_seen = 0,
+        .queue = undefined,
         .req_page = undefined,
         .scratch_page = undefined,
     };
 
-    dev.iow8(REG_DEVICE_STATUS, 0);
-    dev.iow8(REG_DEVICE_STATUS, STATUS_ACKNOWLEDGE);
-    dev.iow8(REG_DEVICE_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER);
+    dev.iow8(legacy.REG_DEVICE_STATUS, 0);
+    dev.iow8(legacy.REG_DEVICE_STATUS, STATUS_ACKNOWLEDGE);
+    dev.iow8(legacy.REG_DEVICE_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER);
 
-    const dev_features = dev.ior32(REG_DEVICE_FEATURES);
-    dev.iow32(REG_DRIVER_FEATURES, dev_features);
+    const dev_features = dev.ior32(legacy.REG_DEVICE_FEATURES);
+    dev.iow32(legacy.REG_DRIVER_FEATURES, dev_features);
 
     const cap_lo = dev.ior32(REG_CONFIG_CAPACITY_LO);
     const cap_hi = dev.ior32(REG_CONFIG_CAPACITY_HI);
@@ -157,13 +174,18 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
         dev.capacity_sectors / 2048,
     });
 
-    if (!setupQueue(&dev)) return;
+    dev.queue = legacy.LegacyQueue.setup(dev.io, 0) orelse {
+        log.err("virtio-blk[{}]: queue setup failed", .{device_count});
+        return;
+    };
 
-    // Pre-allocate the bounce buffers used on every I/O request. Since the
-    // driver is single-threaded (protected by the caller's lock), these pages
-    // can be reused across operations, eliminating per-request allocation.
+    // Pre-allocate the bounce buffers used on every I/O request. Requests
+    // are serialized by `request_mutex`, so these pages can be reused across
+    // operations, eliminating per-request allocation.
     dev.req_page = innigkeit.mem.PhysicalPage.allocator.allocate() catch {
         log.err("virtio-blk[{}]: OOM allocating req_page", .{device_count});
+        dev.iow8(legacy.REG_DEVICE_STATUS, 0);
+        dev.queue.destroy();
         return;
     };
     dev.scratch_page = innigkeit.mem.PhysicalPage.allocator.allocate() catch {
@@ -171,105 +193,31 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
         list.prepend(dev.req_page);
         innigkeit.mem.PhysicalPage.allocator.deallocate(list);
         log.err("virtio-blk[{}]: OOM allocating scratch_page", .{device_count});
+        dev.iow8(legacy.REG_DEVICE_STATUS, 0);
+        dev.queue.destroy();
         return;
     };
 
-    dev.iow8(REG_DEVICE_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER | STATUS_DRIVER_OK);
-    devices[device_count] = dev;
+    dev.iow8(legacy.REG_DEVICE_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER | STATUS_DRIVER_OK);
+
+    // Publish the device slot *before* routing the interrupt so the handler
+    // can always reach the ISR register (level-triggered: not reading the
+    // ISR would leave the line asserted). No request is in flight yet, so
+    // no interrupt can be raised before the first submitRequest.
+    const idx = device_count;
+    devices[idx] = dev;
     device_count += 1;
-    log.info("virtio-blk[{}] ready", .{device_count - 1});
-}
 
-fn setupQueue(dev: *Device) bool {
-    dev.iow16(REG_QUEUE_SEL, 0);
-    dev.queue_num = dev.ior16(REG_QUEUE_SIZE);
-    if (dev.queue_num == 0 or dev.queue_num > QUEUE_SIZE_MAX) {
-        log.err("virtio-blk queue size {} out of range (max {})", .{ dev.queue_num, QUEUE_SIZE_MAX });
-        return false;
-    }
-    log.debug("virtio-blk device queue_num={}", .{dev.queue_num});
+    const handler: architecture.interrupts.Interrupt.Handler = .{
+        .eoi = .level,
+        .call = .prepare(onInterrupt, .{idx}),
+    };
+    devices[idx].?.irq_enabled = legacy.setupIrq(func, handler, "virtio-blk");
 
-    // Allocate DMA_PAGES contiguous physical pages for the virtqueue.
-    // The ring layout (with queue_num=256) spans exactly 3 pages:
-    //   Page 0: descriptor table (256*16=4096 bytes)
-    //   Page 1: available ring  (starts at offset 4096)
-    //   Page 2: used ring       (starts at offset 8192)
-    if (!allocContiguousPages(&dev.dma_pages)) {
-        log.err("virtio-blk: could not find {} contiguous DMA pages", .{DMA_PAGES});
-        return false;
-    }
-
-    // Zero all DMA pages.
-    for (dev.dma_pages) |pg| {
-        const virt = pg.baseAddress().toDirectMap().toPtr([*]u8);
-        @memset(virt[0..PAGE_SIZE], 0);
-    }
-
-    // The virtqueue base is dma_pages[0] (lowest PFN).
-    const queue_phys = dev.dma_pages[0].baseAddress().value;
-    dev.iow32(REG_QUEUE_PFN, @intCast(queue_phys / PAGE_SIZE));
-
-    dev.avail_idx = 0;
-    dev.used_last_seen = 0;
-
-    log.debug("virtio-blk queue 0 at phys=0x{x} (PFN={})", .{
-        queue_phys, queue_phys / PAGE_SIZE,
+    log.info("virtio-blk[{}] ready ({s} mode)", .{
+        idx,
+        if (devices[idx].?.irq_enabled) "irq" else "poll",
     });
-    return true;
-}
-
-/// Allocate DMA_PAGES physically contiguous pages and store them in
-/// dma_pages[] in ascending physical order (dma_pages[0] = lowest PFN).
-///
-/// The free list inserts pages via prepend() in ascending PFN order, so
-/// popFirst() returns pages in descending order within a contiguous region.
-/// We therefore accept consecutive pages in either direction and sort at the end.
-fn allocContiguousPages(dma_pages: *[DMA_PAGES]innigkeit.mem.PhysicalPage.Index) bool {
-    var run: [DMA_PAGES]innigkeit.mem.PhysicalPage.Index = undefined;
-    var run_len: usize = 0;
-    var spares: innigkeit.mem.PhysicalPage.List = .{};
-
-    var attempts: usize = 0;
-    while (attempts < 256) : (attempts += 1) {
-        const page = innigkeit.mem.PhysicalPage.allocator.allocate() catch break;
-        const pfn = @intFromEnum(page);
-
-        if (run_len > 0) {
-            const prev_pfn = @intFromEnum(run[run_len - 1]);
-            // Accept ascending or descending consecutive (free list prepends
-            // in ascending order, so pops come out descending).
-            const consecutive = (pfn == prev_pfn +% 1) or (pfn +% 1 == prev_pfn);
-            if (consecutive) {
-                run[run_len] = page;
-                run_len += 1;
-                if (run_len == DMA_PAGES) {
-                    // Sort ascending so dma_pages[0] has the lowest PFN.
-                    dma_pages.* = run;
-                    for (0..DMA_PAGES) |i| {
-                        for (i + 1..DMA_PAGES) |j| {
-                            if (@intFromEnum(dma_pages[j]) < @intFromEnum(dma_pages[i])) {
-                                const tmp = dma_pages[i];
-                                dma_pages[i] = dma_pages[j];
-                                dma_pages[j] = tmp;
-                            }
-                        }
-                    }
-                    if (spares.count > 0) innigkeit.mem.PhysicalPage.allocator.deallocate(spares);
-                    return true;
-                }
-                continue;
-            }
-        }
-        // Not consecutive: discard current run into spares, start fresh.
-        for (0..run_len) |i| spares.prepend(run[i]);
-        run[0] = page;
-        run_len = 1;
-    }
-
-    // Failed: release everything.
-    for (0..run_len) |i| spares.prepend(run[i]);
-    if (spares.count > 0) innigkeit.mem.PhysicalPage.allocator.deallocate(spares);
-    return false;
 }
 
 pub const ReadError = error{ NotInitialized, OutOfRange, DeviceError };
@@ -277,12 +225,14 @@ pub const WriteError = error{ NotInitialized, OutOfRange, DeviceError };
 
 const BLK_T_OUT: u32 = 1; // write request type
 
-/// Submit a single virtio-blk request and poll for completion.
+/// Submit a single virtio-blk request and wait for completion: blocking on
+/// the INTx interrupt when it is routed, bounded-spin polling otherwise.
 ///
 /// `req_type`: BLK_T_IN (read) or BLK_T_OUT (write).
 /// `data_flags`: VRING_DESC_F_WRITE for reads (device writes data), 0 for writes.
 /// The caller fills `scratch_virt` with data before calling (writes) or reads it
-/// after (reads). Returns error on timeout or non-zero device status.
+/// after (reads), and must hold `dev.request_mutex` across the whole request
+/// including those copies. Returns error on timeout or non-zero device status.
 fn submitRequest(
     dev: *Device,
     dev_idx: usize,
@@ -299,36 +249,31 @@ fn submitRequest(
     @memcpy(req_virt[0..@sizeOf(BlkReqHeader)], std.mem.asBytes(&header));
     req_virt[@sizeOf(BlkReqHeader)] = 0xFF; // status sentinel
 
-    const pg0 = dev.dma_pages[0].baseAddress().toDirectMap().toPtr([*]u8);
-    const pg1 = dev.dma_pages[1].baseAddress().toDirectMap().toPtr([*]u8);
-    const pg2 = dev.dma_pages[2].baseAddress().toDirectMap().toPtr([*]u8);
-    const descs: *[QUEUE_SIZE_MAX]VringDesc = @ptrCast(@alignCast(pg0));
-    const avail_idx_ptr: *u16 = @ptrCast(@alignCast(pg1 + 2));
-    const avail_ring_base: [*]u16 = @ptrCast(@alignCast(pg1 + 4));
-    const used_idx_ptr: *u16 = @ptrCast(@alignCast(pg2 + 2));
-
+    const descs = dev.queue.descTable();
     descs[0] = .{ .addr = req_phys, .len = @sizeOf(BlkReqHeader), .flags = VRING_DESC_F_NEXT, .next = 1 };
     descs[1] = .{ .addr = scratch_phys, .len = @as(u32, count) * 512, .flags = data_flags | VRING_DESC_F_NEXT, .next = 2 };
     descs[2] = .{ .addr = req_phys + @sizeOf(BlkReqHeader), .len = 1, .flags = VRING_DESC_F_WRITE, .next = 0 };
 
-    const avail_ring_idx = dev.avail_idx % dev.queue_num;
-    @atomicStore(u16, &avail_ring_base[avail_ring_idx], 0, .monotonic);
-    @atomicStore(u16, avail_idx_ptr, avail_idx_ptr.* +% 1, .release);
-    dev.avail_idx +%= 1;
+    dev.queue.publish(0);
+    dev.queue.notify();
 
-    dev.iow16(REG_QUEUE_NOTIFY, 0);
-
-    const expected = dev.used_last_seen +% 1;
-    var timeout: u32 = 1_000_000;
-    while (timeout > 0) : (timeout -= 1) {
-        if (@atomicLoad(u16, used_idx_ptr, .acquire) == expected) break;
-        architecture.spinLoopHint();
+    if (dev.irq_enabled) {
+        // Block until the IRQ handler signals a used-ring update. The device
+        // may have completed before we first take the lock, so the condition
+        // is always re-checked under the lock before (re-)waiting; `wait`
+        // returns with the lock released.
+        dev.completion_lock.lock();
+        while (dev.queue.popUsed() == null) {
+            dev.completion_queue.wait(&dev.completion_lock);
+            dev.completion_lock.lock();
+        }
+        dev.completion_lock.unlock();
+    } else {
+        _ = dev.queue.waitUsed(1_000_000) orelse {
+            log.err("virtio-blk[{}]: timeout waiting for used ring", .{dev_idx});
+            return error.DeviceError;
+        };
     }
-    if (timeout == 0) {
-        log.err("virtio-blk[{}]: timeout waiting for used ring", .{dev_idx});
-        return error.DeviceError;
-    }
-    dev.used_last_seen = expected;
 
     const status = req_virt[@sizeOf(BlkReqHeader)];
     if (status != 0) {
@@ -344,6 +289,9 @@ pub fn readSectors(dev_idx: usize, lba: u64, buf: []u8, count: u32) ReadError!vo
     const dev: *Device = if (devices[dev_idx]) |*d| d else return error.NotInitialized;
     if (lba + count > dev.capacity_sectors) return error.OutOfRange;
     if (buf.len < @as(usize, count) * 512) return error.OutOfRange;
+
+    dev.request_mutex.lock();
+    defer dev.request_mutex.unlock();
 
     try submitRequest(dev, dev_idx, lba, count, BLK_T_IN, VRING_DESC_F_WRITE);
     const scratch_virt = dev.scratch_page.baseAddress().toDirectMap().toPtr([*]u8);
@@ -380,6 +328,9 @@ pub fn writeSectors(dev_idx: usize, lba: u64, buf: []const u8, count: u32) Write
     const dev: *Device = if (devices[dev_idx]) |*d| d else return error.NotInitialized;
     if (lba + count > dev.capacity_sectors) return error.OutOfRange;
     if (buf.len < @as(usize, count) * 512) return error.OutOfRange;
+
+    dev.request_mutex.lock();
+    defer dev.request_mutex.unlock();
 
     const scratch_virt = dev.scratch_page.baseAddress().toDirectMap().toPtr([*]u8);
     @memcpy(scratch_virt[0 .. @as(usize, count) * 512], buf[0 .. @as(usize, count) * 512]);
@@ -437,4 +388,39 @@ pub fn isDataReady() bool {
 pub fn dataDeviceIndex() usize {
     if (devices[1] != null) return 1;
     return 0;
+}
+
+test "virtio-blk: readSectors is stable across repeated reads" {
+    if (!isBootReady()) return error.SkipZigTest;
+
+    var a: [512]u8 = undefined;
+    var b: [512]u8 = undefined;
+    try readSectors(0, 0, &a, 1);
+    try readSectors(0, 0, &b, 1);
+    try std.testing.expectEqualSlices(u8, &a, &b);
+}
+
+test "virtio-blk: unaligned readBytes matches readSectors" {
+    if (!isBootReady()) return error.SkipZigTest;
+
+    var ref: [1024]u8 = undefined;
+    try readSectors(0, 0, &ref, 2);
+
+    // Byte range straddling the sector-0/sector-1 boundary, unaligned start.
+    var got: [100]u8 = undefined;
+    try readBytes(0, 500, &got);
+    try std.testing.expectEqualSlices(u8, ref[500..][0..100], &got);
+}
+
+test "virtio-blk: completion is interrupt-driven when INTx is routed" {
+    if (!isBootReady()) return error.SkipZigTest;
+    const dev: *const Device = &devices[0].?;
+    if (!dev.irq_enabled) return error.SkipZigTest;
+
+    const before = irqFireCount(0);
+    var buf: [512]u8 = undefined;
+    try readSectors(0, 0, &buf, 1);
+    // The blocking completion path can only have been woken by the handler,
+    // and the handler counts every queue interrupt it observes.
+    try std.testing.expect(irqFireCount(0) > before);
 }

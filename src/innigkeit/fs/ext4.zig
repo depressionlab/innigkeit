@@ -196,6 +196,73 @@ const DirEntry = struct {
     name: []const u8,
 };
 
+/// Validating iterator over ext4_dir_entry_2 records in one directory block.
+///
+/// Every record is checked before it is exposed:
+///   - rec_len >= 8 (also rejects rec_len == 0, which would loop forever),
+///   - the whole record (off + rec_len) lies inside the block,
+///   - the name (8 + name_len) fits inside the record.
+///
+/// Iteration terminates at the first malformed record, so callers can never
+/// read past the block buffer or fail to make progress. Deleted records
+/// (inode == 0) are still yielded so callers that need the physical record
+/// chain (e.g. entry merging on delete) see every record.
+const DirBlockIter = struct {
+    buf: []const u8, // exactly one directory block
+    off: u32 = 0,
+
+    const Rec = struct {
+        /// Byte offset of this record within the block.
+        off: u32,
+        entry: DirEntry,
+    };
+
+    fn init(buf: []const u8) DirBlockIter {
+        return .{ .buf = buf };
+    }
+
+    fn next(self: *DirBlockIter) ?Rec {
+        const off = self.off;
+        if (@as(usize, off) + 8 > self.buf.len) return null;
+        const ino = std.mem.readInt(u32, self.buf[off..][0..4], .little);
+        const rec_len = std.mem.readInt(u16, self.buf[off + 4 ..][0..2], .little);
+        if (rec_len < 8) return null;
+        if (@as(usize, off) + rec_len > self.buf.len) return null;
+        const name_len = self.buf[off + 6];
+        if (8 + @as(u16, name_len) > rec_len) return null;
+        const file_type = self.buf[off + 7];
+        self.off = off + rec_len;
+        return .{
+            .off = off,
+            .entry = .{
+                .inode = ino,
+                .rec_len = rec_len,
+                .name_len = name_len,
+                .file_type = file_type,
+                .name = self.buf[off + 8 ..][0..name_len],
+            },
+        };
+    }
+};
+
+/// ceil(size / unit), clamped to u32, without the overflowing
+/// `(size + unit - 1) / unit` formulation.  Used for block/group counts;
+/// ext4 logical block numbers are 32-bit, so anything past maxInt(u32) is
+/// unmappable anyway.
+fn divCeilClampU32(size: u64, unit: u32) u32 {
+    const n = size / unit + @intFromBool(size % unit != 0);
+    return @intCast(@min(n, std.math.maxInt(u32)));
+}
+
+/// Combine the hi/lo halves of an on-disk block number and reject values
+/// outside ext4's 48-bit physical block range (a hostile value would
+/// otherwise overflow the `block * block_size` byte-offset computation).
+fn combineBlockNum(hi: u32, lo: u32) !u64 {
+    const v = (@as(u64, hi) << 32) | lo;
+    if (v >= (1 << 48)) return error.CorruptFilesystem;
+    return v;
+}
+
 pub const Ext4 = struct {
     sb: SbInfo,
     dev_idx: usize,
@@ -211,8 +278,10 @@ pub const Ext4 = struct {
         if (magic != EXT4_MAGIC) return error.BadMagic;
 
         const log_block_size = std.mem.readInt(u32, raw[0x18..0x1C], .little);
+        // Bound the on-disk shift amount *before* shifting: a hostile value
+        // would otherwise shift out of range (safety panic / UB), not error.
+        if (log_block_size > std.math.log2_int(u32, MAX_BLOCK_SIZE / 1024)) return error.BlockSizeTooLarge;
         const block_size: u32 = @as(u32, 1024) << @intCast(log_block_size);
-        if (block_size > MAX_BLOCK_SIZE) return error.BlockSizeTooLarge;
 
         const feature_incompat = std.mem.readInt(u32, raw[0x60..0x64], .little);
         const feature_compat = std.mem.readInt(u32, raw[0x5C..0x60], .little);
@@ -289,7 +358,7 @@ pub const Ext4 = struct {
         else
             0;
 
-        return .{ .inode_table = (@as(u64, hi) << 32) | lo };
+        return .{ .inode_table = try combineBlockNum(hi, lo) };
     }
 
     fn readInode(self: *const Ext4, inode_num: u32) !Inode {
@@ -483,24 +552,11 @@ pub const Ext4 = struct {
             const phys = try self.mapBlock(&inode, lb);
             if (phys != 0) try self.readBlock(phys, &block_buf) else @memset(block_buf[0..self.sb.block_size], 0);
 
-            var off: u32 = 0;
-            while (off + 8 <= self.sb.block_size) {
-                const ino_num = std.mem.readInt(u32, block_buf[off..][0..4], .little);
-                const rec_len = std.mem.readInt(u16, block_buf[off + 4 ..][0..2], .little);
-                if (rec_len < 8) break;
-                const nl = block_buf[off + 6];
-                const ft = block_buf[off + 7];
-                if (ino_num != 0 and nl > 0 and off + 8 + nl <= self.sb.block_size) {
-                    const entry: DirEntry = .{
-                        .inode = ino_num,
-                        .rec_len = rec_len,
-                        .name_len = nl,
-                        .file_type = ft,
-                        .name = block_buf[off + 8 ..][0..nl],
-                    };
-                    if (!cb(ctx, entry)) return;
+            var it: DirBlockIter = .init(block_buf[0..self.sb.block_size]);
+            while (it.next()) |rec| {
+                if (rec.entry.inode != 0 and rec.entry.name_len > 0) {
+                    if (!cb(ctx, rec.entry)) return;
                 }
-                off += rec_len;
             }
             bytes_read += self.sb.block_size;
         }
@@ -517,16 +573,11 @@ pub const Ext4 = struct {
             const phys = try self.mapBlock(&inode, lb);
             if (phys != 0) try self.readBlock(phys, &block_buf) else @memset(block_buf[0..self.sb.block_size], 0);
 
-            var off: u32 = 0;
-            while (off + 8 <= self.sb.block_size) {
-                const ino_num = std.mem.readInt(u32, block_buf[off..][0..4], .little);
-                const rec_len = std.mem.readInt(u16, block_buf[off + 4 ..][0..2], .little);
-                if (rec_len < 8) break;
-                const nl = block_buf[off + 6];
-                if (ino_num != 0 and nl == name.len and off + 8 + nl <= self.sb.block_size) {
-                    if (std.mem.eql(u8, block_buf[off + 8 ..][0..nl], name)) return ino_num;
+            var it: DirBlockIter = .init(block_buf[0..self.sb.block_size]);
+            while (it.next()) |rec| {
+                if (rec.entry.inode != 0 and std.mem.eql(u8, rec.entry.name, name)) {
+                    return rec.entry.inode;
                 }
-                off += rec_len;
             }
             bytes_read += self.sb.block_size;
         }
@@ -772,7 +823,7 @@ pub const Ext4 = struct {
             return error.IoError;
         const lo = std.mem.readInt(u32, raw[0x00..0x04], .little);
         const hi: u32 = if (self.sb.desc_size >= 64) std.mem.readInt(u32, raw[0x20..0x24], .little) else 0;
-        return (@as(u64, hi) << 32) | lo;
+        return try combineBlockNum(hi, lo);
     }
 
     fn decrementGroupFreeBlocks(self: *const Ext4, group: u32) !void {
@@ -977,13 +1028,12 @@ pub const Ext4 = struct {
                 var block_buf: [MAX_BLOCK_SIZE]u8 = undefined;
                 try self.readBlock(last_phys, &block_buf);
 
-                // Scan entries; try to split the last entry's slack space.
-                var off: u32 = 0;
-                while (off + 8 <= self.sb.block_size) {
-                    const rec_len = std.mem.readInt(u16, block_buf[off + 4 ..][0..2], .little);
-                    if (rec_len < 8) break;
-                    const nl = block_buf[off + 6];
-                    const actual_used: u16 = @intCast((8 + nl + 3) & ~@as(u32, 3));
+                var it: DirBlockIter = .init(block_buf[0..self.sb.block_size]);
+                while (it.next()) |rec| {
+                    const off = rec.off;
+                    const rec_len = rec.entry.rec_len;
+                    const actual_used: u16 = @intCast((8 + @as(u32, rec.entry.name_len) + 3) & ~@as(u32, 3));
+                    if (rec_len < actual_used) break; // corrupt padding; bail to new-block path
                     const slack: u16 = rec_len - actual_used;
                     if (off + rec_len >= self.sb.block_size or slack >= needed_len) {
                         // Last real entry or one with enough slack: split here.
@@ -1003,7 +1053,6 @@ pub const Ext4 = struct {
                             return;
                         }
                     }
-                    off += rec_len;
                 }
             }
         }
@@ -1120,8 +1169,8 @@ pub const Ext4 = struct {
         }
 
         // Free blocks past new_size.
-        const first_free_lb: u32 = @intCast((new_size + self.sb.block_size - 1) / self.sb.block_size);
-        const old_last_lb: u32 = @intCast((inode.size + self.sb.block_size - 1) / self.sb.block_size);
+        const first_free_lb = divCeilClampU32(new_size, self.sb.block_size);
+        const old_last_lb = divCeilClampU32(inode.size, self.sb.block_size);
         var lb = first_free_lb;
         while (lb < old_last_lb) : (lb += 1) {
             const phys = self.mapBlock(&inode, lb) catch continue;
@@ -1215,31 +1264,25 @@ pub const Ext4 = struct {
                 continue;
             }
 
-            var off: u32 = 0;
-            var prev_off: u32 = 0;
-            while (off + 8 <= self.sb.block_size) {
-                const ino_num = std.mem.readInt(u32, block_buf[off..][0..4], .little);
-                const rec_len = std.mem.readInt(u16, block_buf[off + 4 ..][0..2], .little);
-                if (rec_len < 8) break;
-                const nl = block_buf[off + 6];
-                if (ino_num != 0 and nl == name.len and
-                    std.mem.eql(u8, block_buf[off + 8 ..][0..nl], name))
-                {
-                    // Merge this record into the previous one (extend prev rec_len).
-                    if (prev_off != off) {
-                        const prev_rec = std.mem.readInt(u16, block_buf[prev_off + 4 ..][0..2], .little);
-                        std.mem.writeInt(u16, block_buf[prev_off + 4 ..][0..2], prev_rec + rec_len, .little);
+            var it: DirBlockIter = .init(block_buf[0..self.sb.block_size]);
+            var prev: ?DirBlockIter.Rec = null;
+            while (it.next()) |rec| {
+                if (rec.entry.inode != 0 and std.mem.eql(u8, rec.entry.name, name)) {
+                    if (prev) |p| {
+                        // Merge this record into the previous one (extend prev
+                        // rec_len). Both records were validated to lie inside
+                        // the block and are adjacent, so the sum fits in u16.
+                        std.mem.writeInt(u16, block_buf[p.off + 4 ..][0..2], p.entry.rec_len + rec.entry.rec_len, .little);
                     } else {
                         // First entry: zero the inode field to mark as deleted.
-                        std.mem.writeInt(u32, block_buf[off..][0..4], 0, .little);
+                        std.mem.writeInt(u32, block_buf[rec.off..][0..4], 0, .little);
                     }
                     var write_buf: [MAX_BLOCK_SIZE]u8 = std.mem.zeroes([MAX_BLOCK_SIZE]u8);
                     @memcpy(write_buf[0..self.sb.block_size], block_buf[0..self.sb.block_size]);
                     try self.writeBlock(phys, &write_buf);
                     return;
                 }
-                prev_off = off;
-                off += rec_len;
+                prev = rec;
             }
             bytes_read += self.sb.block_size;
         }
@@ -1284,3 +1327,62 @@ pub const Ext4 = struct {
             return error.IoError;
     }
 };
+
+/// Test helper: write one ext4_dir_entry_2 record into `buf` at `off`.
+fn writeTestDirRec(buf: []u8, off: usize, ino: u32, rec_len: u16, name_len: u8, file_type: u8, name: []const u8) void {
+    std.mem.writeInt(u32, buf[off..][0..4], ino, .little);
+    std.mem.writeInt(u16, buf[off + 4 ..][0..2], rec_len, .little);
+    buf[off + 6] = name_len;
+    buf[off + 7] = file_type;
+    @memcpy(buf[off + 8 ..][0..name.len], name);
+}
+
+test "ext4: dir block iterator yields valid entries" {
+    var block = [_]u8{0} ** 1024;
+    // "." (inode 11, dir) followed by "hello" (inode 42, regular file) whose
+    // rec_len covers the rest of the block, as ext4 lays out directory blocks.
+    writeTestDirRec(&block, 0, 11, 12, 1, 2, ".");
+    writeTestDirRec(&block, 12, 42, 1024 - 12, 5, 1, "hello");
+
+    var it: DirBlockIter = .init(&block);
+
+    const a = it.next() orelse return error.MissingEntry;
+    try std.testing.expectEqual(@as(u32, 0), a.off);
+    try std.testing.expectEqual(@as(u32, 11), a.entry.inode);
+    try std.testing.expectEqual(@as(u8, 2), a.entry.file_type);
+    try std.testing.expectEqualSlices(u8, ".", a.entry.name);
+
+    const b = it.next() orelse return error.MissingEntry;
+    try std.testing.expectEqual(@as(u32, 12), b.off);
+    try std.testing.expectEqual(@as(u32, 42), b.entry.inode);
+    try std.testing.expectEqual(@as(u16, 1012), b.entry.rec_len);
+    try std.testing.expectEqualSlices(u8, "hello", b.entry.name);
+
+    // The second record extends to the block end, so iteration is done.
+    try std.testing.expect(it.next() == null);
+}
+
+test "ext4: dir block iterator terminates on malformed records" {
+    var block = [_]u8{0} ** 1024;
+
+    // (a) rec_len == 0 must not loop forever: rejected immediately.
+    writeTestDirRec(&block, 0, 7, 0, 1, 1, "x");
+    var it_zero: DirBlockIter = .init(&block);
+    try std.testing.expect(it_zero.next() == null);
+
+    // (b) rec_len overrunning the block end: the valid first entry is
+    // yielded, the overrunning second entry terminates iteration.
+    @memset(&block, 0);
+    writeTestDirRec(&block, 0, 11, 12, 1, 2, ".");
+    writeTestDirRec(&block, 12, 42, 2048, 5, 1, "hello"); // 12 + 2048 > 1024
+    var it_overrun: DirBlockIter = .init(&block);
+    const first = it_overrun.next() orelse return error.MissingEntry;
+    try std.testing.expectEqual(@as(u32, 11), first.entry.inode);
+    try std.testing.expect(it_overrun.next() == null);
+
+    // (c) name_len overrunning rec_len: 8 + 20 > 12, rejected.
+    @memset(&block, 0);
+    writeTestDirRec(&block, 0, 9, 12, 20, 1, "abc");
+    var it_name: DirBlockIter = .init(&block);
+    try std.testing.expect(it_name.next() == null);
+}

@@ -147,6 +147,51 @@ pub fn readUnlock(self: *RwLock) void {
     }
 }
 
+test "RwLock: tryWriteLock fails while read-locked, succeeds after all readers release" {
+    var rwlock: RwLock = .{};
+
+    try std.testing.expect(rwlock.tryReadLock());
+    try std.testing.expect(rwlock.tryReadLock()); // readers are shared
+    try std.testing.expect(rwlock.isReadLocked());
+    try std.testing.expect(!rwlock.isWriteLocked());
+    try std.testing.expect(!rwlock.tryWriteLock());
+
+    rwlock.readUnlock();
+    try std.testing.expect(!rwlock.tryWriteLock()); // one reader still present
+    rwlock.readUnlock();
+    try std.testing.expect(!rwlock.isReadLocked());
+
+    try std.testing.expect(rwlock.tryWriteLock());
+    try std.testing.expect(rwlock.isWriteLocked());
+    rwlock.writeUnlock();
+    try std.testing.expect(!rwlock.isWriteLocked());
+}
+
+test "RwLock: tryUpgradeLock upgrades a sole reader, fails with a concurrent reader" {
+    var rwlock: RwLock = .{};
+
+    // Sole reader upgrades to writer.
+    try std.testing.expect(rwlock.tryReadLock());
+    try std.testing.expect(rwlock.tryUpgradeLock());
+    try std.testing.expect(rwlock.isWriteLocked());
+    try std.testing.expect(!rwlock.isReadLocked());
+    rwlock.writeUnlock();
+
+    // With a second reader present the upgrade fails; our read lock is
+    // released by the failed upgrade, the other reader's remains.
+    try std.testing.expect(rwlock.tryReadLock());
+    try std.testing.expect(rwlock.tryReadLock());
+    try std.testing.expect(!rwlock.tryUpgradeLock());
+    try std.testing.expect(rwlock.isReadLocked());
+    try std.testing.expect(!rwlock.isWriteLocked());
+    rwlock.readUnlock();
+    try std.testing.expect(!rwlock.isReadLocked());
+
+    // The lock is usable for writing again afterwards.
+    try std.testing.expect(rwlock.tryWriteLock());
+    rwlock.writeUnlock();
+}
+
 const IS_WRITING: usize = 1;
 const WRITER: usize = 1 << 1;
 const READER: usize = 1 << (1 + @bitSizeOf(Count));

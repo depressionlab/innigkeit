@@ -470,8 +470,8 @@ pub const PageTable = extern struct {
             return true;
         }
 
-        if (new_map_type.protection.execute != new_map_type.protection.execute) return true;
-        if (new_map_type.protection.write != new_map_type.protection.write) return true;
+        if (previous_map_type.protection.execute != new_map_type.protection.execute) return true;
+        if (previous_map_type.protection.write != new_map_type.protection.write) return true;
 
         return false;
     }

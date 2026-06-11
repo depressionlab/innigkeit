@@ -13,7 +13,8 @@ const std = @import("std");
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
-const validateUserBuffer = @import("../validate.zig").validateUserBuffer;
+const validate = @import("../validate.zig");
+const validateUserBuffer = validate.validateUserBuffer;
 
 const log = innigkeit.debug.log.scoped(.user_fb);
 
@@ -120,15 +121,12 @@ pub fn syscallFramebufferMap(info_ptr: usize, current_task: innigkeit.Task.Curre
     process.address_space.page_table_lock.unlock();
 
     // Write dimensions back to user memory.
-    current_task.incrementEnableAccessToUserMemory();
-    const user_info: *FramebufferInfo = @ptrFromInt(info_ptr);
-    user_info.* = .{
+    validate.writeUser(info_ptr, FramebufferInfo{
         .width = info.width,
         .height = info.height,
         .pitch = info.pitch,
         .bpp = info.bpp,
-    };
-    current_task.decrementEnableAccessToUserMemory();
+    }) catch return errCode(e.EFAULT); // unreachable: validated above
 
     return virt_range.address.value;
 }
@@ -147,23 +145,21 @@ const InitfsReadSpec = extern struct {
 /// arg1 = pointer to InitfsReadSpec in user memory.
 /// Returns bytes copied, or file size if buf_len==0 (stat mode).
 pub fn syscallInitfsRead(spec_ptr: usize, current_task: innigkeit.Task.Current) usize {
-    if (!validateUserBuffer(spec_ptr, @sizeOf(InitfsReadSpec))) return errCode(e.EFAULT);
+    _ = current_task;
 
-    current_task.incrementEnableAccessToUserMemory();
-    const spec = @as(*const InitfsReadSpec, @ptrFromInt(spec_ptr)).*;
-    current_task.decrementEnableAccessToUserMemory();
+    const spec = validate.readUser(InitfsReadSpec, spec_ptr) catch return errCode(e.EFAULT);
 
     const name_len = spec.name_len;
     if (name_len == 0 or name_len > 255) return errCode(e.EINVAL);
     if (!validateUserBuffer(spec.name_ptr, name_len)) return errCode(e.EFAULT);
+    // Validate the destination up front so a bad buffer faults before the
+    // file lookup.
     if (spec.buf_len > 0 and !validateUserBuffer(spec.buf_ptr, spec.buf_len)) {
         return errCode(e.EFAULT);
     }
 
     var name_buf: [256]u8 = undefined;
-    current_task.incrementEnableAccessToUserMemory();
-    @memcpy(name_buf[0..name_len], @as([*]const u8, @ptrFromInt(spec.name_ptr))[0..name_len]);
-    current_task.decrementEnableAccessToUserMemory();
+    validate.copyFromUser(name_buf[0..name_len], spec.name_ptr) catch return errCode(e.EFAULT);
     const name = name_buf[0..name_len];
 
     const file_data = innigkeit.fs.initfs.findFile(name) orelse return errCode(e.ENOENT);
@@ -171,9 +167,7 @@ pub fn syscallInitfsRead(spec_ptr: usize, current_task: innigkeit.Task.Current) 
     if (spec.buf_len == 0) return file_data.len;
 
     const copy_len = @min(file_data.len, spec.buf_len);
-    current_task.incrementEnableAccessToUserMemory();
-    @memcpy(@as([*]u8, @ptrFromInt(spec.buf_ptr))[0..copy_len], file_data[0..copy_len]);
-    current_task.decrementEnableAccessToUserMemory();
+    validate.copyToUser(spec.buf_ptr, file_data[0..copy_len]) catch return errCode(e.EFAULT);
 
     return copy_len;
 }
@@ -187,7 +181,10 @@ pub fn syscallUptimeMs() usize {
 ///
 /// Returns the number of bytes copied (0 if no key events pending).
 pub fn syscallKbdRead(buf_ptr: usize, buf_len: usize, current_task: innigkeit.Task.Current) usize {
+    _ = current_task;
     if (buf_len == 0) return 0;
+    // Validate up front so a bad buffer faults before draining (and losing)
+    // pending key events.
     if (!validateUserBuffer(buf_ptr, buf_len)) return errCode(e.EFAULT);
 
     var tmp: [64]u8 = undefined;
@@ -195,9 +192,7 @@ pub fn syscallKbdRead(buf_ptr: usize, buf_len: usize, current_task: innigkeit.Ta
     const n = innigkeit.drivers.input.ps2.raw_kb.drain(tmp[0..to_read]);
     if (n == 0) return 0;
 
-    current_task.incrementEnableAccessToUserMemory();
-    @memcpy(@as([*]u8, @ptrFromInt(buf_ptr))[0..n], tmp[0..n]);
-    current_task.decrementEnableAccessToUserMemory();
+    validate.copyToUser(buf_ptr, tmp[0..n]) catch return errCode(e.EFAULT);
 
     return n;
 }
@@ -208,7 +203,10 @@ const MouseEvent = innigkeit.drivers.input.ps2_mouse.MouseEvent;
 /// buf_ptr points to a []MouseEvent; buf_len is the number of events (not bytes).
 /// Returns the number of events written.
 pub fn syscallMouseRead(buf_ptr: usize, buf_len: usize, current_task: innigkeit.Task.Current) usize {
+    _ = current_task;
     if (buf_len == 0) return 0;
+    // Validate up front so a bad buffer faults before draining (and losing)
+    // pending mouse events.
     const byte_len = buf_len *| @sizeOf(MouseEvent);
     if (!validateUserBuffer(buf_ptr, byte_len)) return errCode(e.EFAULT);
 
@@ -217,12 +215,8 @@ pub fn syscallMouseRead(buf_ptr: usize, buf_len: usize, current_task: innigkeit.
     const n = innigkeit.drivers.input.ps2_mouse.raw_mouse.drain(tmp[0..to_read]);
     if (n == 0) return 0;
 
-    current_task.incrementEnableAccessToUserMemory();
-    @memcpy(
-        @as([*]MouseEvent, @ptrFromInt(buf_ptr))[0..n],
-        tmp[0..n],
-    );
-    current_task.decrementEnableAccessToUserMemory();
+    validate.copyToUser(buf_ptr, std.mem.sliceAsBytes(tmp[0..n])) catch
+        return errCode(e.EFAULT); // unreachable: validated above
 
     return n;
 }
@@ -272,15 +266,12 @@ fn syscallFramebufferMapGpu(
     }
     process.address_space.page_table_lock.unlock();
 
-    current_task.incrementEnableAccessToUserMemory();
-    const user_info: *FramebufferInfo = @ptrFromInt(info_ptr);
-    user_info.* = .{
+    validate.writeUser(info_ptr, FramebufferInfo{
         .width = gpu.fb_width,
         .height = gpu.fb_height,
         .pitch = gpu.fb_width * 4,
         .bpp = 32,
-    };
-    current_task.decrementEnableAccessToUserMemory();
+    }) catch return errCode(e.EFAULT); // unreachable: validated above
 
     return virt_range.address.value;
 }
@@ -296,11 +287,9 @@ pub const BlkReadSpec = extern struct {
 ///
 /// Returns bytes read, or 0 if no data disk is present.
 pub fn syscallBlkRead(spec_ptr: usize, current_task: innigkeit.Task.Current) usize {
-    if (!validateUserBuffer(spec_ptr, @sizeOf(BlkReadSpec))) return errCode(e.EFAULT);
+    _ = current_task;
 
-    current_task.incrementEnableAccessToUserMemory();
-    const spec = @as(*const BlkReadSpec, @ptrFromInt(spec_ptr)).*;
-    current_task.decrementEnableAccessToUserMemory();
+    const spec = validate.readUser(BlkReadSpec, spec_ptr) catch return errCode(e.EFAULT);
 
     if (spec.buf_len == 0) return 0;
     if (!validateUserBuffer(spec.buf_ptr, spec.buf_len)) return errCode(e.EFAULT);
@@ -308,7 +297,6 @@ pub fn syscallBlkRead(spec_ptr: usize, current_task: innigkeit.Task.Current) usi
     if (!innigkeit.drivers.virtio.blk.isDataReady()) return errCode(e.ENODEV);
 
     // Read in chunks through a kernel-side bounce buffer.
-    const buf: [*]u8 = @ptrFromInt(spec.buf_ptr);
     var out_pos: usize = 0;
     var remaining: usize = spec.buf_len;
     var byte_offset: u64 = spec.byte_offset;
@@ -328,9 +316,8 @@ pub fn syscallBlkRead(spec_ptr: usize, current_task: innigkeit.Task.Current) usi
         };
 
         const copy_len: usize = @min(remaining, chunk_bytes - off_in_sector);
-        current_task.incrementEnableAccessToUserMemory();
-        @memcpy(buf[out_pos..][0..copy_len], tmp[off_in_sector..][0..copy_len]);
-        current_task.decrementEnableAccessToUserMemory();
+        validate.copyToUser(spec.buf_ptr + out_pos, tmp[off_in_sector..][0..copy_len]) catch
+            return errCode(e.EFAULT); // unreachable: whole buffer validated above
 
         out_pos += copy_len;
         remaining -= copy_len;
@@ -345,11 +332,9 @@ pub fn syscallBlkRead(spec_ptr: usize, current_task: innigkeit.Task.Current) usi
 /// Offset and length must be multiples of 512 (sector size).
 /// Returns 0 on success.
 pub fn syscallBlkWrite(spec_ptr: usize, current_task: innigkeit.Task.Current) usize {
-    if (!validateUserBuffer(spec_ptr, @sizeOf(BlkReadSpec))) return errCode(e.EFAULT);
+    _ = current_task;
 
-    current_task.incrementEnableAccessToUserMemory();
-    const spec = @as(*const BlkReadSpec, @ptrFromInt(spec_ptr)).*;
-    current_task.decrementEnableAccessToUserMemory();
+    const spec = validate.readUser(BlkReadSpec, spec_ptr) catch return errCode(e.EFAULT);
 
     if (spec.buf_len == 0) return 0;
     if (!validateUserBuffer(spec.buf_ptr, spec.buf_len)) return errCode(e.EFAULT);
@@ -360,7 +345,6 @@ pub fn syscallBlkWrite(spec_ptr: usize, current_task: innigkeit.Task.Current) us
     if (!innigkeit.drivers.virtio.blk.isDataReady()) return errCode(e.ENODEV);
 
     // Copy in chunks through a kernel-side bounce buffer.
-    const buf: [*]const u8 = @ptrFromInt(spec.buf_ptr);
     var in_pos: usize = 0;
     var remaining: usize = spec.buf_len;
     var byte_offset: u64 = spec.byte_offset;
@@ -371,9 +355,8 @@ pub fn syscallBlkWrite(spec_ptr: usize, current_task: innigkeit.Task.Current) us
         const chunk_bytes: usize = @as(usize, sectors_now) * 512;
         const sector: u64 = byte_offset / 512;
 
-        current_task.incrementEnableAccessToUserMemory();
-        @memcpy(tmp[0..chunk_bytes], buf[in_pos..][0..chunk_bytes]);
-        current_task.decrementEnableAccessToUserMemory();
+        validate.copyFromUser(tmp[0..chunk_bytes], spec.buf_ptr + in_pos) catch
+            return errCode(e.EFAULT); // unreachable: whole buffer validated above
 
         const dev_idx = innigkeit.drivers.virtio.blk.dataDeviceIndex();
         innigkeit.drivers.virtio.blk.writeSectors(dev_idx, sector, tmp[0..chunk_bytes], sectors_now) catch |err| {

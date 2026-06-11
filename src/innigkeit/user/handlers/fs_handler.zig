@@ -6,7 +6,8 @@
 
 const std = @import("std");
 const innigkeit = @import("innigkeit");
-const validateUserBuffer = @import("../validate.zig").validateUserBuffer;
+const validate = @import("../validate.zig");
+const validateUserBuffer = validate.validateUserBuffer;
 
 const simple_fs = innigkeit.fs.simple_fs;
 
@@ -49,12 +50,9 @@ pub fn syscallFsOpen(
     const flags_bits: u32 = @truncate(flags_raw);
 
     if (name_len == 0 or name_len > 15) return errCode(e.EINVAL);
-    if (!validateUserBuffer(name_ptr, name_len)) return errCode(e.EFAULT);
 
     var name_buf: [16]u8 = undefined;
-    current_task.incrementEnableAccessToUserMemory();
-    @memcpy(name_buf[0..name_len], @as([*]const u8, @ptrFromInt(name_ptr))[0..name_len]);
-    current_task.decrementEnableAccessToUserMemory();
+    validate.copyFromUser(name_buf[0..name_len], name_ptr) catch return errCode(e.EFAULT);
     const name = name_buf[0..name_len];
 
     const flags: simple_fs.OpenFlags = @bitCast(flags_bits);
@@ -111,6 +109,8 @@ pub fn syscallFsRead(
     const idx = fdToIndex(fd) orelse return errCode(e.EBADF);
 
     if (buf_len == 0) return 0;
+    // Validate up front so a bad buffer faults before the read advances the
+    // file offset.
     if (!validateUserBuffer(buf_ptr, buf_len)) return errCode(e.EFAULT);
 
     const process = innigkeit.user.Process.from(current_task.task);
@@ -135,11 +135,8 @@ pub fn syscallFsRead(
     };
     process.open_files_lock.unlock();
 
-    if (n > 0) {
-        current_task.incrementEnableAccessToUserMemory();
-        @memcpy(@as([*]u8, @ptrFromInt(buf_ptr))[0..n], tmp[0..n]);
-        current_task.decrementEnableAccessToUserMemory();
-    }
+    if (n > 0) validate.copyToUser(buf_ptr, tmp[0..n]) catch
+        return errCode(e.EFAULT); // unreachable: validated above
 
     return n;
 }
@@ -155,15 +152,15 @@ pub fn syscallFsWrite(
     const idx = fdToIndex(fd) orelse return errCode(e.EBADF);
 
     if (buf_len == 0) return 0;
+    // The whole user range must be valid even though at most tmp.len bytes
+    // are consumed per call.
     if (!validateUserBuffer(buf_ptr, buf_len)) return errCode(e.EFAULT);
 
     // Copy user data into a kernel bounce buffer before touching the file.
     var tmp: [4096]u8 = undefined;
     const to_write: usize = @min(buf_len, tmp.len);
 
-    current_task.incrementEnableAccessToUserMemory();
-    @memcpy(tmp[0..to_write], @as([*]const u8, @ptrFromInt(buf_ptr))[0..to_write]);
-    current_task.decrementEnableAccessToUserMemory();
+    validate.copyFromUser(tmp[0..to_write], buf_ptr) catch return errCode(e.EFAULT);
 
     const process = innigkeit.user.Process.from(current_task.task);
 

@@ -284,7 +284,6 @@ pub fn shrink(self: *Entry, direction: ShrinkDirection, new_size: core.Size) voi
     switch (direction) {
         .beginning => {
             self.range.address.moveForwardInPlace(size_change);
-            self.range.size = new_size;
 
             if (self.anonymous_map_reference.anonymous_map) |_| {
                 self.anonymous_map_reference.start_offset.addInPlace(size_change);
@@ -374,4 +373,33 @@ comptime {
     if (!innigkeit.mem.cache.isSmallItem(.of(Entry), .of(Entry))) {
         @compileError("`Entry` is a large cache item");
     }
+}
+
+test "address space entry: shrink from beginning and from end" {
+    const page = architecture.paging.standard_page_size;
+    const base: innigkeit.VirtualAddress = .from(0x4000_0000);
+
+    // A bare entry with no object/anonymous map; shrink only manipulates the
+    // range (and offsets, which stay untouched with null references).
+    var entry: Entry = .{
+        .range = .from(base, page.multiplyScalar(4)),
+        .protection = .{ .read = true, .write = true },
+        .max_protection = .all,
+        .anonymous_map_reference = .{ .anonymous_map = null, .start_offset = .zero },
+        .object_reference = .{ .object = null, .start_offset = .zero },
+        .copy_on_write = false,
+        .needs_copy = false,
+        .wired_count = 0,
+    };
+
+    // Shrinking from the beginning moves the address forward by the amount
+    // removed and reduces the size to `new_size`.
+    entry.shrink(.beginning, page.multiplyScalar(3));
+    try std.testing.expectEqual(base.value + page.value, entry.range.address.value);
+    try std.testing.expectEqual(page.multiplyScalar(3).value, entry.range.size.value);
+
+    // Shrinking from the end keeps the address and reduces only the size.
+    entry.shrink(.end, page.multiplyScalar(1));
+    try std.testing.expectEqual(base.value + page.value, entry.range.address.value);
+    try std.testing.expectEqual(page.value, entry.range.size.value);
 }
