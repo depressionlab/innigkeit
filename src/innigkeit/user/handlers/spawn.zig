@@ -351,7 +351,6 @@ fn loadAndStart(
         return;
     };
 
-    // -- Signature verification -----------------------------------------------
     // Build the sidecar name: "<path>.codesig" (max_path_len + 8 bytes).
     var sig_name_buf: [max_path_len + 8]u8 = undefined;
     const sig_name = std.fmt.bufPrint(&sig_name_buf, "{s}.codesig", .{path}) catch unreachable;
@@ -389,7 +388,6 @@ fn loadAndStart(
     };
 
     child_process.entitlements = entitlements;
-    // -------------------------------------------------------------------------
 
     const current_task: innigkeit.Task.Current = .get();
     const thread: *innigkeit.user.Thread = .from(current_task.task);

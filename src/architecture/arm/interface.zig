@@ -26,6 +26,8 @@ pub const functions: architecture.Functions = .{
     .paging = .{
         .createPageTable = arm.PageTable.create,
         .copyTopLevelIntoPageTable = arm.PageTable.copyTopLevelIntoPageTable,
+        .enableAccessToUserMemory = arm.pan.enableAccessToUserMemory,
+        .disableAccessToUserMemory = arm.pan.disableAccessToUserMemory,
 
         .init = .{
             .sizeOfTopLevelEntry = arm.PageTable.sizeOfTopLevelEntry,
@@ -101,6 +103,10 @@ pub const functions: architecture.Functions = .{
 
                 // Record the CPU affinity register for this executor.
                 executor.arch_specific.mpidr = arm.registers.MPIDR_EL1.read();
+
+                // Engage PAN (Privileged Access Never, SMAP equivalent) on
+                // this executor if FEAT_PAN is implemented.
+                arm.pan.init();
 
                 // Initialise the GICv2 and generic timer for this CPU.
                 arm.gic.init();

@@ -6,6 +6,7 @@ const core = @import("core");
 
 pub const codesign = @import("codesign/root.zig");
 pub const elf = @import("elf/root.zig");
+pub const FdTable = @import("FdTable.zig");
 pub const Process = @import("Process.zig");
 pub const Thread = @import("Thread.zig");
 pub const handlers = @import("handlers/root.zig");
@@ -51,86 +52,118 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
 
         // ------------------------------------------------------------------ //
         // write(fd: usize, buf: [*]const u8, len: usize) isize               //
-        //   arg1 = fd   (0=stdin, 1=stdout, 2=stderr)                        //
+        //   arg1 = fd   (resolved via the per-processs fd table)             //
         //   arg2 = buf  (pointer into user address space)                    //
         //   arg3 = len  (byte count)                                         //
         //   return: bytes written, or negative error code                    //
         // ------------------------------------------------------------------ //
         .write => {
-            const fd: i32 = @intCast(syscall_frame.arg(.one));
+            const fd = syscall_frame.arg(.one);
             const buf_ptr = syscall_frame.arg(.two);
             const buf_len = syscall_frame.arg(.three);
 
-            if (fd != 1 and fd != 2) {
+            const current_task: innigkeit.Task.Current = .get();
+            const process = Process.from(current_task.task);
+
+            const resolved = process.fd_table.resolve(fd) orelse {
                 arch_frame.rax = errCode(e.EBADF);
                 return;
-            }
+            };
 
             if (buf_len == 0) {
                 arch_frame.rax = 0;
                 return;
             }
 
-            // The terminal writer consumes the user buffer in place, so keep a
-            // single explicit access window around the streaming write.
-            const buffer = validate.userSliceConst(buf_ptr, buf_len) catch {
-                arch_frame.rax = errCode(e.EFAULT);
-                return;
-            };
+            switch (resolved.desc) {
+                .terminal_out => {
+                    // The terminal writer consumes the user buffer in place, so
+                    // keep a single explicit access window around the streaming
+                    // write.
+                    const buffer = validate.userSliceConst(buf_ptr, buf_len) catch {
+                        arch_frame.rax = errCode(e.EFAULT);
+                        return;
+                    };
+                    const access: validate.UserAccess = .acquire();
+                    defer access.release();
+                    const output = innigkeit.init.Output.terminal;
+                    output.writer.writeAll(buffer) catch |err| {
+                        log.err("write: {t}", .{err});
+                        arch_frame.rax = errCode(e.EIO);
+                        return;
+                    };
+                    output.writer.flush() catch |err| {
+                        log.err("write flush: {t}", .{err});
+                        arch_frame.rax = errCode(e.EIO);
+                        return;
+                    };
 
-            const access: validate.UserAccess = .acquire();
-            defer access.release();
-
-            // TODO: route through per-process file descriptor table.
-            const output = innigkeit.init.Output.terminal;
-            output.writer.writeAll(buffer) catch |err| {
-                log.err("write: {t}", .{err});
-                arch_frame.rax = errCode(e.EIO);
-                return;
-            };
-            output.writer.flush() catch |err| {
-                log.err("write flush: {t}", .{err});
-                arch_frame.rax = errCode(e.EIO);
-                return;
-            };
-
-            arch_frame.rax = @intCast(buf_len);
+                    arch_frame.rax = @intCast(buf_len);
+                },
+                .file => {
+                    arch_frame.rax = handlers.file.syscallWriteFile(
+                        &process.fd_table,
+                        fd,
+                        buf_ptr,
+                        buf_len,
+                    );
+                },
+                // keyboard_in is not writable; .closed never escapes resolve.
+                else => arch_frame.rax = errCode(e.EBADF),
+            }
         },
 
         // ------------------------------------------------------------------ //
         // read(fd: usize, buf: [*]u8, len: usize) isize                      //
-        //   arg1 = fd   (0=stdin only)                                       //
+        //   arg1 = fd   (resolved via the per-process fd table)              //
         //   arg2 = buf  (pointer into user address space)                    //
         //   arg3 = len  (max bytes to read)                                  //
         //   return: bytes read, or negative error code                       //
         // ------------------------------------------------------------------ //
         .read => {
-            const fd: i32 = @intCast(syscall_frame.arg(.one));
+            const fd = syscall_frame.arg(.one);
             const buf_ptr = syscall_frame.arg(.two);
             const buf_len = syscall_frame.arg(.three);
 
-            if (fd != 0) {
+            const current_task: innigkeit.Task.Current = .get();
+            const process = Process.from(current_task.task);
+
+            const resolved = process.fd_table.resolve(fd) orelse {
                 arch_frame.rax = errCode(e.EBADF);
                 return;
-            }
+            };
 
             if (buf_len == 0) {
                 arch_frame.rax = 0;
                 return;
             }
 
-            // The keyboard driver fills the user buffer in place, so keep a
-            // single explicit access window around the streaming read.
-            const buffer = validate.userSlice(buf_ptr, buf_len) catch {
-                arch_frame.rax = errCode(e.EFAULT);
-                return;
-            };
+            switch (resolved.desc) {
+                .keyboard_in => {
+                    // The keyboard driver fills the user buffer in place, so
+                    // keep a single explicit access window around the streaming
+                    // read.
+                    const buffer = validate.userSlice(buf_ptr, buf_len) catch {
+                        arch_frame.rax = errCode(e.EFAULT);
+                        return;
+                    };
+                    const access: validate.UserAccess = .acquire();
+                    defer access.release();
 
-            const access: validate.UserAccess = .acquire();
-            defer access.release();
-
-            const bytes_read = innigkeit.drivers.input.ps2.keyboard_buffer.readLine(buffer);
-            arch_frame.rax = @intCast(bytes_read);
+                    const bytes_read = innigkeit.drivers.input.ps2.keyboard_buffer.readLine(buffer);
+                    arch_frame.rax = @intCast(bytes_read);
+                },
+                .file => {
+                    arch_frame.rax = handlers.file.syscallReadFile(
+                        &process.fd_table,
+                        fd,
+                        buf_ptr,
+                        buf_len,
+                    );
+                },
+                // terminal_out is not readable; .closed never escapes resolve.
+                else => arch_frame.rax = errCode(e.EBADF),
+            }
         },
 
         // ------------------------------------------------------------------ //
@@ -1349,6 +1382,24 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         },
 
         // ------------------------------------------------------------------ //
+        // net_udp_recv_nb(sock, from_ptr, buf_ptr, buf_len)                  //
+        //   -> bytes | EWOULDBLOCK (never blocks)                            //
+        // ------------------------------------------------------------------ //
+        .net_udp_recv_nb => {
+            const current_task_net_recv_nb: innigkeit.Task.Current = .get();
+            if (!checkEntitlement(current_task_net_recv_nb, "network")) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
+            arch_frame.rax = handlers.net.syscallNetUdpRecvNb(
+                syscall_frame.arg(.one),
+                syscall_frame.arg(.two),
+                syscall_frame.arg(.three),
+                syscall_frame.arg(.four),
+            );
+        },
+
+        // ------------------------------------------------------------------ //
         // net_udp_close(sock_id: u32) -> 0                                   //
         // ------------------------------------------------------------------ //
         .net_udp_close => {
@@ -1495,6 +1546,63 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const sock_id_c: u8 = @truncate(syscall_frame.arg(.one));
             innigkeit.net.socket.closeTcp(sock_id_c);
             arch_frame.rax = 0;
+        },
+
+        // ------------------------------------------------------------------ //
+        // open(path_ptr: usize, path_len: usize, flags: u32) -> fd|error     //
+        //   Opens a VFS file into the per-process fd table.                  //
+        //   flags bit 0 = open for writing (creates the file; requires the   //
+        //   storage entitlement).                                            //
+        // ------------------------------------------------------------------ //
+        .open => {
+            const current_task: innigkeit.Task.Current = .get();
+            const flags: u32 = @truncate(syscall_frame.arg(.three));
+            if (flags & 1 != 0 and !checkEntitlement(current_task, "storage")) {
+                arch_frame.rax = errCode(e.EPERM);
+                return;
+            }
+            arch_frame.rax = handlers.file.syscallOpen(
+                syscall_frame.arg(.one),
+                syscall_frame.arg(.two),
+                syscall_frame.arg(.three),
+                current_task,
+            );
+        },
+
+        // ------------------------------------------------------------------ //
+        // close(fd: usize) -> 0|error                                        //
+        // ------------------------------------------------------------------ //
+        .close => {
+            const current_task: innigkeit.Task.Current = .get();
+            arch_frame.rax = handlers.file.syscallClose(syscall_frame.arg(.one), current_task);
+        },
+
+        // ------------------------------------------------------------------ //
+        // lseek(fd: usize, offset: i64, whence: u32) -> new_offset|error     //
+        //   whence: 0 = SET, 1 = CUR, 2 = END.                               //
+        // ------------------------------------------------------------------ //
+        .lseek => {
+            const current_task: innigkeit.Task.Current = .get();
+            arch_frame.rax = handlers.file.syscallLseek(
+                syscall_frame.arg(.one),
+                syscall_frame.arg(.two),
+                syscall_frame.arg(.three),
+                current_task,
+            );
+        },
+
+        // ------------------------------------------------------------------ //
+        // fstat(fd: usize, stat_ptr: usize) -> 0|error                       //
+        //   Fills Stat{size: u64, kind: u8} at stat_ptr.                     //
+        //   kind: 0 = file, 1 = directory, 2 = tty.                          //
+        // ------------------------------------------------------------------ //
+        .fstat => {
+            const current_task: innigkeit.Task.Current = .get();
+            arch_frame.rax = handlers.file.syscallFstat(
+                syscall_frame.arg(.one),
+                syscall_frame.arg(.two),
+                current_task,
+            );
         },
     }
 }

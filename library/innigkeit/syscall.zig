@@ -138,6 +138,26 @@ pub const Syscall = enum(usize) {
     net_tcp_recv = 52,
     /// Close a TCP socket: (sock_id: u32) -> 0
     net_tcp_close = 53,
+    /// Open a VFS file into the per-process fd table.
+    /// (path_ptr: usize, path_len: usize, flags: u32) -> fd|error
+    /// flags bit 0 = open for writing (creates the file if missing; requires
+    /// the storage entitlement).
+    open = 54,
+    /// Close a per-process fd-table descriptor: (fd: usize) -> 0|error
+    close = 55,
+    /// Reposition a file descriptor's offset.
+    /// (fd: usize, offset: i64, whence: u32) -> new_offset|error
+    /// whence: 0 = SET, 1 = CUR, 2 = END.
+    lseek = 56,
+    /// Fill Stat{size: u64, kind: u8, _pad: [7]u8} at stat_ptr for fd.
+    /// kind: 0 = file, 1 = directory, 2 = tty.
+    /// (fd: usize, stat_ptr: usize) -> 0|error
+    fstat = 57,
+    /// Non-blocking UDP receive: same arguments and return encoding as
+    /// `net_udp_recv`, but returns EWOULDBLOCK immediately when no datagram
+    /// is queued instead of blocking.
+    /// (sock: usize, from_ptr: usize, buf_ptr: usize, buf_len: usize) -> bytes|error
+    net_udp_recv_nb = 58,
 
     /// Decode a raw syscall return value into a success count or a `SyscallError`.
     ///

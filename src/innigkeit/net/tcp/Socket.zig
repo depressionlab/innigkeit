@@ -66,6 +66,10 @@ pub const Socket = struct {
     /// For listeners: index of a newly accepted socket (-1 = none).
     accept_slot: i8 = -1,
 
+    /// Tasks blocked in `accept` on this listener. Guarded by the
+    /// module-level `lock`; producers (segment handlers) wake while holding it.
+    waiters: innigkeit.sync.WaitQueue = .{},
+
     fn rxAvail(self: *const Socket) u16 {
         return self.rx_tail -% self.rx_head;
     }
@@ -217,24 +221,31 @@ pub fn waitConnected(id: u8) bool {
     return false;
 }
 
-/// Block until an inbound connection arrives on listener `id`.
-/// Returns the new socket id (with state = established) or null on timeout.
+/// Block until an inbound connection is established on listener `id`.
+/// Sleeps on the listener's wait queue (woken by the handshake handler in the
+/// net-poll task) instead of polling. Returns the new socket id, or null if
+/// `id` is invalid, not a listener, or the listener is closed while waiting.
+/// No timeout: blocks until a connection arrives or the listener is closed.
 pub fn accept(id: u8) ?u8 {
-    var tries: usize = 0;
-    while (tries < 2000) : (tries += 1) {
-        lock.lock();
-        if (id < TCP_MAX and sockets[id].in_use and sockets[id].accept_slot >= 0) {
-            const slot: u8 = @intCast(sockets[id].accept_slot);
-            sockets[id].accept_slot = -1;
+    if (id >= TCP_MAX) return null;
+    lock.lock();
+    while (true) {
+        const ls = &sockets[id];
+        if (!ls.in_use or !ls.is_listener) {
+            lock.unlock();
+            return null;
+        }
+        if (ls.accept_slot >= 0) {
+            const slot: u8 = @intCast(ls.accept_slot);
+            ls.accept_slot = -1;
             lock.unlock();
             return slot;
         }
-        lock.unlock();
-        const h: innigkeit.Task.Scheduler.Handle = .get();
-        h.yield();
-        h.unlock();
+        // wait() enqueues, releases `lock`, blocks, and returns UNLOCKED.
+        // Spurious wakeups are allowed: re-lock and re-check every time.
+        ls.waiters.wait(&lock);
+        lock.lock();
     }
-    return null;
 }
 
 /// Send data on an established socket. Returns bytes sent (may be less than
@@ -250,6 +261,11 @@ pub fn sendData(id: u8, data: []const u8) usize {
 }
 
 /// Non-blocking receive. Returns bytes read (0 = no data yet).
+///
+/// Deliberately NOT blocking: the net_tcp_recv syscall streams directly into
+/// the user buffer under an open `UserAccess` window, and tasks must never
+/// block while one is held. TODO: Blocking TCP recv would require restructuring
+/// that syscall to use a kernel bounce buffer first (future work).
 pub fn recvData(id: u8, buf: []u8) u16 {
     lock.lock();
     defer lock.unlock();
@@ -257,7 +273,8 @@ pub fn recvData(id: u8, buf: []u8) u16 {
     return sockets[id].rxPop(buf);
 }
 
-/// Initiate graceful close.
+/// Initiate graceful close. Wakes any task blocked in `accept` on this slot
+/// (it observes `in_use == false` and returns null).
 pub fn closeSocket(id: u8) void {
     lock.lock();
     defer lock.unlock();
@@ -273,6 +290,8 @@ pub fn closeSocket(id: u8) void {
     }
     s.in_use = false;
     s.state = .closed;
+    while (s.waiters.firstTask() != null)
+        s.waiters.wakeOne(&lock);
 }
 
 /// Called from the network poller with a TCP payload (no IP header).
@@ -347,12 +366,13 @@ fn handleSynReceived(s: *Socket, incoming: *const Segment) void {
     s.snd_una = incoming.ack;
     s.state = .established;
 
-    // Notify listener that a child socket is ready.
+    // Notify listener that a child socket is ready; wake a blocked accept().
     for (&sockets) |*ls| {
         if (ls.is_listener and ls.state == .listen and ls.local_port == s.local_port) {
             const idx = (@intFromPtr(s) - @intFromPtr(&sockets)) / @sizeOf(Socket);
             std.debug.assert(idx < TCP_MAX); // `s` always lives in `sockets`
             ls.accept_slot = @intCast(idx);
+            ls.waiters.wakeOne(&lock);
             break;
         }
     }

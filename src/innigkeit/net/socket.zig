@@ -1,14 +1,18 @@
 //! Kernel network socket table: UDP and TCP.
 //!
 //! Provides:
-//!  - UDP: openSocket / closeSocket, sendUdp, recvUdp
+//!  - UDP: openSocket/closeSocket, sendUdp, recvUdp (non-blocking),
+//!    recvUdpBlocking (sleeps on a per-socket WaitQueue until a datagram
+//!    arrives: RX is interrupt-driven, so the net-poll task's call into
+//!    handleFrame/deliverUdp wakes the receiver)
 //!  - TCP: openTcpListener, openTcpConnect, tcpAccept, tcpSend, tcpRecv, closeTcp
 //!  - handleFrame: passed to virtio.net.pollRx; dispatches inbound frames
 //!  - arpLookup: shared ARP cache lookup used by TCP
 //!
 //! All functions are safe to call from syscall handlers (user-thread context) or
 //! from the dedicated net-poll kernel thread. A single TicketSpinLock protects
-//! shared state; it is never held across yields.
+//! shared state; it is never held across yields or blocking waits (WaitQueue.wait
+//! releases the lock before the task sleeps).
 
 const std = @import("std");
 const innigkeit = @import("innigkeit");
@@ -45,6 +49,10 @@ const Socket = struct {
     rx_head: u8 = 0,
     rx_tail: u8 = 0,
     rx_ring: [RX_RING]RxFrame = undefined,
+    /// Tasks blocked in `recvUdpBlocking` waiting for a datagram. Guarded by
+    /// the module-level `lock` (the same lock the producer `deliverUdp` holds
+    /// when it wakes waiters).
+    waiters: innigkeit.sync.WaitQueue = .{},
 };
 
 // Ping state: only one outstanding ICMP echo at a time.
@@ -77,12 +85,17 @@ pub fn openSocket(port: u16) ?u8 {
     return null;
 }
 
-/// Close the socket with `id`.  No-op if the id is out of range or not open.
+/// Close the socket with `id`. No-op if the id is out of range or not open.
+/// Any task blocked in `recvUdpBlocking` on this socket is woken and observes
+/// `in_use == false` (recv then fails with null).
 pub fn closeSocket(id: u8) void {
     if (id >= SOCKET_MAX) return;
     lock.lock();
     defer lock.unlock();
-    sockets[id].in_use = false;
+    const s = &sockets[id];
+    s.in_use = false;
+    while (s.waiters.firstTask() != null)
+        s.waiters.wakeOne(&lock);
 }
 
 /// Send a UDP datagram.  Resolves the target IP via ARP (blocking with up to
@@ -200,9 +213,23 @@ pub fn ping(dst_ip: [4]u8, timeout_ms: u64) ?u64 {
     return null;
 }
 
-/// Non-blocking receive.  Returns the number of payload bytes written to `buf`,
-/// or null if no frame is available.  `from` is filled with sender IP+port.
 pub const RecvFrom = struct { ip: [4]u8, port: u16 };
+
+/// Pop the oldest queued datagram into `buf`.
+///
+/// Caller must hold `lock` and have checked that the ring is non-empty.
+///
+/// `buf` must be kernel memory (the lock is held across the copy).
+fn dequeueLocked(s: *Socket, buf: []u8, from: *RecvFrom) u16 {
+    const f = &s.rx_ring[s.rx_head % RX_RING];
+    const copy_len: u16 = @intCast(@min(f.len, @as(u16, @intCast(buf.len))));
+    @memcpy(buf[0..copy_len], f.data[0..copy_len]);
+    from.ip = f.from_ip;
+    from.port = f.from_port;
+    s.rx_head +%= 1;
+    return copy_len;
+}
+
 pub fn recvUdp(sock_id: u8, buf: []u8, from: *RecvFrom) ?u16 {
     if (sock_id >= SOCKET_MAX) return null;
 
@@ -211,14 +238,39 @@ pub fn recvUdp(sock_id: u8, buf: []u8, from: *RecvFrom) ?u16 {
 
     const s = &sockets[sock_id];
     if (!s.in_use or s.rx_head == s.rx_tail) return null;
+    return dequeueLocked(s, buf, from);
+}
 
-    const f = &s.rx_ring[s.rx_head % RX_RING];
-    const copy_len: u16 = @intCast(@min(f.len, @as(u16, @intCast(buf.len))));
-    @memcpy(buf[0..copy_len], f.data[0..copy_len]);
-    from.ip = f.from_ip;
-    from.port = f.from_port;
-    s.rx_head +%= 1;
-    return copy_len;
+/// Blocking receive. Sleeps the calling task on the socket's wait queue until
+/// a datagram is delivered (by `deliverUdp`, running in the net-poll kernel
+/// task) or the socket is closed. Returns the number of payload bytes written
+/// to `buf`, or null if the socket id is invalid or the socket was/got closed.
+///
+/// `buf` must be kernel memory (e.g. the syscall handler's bounce buffer):
+/// the caller must NOT hold a `UserAccess` window or any lock across this
+/// call, since it blocks indefinitely (no timeout; see the syscall handler
+/// for the rationale).
+pub fn recvUdpBlocking(sock_id: u8, buf: []u8, from: *RecvFrom) ?u16 {
+    if (sock_id >= SOCKET_MAX) return null;
+
+    lock.lock();
+    while (true) {
+        const s = &sockets[sock_id];
+        if (!s.in_use) {
+            lock.unlock();
+            return null;
+        }
+        if (s.rx_head != s.rx_tail) {
+            const n = dequeueLocked(s, buf, from);
+            lock.unlock();
+            return n;
+        }
+        // wait() enqueues the current task, releases `lock`, and blocks;
+        // it returns with the lock RELEASED. Spurious wakeups are allowed,
+        // so re-acquire the lock and re-check the condition every time.
+        s.waiters.wait(&lock);
+        lock.lock();
+    }
 }
 
 pub fn handleFrame(frame: []const u8) void {
@@ -262,23 +314,32 @@ fn handleIp(payload: []const u8) void {
 
 fn handleUdp(from_ip: [4]u8, data: []const u8) void {
     const p = udp_pkt.parse(data) orelse return;
-    const our_ip = innigkeit.drivers.virtio.net.getIp() orelse return;
-    _ = our_ip;
+    deliverUdp(from_ip, p.src_port, p.dst_port, p.payload);
+}
 
+/// Deliver a UDP payload to the socket bound to `dst_port`. Enqueues the
+/// datagram and wakes one blocked receiver. Drops silently if no socket is
+/// bound or the socket's ring is full.
+///
+/// Normally called from `handleFrame` (net-poll kernel task); also callable
+/// directly (e.g. from kernel tests) to inject synthetic datagrams.
+pub fn deliverUdp(from_ip: [4]u8, from_port: u16, dst_port: u16, payload: []const u8) void {
     lock.lock();
     defer lock.unlock();
 
     for (&sockets) |*s| {
-        if (!s.in_use or s.port != p.dst_port) continue;
+        if (!s.in_use or s.port != dst_port) continue;
         const used: u8 = s.rx_tail -% s.rx_head;
         if (used >= RX_RING) return; // ring full, drop
         const f = &s.rx_ring[s.rx_tail % RX_RING];
         f.from_ip = from_ip;
-        f.from_port = p.src_port;
-        const len: u16 = @intCast(@min(p.payload.len, MAX_PAYLOAD));
+        f.from_port = from_port;
+        const len: u16 = @intCast(@min(payload.len, MAX_PAYLOAD));
         f.len = len;
-        @memcpy(f.data[0..len], p.payload[0..len]);
+        @memcpy(f.data[0..len], payload[0..len]);
         s.rx_tail +%= 1;
+        // Wake a receiver blocked in recvUdpBlocking (no-op if none).
+        s.waiters.wakeOne(&lock);
         return;
     }
 }
@@ -377,12 +438,18 @@ pub fn openTcpConnect(src_port: u16, dst_ip: [4]u8, dst_port: u16) ?u8 {
 pub fn tcpWaitConnected(id: u8) bool {
     return tcp_sock.waitConnected(id);
 }
+/// Blocks until an inbound connection is established on the listener; returns
+/// the new socket id, or null if the listener id is invalid or closed.
 pub fn tcpAccept(listener_id: u8) ?u8 {
     return tcp_sock.accept(listener_id);
 }
 pub fn tcpSend(id: u8, data: []const u8) usize {
     return tcp_sock.sendData(id, data);
 }
+/// Non-blocking TCP receive (returns 0 when no data is buffered). Kept
+/// non-blocking deliberately: the net_tcp_recv syscall streams directly into
+/// the user buffer under a `UserAccess` window, and blocking is forbidden
+/// while such a window is open.
 pub fn tcpRecv(id: u8, buf: []u8) u16 {
     return tcp_sock.recvData(id, buf);
 }
@@ -408,4 +475,63 @@ fn resolveArpWithRetry(dst_ip: [4]u8, our_mac: *const [6]u8, our_ip: [4]u8) ?[6]
         h.unlock();
     }
     return null;
+}
+
+test "udp socket: delivered datagram is received without blocking" {
+    const port: u16 = 47123; // arbitrary high port, unused elsewhere
+    const id = openSocket(port) orelse return error.NoSocketSlot;
+    defer closeSocket(id);
+
+    const src_ip: [4]u8 = .{ 10, 0, 2, 2 };
+
+    // Inject two synthetic datagrams via the delivery function (the same
+    // path handleFrame uses for real RX traffic).
+    deliverUdp(src_ip, 5555, port, "hello");
+    deliverUdp(src_ip, 5556, port, "world!");
+
+    var buf: [MAX_PAYLOAD]u8 = undefined;
+    var from: RecvFrom = .{ .ip = .{0} ** 4, .port = 0 };
+
+    // Blocking receive must return immediately: a datagram is already queued,
+    // so the fast path never reaches the wait queue.
+    const n1 = recvUdpBlocking(id, &buf, &from) orelse return error.NoDatagram;
+    try std.testing.expectEqual(@as(u16, 5), n1);
+    try std.testing.expectEqualSlices(u8, "hello", buf[0..n1]);
+    try std.testing.expectEqualSlices(u8, &src_ip, &from.ip);
+    try std.testing.expectEqual(@as(u16, 5555), from.port);
+
+    // Non-blocking receive drains the second datagram in FIFO order.
+    const n2 = recvUdp(id, &buf, &from) orelse return error.NoDatagram;
+    try std.testing.expectEqual(@as(u16, 6), n2);
+    try std.testing.expectEqualSlices(u8, "world!", buf[0..n2]);
+    try std.testing.expectEqual(@as(u16, 5556), from.port);
+}
+
+test "udp socket: empty socket would-block (non-blocking returns null)" {
+    const port: u16 = 47124;
+    const id = openSocket(port) orelse return error.NoSocketSlot;
+    defer closeSocket(id);
+
+    var buf: [16]u8 = undefined;
+    var from: RecvFrom = .{ .ip = .{0} ** 4, .port = 0 };
+    try std.testing.expectEqual(@as(?u16, null), recvUdp(id, &buf, &from));
+}
+
+test "udp socket: blocking recv on a closed socket returns null immediately" {
+    const port: u16 = 47125;
+    const id = openSocket(port) orelse return error.NoSocketSlot;
+    closeSocket(id);
+
+    var buf: [16]u8 = undefined;
+    var from: RecvFrom = .{ .ip = .{0} ** 4, .port = 0 };
+    try std.testing.expectEqual(@as(?u16, null), recvUdpBlocking(id, &buf, &from));
+    // Out-of-range ids fail without touching the table.
+    try std.testing.expectEqual(@as(?u16, null), recvUdpBlocking(@intCast(SOCKET_MAX), &buf, &from));
+}
+
+test "tcp accept: closed or invalid listener returns null immediately" {
+    const lid = openTcpListener(47126) orelse return error.NoSocketSlot;
+    closeTcp(lid);
+    // The slot is no longer in use, so blocking accept must bail out at once.
+    try std.testing.expectEqual(@as(?u8, null), tcpAccept(lid));
 }

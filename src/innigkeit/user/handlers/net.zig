@@ -12,7 +12,10 @@
 //!   45  net_udp_recv(sock_id: u32, from_ptr: usize,
 //!                    buf_ptr: usize, buf_len: usize) -> bytes|EAGAIN|error
 //!         from_ptr -> NetFrom (8 bytes: ip[4] + port[2] + pad[2]).
-//!         Returns EAGAIN if no data is available.
+//!         BLOCKS until a datagram arrives (no timeout). Returns EAGAIN only
+//!         if the socket id is invalid or the socket is closed (including
+//!         while blocked). A non-blocking mode (flags argument) is future
+//!         work; the current 4-argument layout is preserved.
 //!   46  net_udp_close(sock_id: u32) -> 0
 
 const std = @import("std");
@@ -101,23 +104,28 @@ pub fn syscallNetUdpRecv(
     _ = current_task;
     const id: u8 = @intCast(sock_id & 0xFF);
 
-    // Validate both destinations up front so a bad buffer faults before a
-    // datagram is consumed from the socket.
+    // Validate both destinations up front so a bad buffer faults before the
+    // task blocks or a datagram is consumed from the socket.
     if (!validateUserBuffer(from_ptr, @sizeOf(NetFrom))) return errCode(e.EFAULT);
     if (!validateUserBuffer(buf_ptr, buf_len)) return errCode(e.EFAULT);
 
+    // Block until a datagram arrives, dequeuing into a kernel bounce buffer.
+    // No UserAccess window is held here: the user copies happen strictly
+    // after the (potentially blocking) receive, and copyToUser/writeUser
+    // re-validate, so a mapping torn down while blocked yields EFAULT.
     var bounce: [socket.MAX_PAYLOAD]u8 = undefined;
     const recv_len = @min(buf_len, socket.MAX_PAYLOAD);
     var from: socket.RecvFrom = .{ .ip = .{0} ** 4, .port = 0 };
-    const bytes = socket.recvUdp(id, bounce[0..recv_len], &from) orelse return errCode(e.EWOULDBLOCK);
+    const bytes = socket.recvUdpBlocking(id, bounce[0..recv_len], &from) orelse
+        return errCode(e.EWOULDBLOCK); // invalid id or socket closed
 
     validate.copyToUser(buf_ptr, bounce[0..bytes]) catch
-        return errCode(e.EFAULT); // unreachable: validated above
+        return errCode(e.EFAULT);
     validate.writeUser(from_ptr, NetFrom{
         .ip = from.ip,
         .port = from.port,
         ._pad = 0,
-    }) catch return errCode(e.EFAULT); // unreachable: validated above
+    }) catch return errCode(e.EFAULT);
 
     return bytes;
 }
@@ -125,6 +133,37 @@ pub fn syscallNetUdpRecv(
 pub fn syscallNetUdpClose(sock_id: usize) usize {
     socket.closeSocket(@intCast(sock_id & 0xFF));
     return 0;
+}
+
+/// Non-blocking variant of `syscallNetUdpRecv` (syscall 58, net_udp_recv_nb):
+/// same arguments and return encoding, but returns EWOULDBLOCK immediately
+/// when no datagram is queued. Used by userspace timeout polls.
+pub fn syscallNetUdpRecvNb(
+    sock_id: usize,
+    from_ptr: usize,
+    buf_ptr: usize,
+    buf_len: usize,
+) usize {
+    const id: u8 = @intCast(sock_id & 0xFF);
+
+    if (!validateUserBuffer(from_ptr, @sizeOf(NetFrom))) return errCode(e.EFAULT);
+    if (!validateUserBuffer(buf_ptr, buf_len)) return errCode(e.EFAULT);
+
+    var bounce: [socket.MAX_PAYLOAD]u8 = undefined;
+    const recv_len = @min(buf_len, socket.MAX_PAYLOAD);
+    var from: socket.RecvFrom = .{ .ip = .{0} ** 4, .port = 0 };
+    const bytes = socket.recvUdp(id, bounce[0..recv_len], &from) orelse
+        return errCode(e.EWOULDBLOCK);
+
+    validate.copyToUser(buf_ptr, bounce[0..bytes]) catch
+        return errCode(e.EFAULT);
+    validate.writeUser(from_ptr, NetFrom{
+        .ip = from.ip,
+        .port = from.port,
+        ._pad = 0,
+    }) catch return errCode(e.EFAULT);
+
+    return bytes;
 }
 
 pub fn syscallNetPing(dst_ip_u32: usize, timeout_ms_raw: usize) usize {

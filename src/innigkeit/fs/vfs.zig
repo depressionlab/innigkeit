@@ -14,6 +14,20 @@ const log = innigkeit.debug.log.scoped(.vfs);
 var ext4_mounted: bool = false;
 var ext4_fs: Ext4 = undefined;
 
+var init_lock: innigkeit.sync.Mutex = .{};
+var init_attempted: bool = false;
+
+/// Lazily run `init()` exactly once.  Called on the first `open()` so callers
+/// (e.g. the per-process fd-table syscalls) don't need a dedicated boot hook.
+/// May block on disk I/O; only call from task context.
+pub fn ensureInit() void {
+    init_lock.lock();
+    defer init_lock.unlock();
+    if (init_attempted) return;
+    init_attempted = true;
+    init();
+}
+
 /// Try to mount ext4 on the data device.  Falls back to simple_fs silently.
 pub fn init() void {
     if (!innigkeit.drivers.virtio.blk.isDataReady()) return;
@@ -44,7 +58,35 @@ pub const OpenFile = struct {
     ext4_writable: bool,
 };
 
+/// Total size in bytes of the open file (cached at open; updated by writes).
+pub fn fileSize(file: *const OpenFile) u64 {
+    return if (file.is_ext4) file.ext4_size else file.simple.size;
+}
+
+/// Current read/write position of the open file.
+pub fn getPos(file: *const OpenFile) u64 {
+    return if (file.is_ext4) file.ext4_pos else file.simple.pos;
+}
+
+/// Set the read/write position of the open file.
+/// simple_fs positions are 32-bit; larger values are rejected.
+pub fn setPos(file: *OpenFile, pos: u64) error{InvalidArgument}!void {
+    if (file.is_ext4) {
+        file.ext4_pos = pos;
+        return;
+    }
+    if (pos > std.math.maxInt(u32)) return error.InvalidArgument;
+    file.simple.pos = @intCast(pos);
+}
+
+/// Whether the file was opened for writing.
+pub fn isWritable(file: *const OpenFile) bool {
+    return if (file.is_ext4) file.ext4_writable else file.simple.writable;
+}
+
 pub fn open(name: []const u8, flags: OpenFlags) !OpenFile {
+    ensureInit();
+
     if (!ext4_mounted) {
         const f = try simple_fs.open(name, flags);
         return OpenFile{ .is_ext4 = false, .simple = f, .ext4_ino = 0, .ext4_pos = 0, .ext4_size = 0, .ext4_writable = false };

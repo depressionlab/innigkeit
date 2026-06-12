@@ -85,8 +85,9 @@ pub const UdpSocket = struct {
         _ = try Syscall.decode(r);
     }
 
-    /// Non-blocking receive.  Fills `from` and `buf[0..n]`.
-    /// Returns `error.WouldBlock` if no data is available.
+    /// Blocking receive. Fills `from` and `buf[0..n]`; blocks until a
+    /// datagram arrives. Returns `error.WouldBlock` only if the socket is
+    /// invalid or closed.
     pub fn recv(self: UdpSocket, from: *From, buf: []u8) Syscall.Error!usize {
         const r = Syscall.invoke(.net_udp_recv, .{
             @as(usize, self.id),
@@ -97,15 +98,28 @@ pub const UdpSocket = struct {
         return Syscall.decode(r);
     }
 
-    /// Blocking receive with nanosecond timeout.
-    /// Sleeps 5 ms between polls; returns `error.WouldBlock` on timeout.
+    /// Non-blocking receive.  Fills `from` and `buf[0..n]`.
+    /// Returns `error.WouldBlock` immediately if no data is available.
+    pub fn recvNonblocking(self: UdpSocket, from: *From, buf: []u8) Syscall.Error!usize {
+        const r = Syscall.invoke(.net_udp_recv_nb, .{
+            @as(usize, self.id),
+            @intFromPtr(from),
+            @intFromPtr(buf.ptr),
+            buf.len,
+        });
+        return Syscall.decode(r);
+    }
+
+    /// Receive with nanosecond timeout.
+    /// Polls non-blocking and sleeps 5 ms between polls; returns
+    /// `error.WouldBlock` on timeout.
     pub fn recvTimeout(self: UdpSocket, from: *From, buf: []u8, timeout_ns: u64) Syscall.Error!usize {
         const deadline = innigkeit.Syscall.decode(
             innigkeit.Syscall.invoke(.uptime_ms, .{}),
         ) catch 0;
         const deadline_ms = deadline + timeout_ns / std.time.ns_per_ms;
         while (true) {
-            const r = self.recv(from, buf);
+            const r = self.recvNonblocking(from, buf);
             if (r != error.WouldBlock) return r;
             const now = innigkeit.Syscall.decode(
                 innigkeit.Syscall.invoke(.uptime_ms, .{}),

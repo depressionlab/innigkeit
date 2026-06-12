@@ -61,8 +61,14 @@ entitlements: innigkeit.user.codesign.Manifest.Entitlements = .{
 
 /// Simple flat filesystem open file table.
 /// FD 3..14 map to indices 0..11 respectively.
+///
+/// TODO: refactor file system to the userspace?
 open_files: [12]?innigkeit.fs.simple_fs.OpenFile = .{null} ** 12,
 open_files_lock: innigkeit.sync.TicketSpinLock = .{},
+
+/// Per-process file-descriptor table for the read/write/open/close/lseek/
+/// fstat syscalls. Reset explicitly in `create()` (slab reuse invariant).
+fd_table: innigkeit.user.FdTable = .{},
 
 pub const CreateOptions = struct {
     name: Name,
@@ -88,6 +94,10 @@ pub fn create(options: CreateOptions) !*Process {
             .secure_vault = true,
             .internal_service = true,
         };
+
+        // Same slab-reuse invariant: descriptors from a previous process in
+        // this slot must not leak into the new one.
+        process.fd_table.reset();
 
         if (core.is_debug) std.debug.assert(process.reference_count.load(.monotonic) == 0);
 
@@ -276,6 +286,10 @@ const ProcessCleanup = struct {
             n.unref();
             process.exit_notify = null;
         }
+
+        // Close any descriptors the process left open (synchronizes writable files;
+        // may block on disk I/O, which is fine in this kernel task).
+        process.fd_table.closeAll();
 
         process.threads.clearAndFree(innigkeit.mem.heap.allocator);
         process.address_space.reinitializeAndUnmapAll();
