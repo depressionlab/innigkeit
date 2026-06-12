@@ -468,7 +468,11 @@ fn idle() callconv(.c) noreturn {
         std.debug.assert(!architecture.interrupts.areEnabled());
     }
 
-    current_task.knownExecutor().scheduler.unlock();
+    // The scheduler task is permanently pinned to its executor.
+    const executor = current_task.knownExecutor();
+    const scheduler = &executor.scheduler;
+
+    scheduler.unlock();
 
     log.debug("idle: entering idle loop", .{});
 
@@ -479,10 +483,90 @@ fn idle() callconv(.c) noreturn {
 
             scheduler_handle.yield();
 
-            // If a task was queued between unlock and halt, skip the halt.
+            // A task was queued while we were unlocked; pick it up immediately.
             if (!scheduler_handle.isEmpty()) continue;
         }
 
+        // Our queue looked empty: try to pull work from a busy executor before
+        // going to sleep. No scheduler lock is held here (see tryStealOne).
+        if (tryStealOne(executor)) continue;
+
+        // Idle handshake (lost-wakeup-free; see the Scheduler.idle invariant):
+        // the FINAL queue-empty check and the idle-flag set both happen while
+        // holding our scheduler lock. The same lock every (remote) enqueue
+        // takes. A waker therefore either enqueued before our final check
+        // (we see the task and skip the halt) or observes idle == true after
+        // its enqueue and sends a reschedule IPI that breaks the halt.
+        //
+        // An IPI that lands in the small window between the unlock below and
+        // halt() is consumed early and the halt then lasts until the next
+        // 5 ms tick.
+        {
+            const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
+            if (!scheduler_handle.isEmpty()) {
+                scheduler_handle.unlock();
+                continue;
+            }
+            scheduler.idle.store(true, .seq_cst);
+            scheduler_handle.unlock();
+        }
+
         architecture.halt();
+
+        scheduler.idle.store(false, .seq_cst);
     }
+}
+
+/// Try to steal one fair-class task from the busiest other executor and
+/// enqueue it on `my_executor`'s (the current executor's) runqueue.
+///
+/// Returns true if a task was stolen (the caller's next pick will find it).
+///
+/// Called from the idle loop with NO scheduler lock held. Scheduler lock rule
+/// (deadlock-freedom argument): no path ever holds two scheduler locks at
+/// once. The victim's lock is acquired with tryLock only (a busy victim is
+/// simply retried on the next idle iteration, never spun on) and released
+/// BEFORE our own lock is taken to enqueue the stolen task.
+///
+/// Only EEVDF (fair) tasks with migration_disable_count == 0 are stolen; RT
+/// tasks and migration-pinned tasks always stay on their executor.
+fn tryStealOne(my_executor: *innigkeit.Executor) bool {
+    const executors = innigkeit.Executor.executors();
+    if (executors.len < 2) return false;
+
+    // Pick the busiest victim using the lock-free queue-depth hint.
+    var victim: ?*innigkeit.Executor = null;
+    var victim_queued: u32 = 0;
+    for (executors) |*executor| {
+        if (executor == my_executor) continue;
+        const queued = executor.scheduler.runqueue.queued_hint.load(.monotonic);
+        if (queued > victim_queued) {
+            victim_queued = queued;
+            victim = executor;
+        }
+    }
+    const target = victim orelse return false;
+
+    if (!target.scheduler.tryLock()) return false;
+    const stolen = target.scheduler.runqueue.stealOneFair();
+    target.scheduler.unlock();
+
+    const task = stolen orelse return false;
+
+    // Enqueue locally with wakeup-style placement: stealOneFair's dequeue
+    // saved the task's lag (vlag), and placeEntity with flags.wakeup re-bases
+    // its vruntime against THIS queue's min_vruntime. The same normalization
+    // used when a blocked task wakes up onto a different executor. (.initial
+    // would wrongly re-run task_new; no flags would carry the victim queue's
+    // unrelated virtual clock over unadjusted.)
+    {
+        const scheduler_handle: Handle = .get();
+        defer scheduler_handle.unlock();
+        scheduler_handle.queueTask(task, .{ .wakeup = true, .migrated = true });
+    }
+
+    _ = my_executor.scheduler.steal_count.fetchAdd(1, .monotonic);
+
+    log.verbose("idle: stole {f} from {f}", .{ task, target });
+    return true;
 }

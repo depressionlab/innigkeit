@@ -51,6 +51,24 @@ pub fn sendFlushIPI(executor: *innigkeit.Executor) callconv(core.inline_in_non_d
     )(executor);
 }
 
+/// Whether the current architecture implements `sendRescheduleIPI`.
+///
+/// Comptime-known: on architectures without it, guarded callers compile to
+/// nothing and idle executors are picked up by the periodic tick instead.
+pub const reschedule_ipi_available: bool =
+    architecture.current_functions.interrupts.sendRescheduleIPI != null;
+
+/// Send a reschedule IPI to the given executor, breaking it out of its idle
+/// halt so it re-checks its runqueue immediately.
+///
+/// Callers must check `reschedule_ipi_available` first.
+pub fn sendRescheduleIPI(executor: *innigkeit.Executor) callconv(core.inline_in_non_debug) void {
+    architecture.getFunction(
+        architecture.current_functions.interrupts,
+        "sendRescheduleIPI",
+    )(executor);
+}
+
 /// Get the EOI type for the given external interrupt if known.
 pub fn eoiType(external_interrupt: u32) callconv(core.inline_in_non_debug) ?Interrupt.Handler.EOI {
     return architecture.getFunction(

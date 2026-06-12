@@ -22,6 +22,15 @@ eevdf: Eevdf.EevdfRunqueue = .{},
 /// setNextRunning decrements, causing net zero for yields.
 nr_running: u32 = 0,
 
+/// Lock-free mirror of `nr_running` giving other executors a cheap
+/// queue-depth read for steal-victim selection.
+///
+/// Updated (monotonic store via `syncQueuedHint`) immediately next to every
+/// `nr_running` mutation, all of which happen under the owning scheduler's
+/// lock: keep the two adjacent so they cannot drift. Readers must treat the
+/// value as a hint only and re-validate under the victim's scheduler lock.
+queued_hint: std.atomic.Value(u32) = .init(0),
+
 /// Intel Hybrid core type of the executor that owns this runqueue.
 /// Set by initExecutor after CPUID.1AH detection. Used for soft P/E affinity.
 executor_core_type: innigkeit.Executor.CoreType = .unknown,
@@ -30,21 +39,56 @@ executor_core_type: innigkeit.Executor.CoreType = .unknown,
 ///
 /// For initial spawns pass `flags.initial=true`; for wakeups pass `flags.wakeup=true`.
 pub fn enqueueTask(self: *Runqueue, task: *innigkeit.Task, flags: SchedClass.EnqueueFlags) void {
+    // Initial dispatches and block-wakeups resume through a re-derived
+    // scheduler handle (taskEntry / Handle.block), so they are safe to
+    // migrate to another executor; see Task.stealable.
+    task.stealable = flags.initial or flags.wakeup;
     if (flags.initial) task.sched_class.task_new(self, task);
     task.sched_class.enqueue(self, task, flags);
     self.nr_running += 1;
+    self.syncQueuedHint();
 }
 
 pub fn dequeueTask(self: *Runqueue, task: *innigkeit.Task, flags: SchedClass.DequeueFlags) void {
     task.sched_class.dequeue(self, task, flags);
     std.debug.assert(self.nr_running > 0);
     self.nr_running -= 1;
+    self.syncQueuedHint();
+}
+
+/// Mirror `nr_running` into the lock-free `queued_hint`.
+///
+/// Must be called (with the owning scheduler's lock held) right after every
+/// `nr_running` mutation, including the ones in the sched-class `putPrev`
+/// implementations.
+pub inline fn syncQueuedHint(self: *Runqueue) void {
+    self.queued_hint.store(self.nr_running, .monotonic);
+}
+
+/// Remove and return one stealable task, or null if there is none.
+///
+/// Caller must hold the owning scheduler's lock.
+///
+/// Only fair-class (EEVDF) tasks with `migration_disable_count == 0` are
+/// stealable; RT tasks (which live in the RT FIFOs, not the EEVDF tree) and
+/// migration-pinned tasks are never stolen. The dequeue goes through the
+/// regular class vtable, so all EEVDF avg/augmentation bookkeeping (including
+/// saving the task's lag for wakeup-style placement on the thief's queue)
+/// is reused.
+pub fn stealOneFair(self: *Runqueue) ?*innigkeit.Task {
+    const task = Eevdf.findStealable(&self.eevdf) orelse return null;
+    self.dequeueTask(task, .{ .migrated = true });
+    return task;
 }
 
 /// Update `prev`'s accounting before switching away from it.
 /// Re-enqueues `prev` into the run queue if prev.state == .ready.
 /// Also increments nr_running in that case (to stay consistent with setNextRunning).
 pub fn putPrevTask(self: *Runqueue, prev: *innigkeit.Task) void {
+    // A task re-enqueued mid-yield/preemption resumes into a stack frame
+    // holding a Scheduler.Handle captured on THIS executor; stealing it
+    // would make it unlock the wrong scheduler. See Task.stealable.
+    prev.stealable = false;
     prev.sched_class.put_prev(self, prev);
 }
 
@@ -85,6 +129,7 @@ pub fn pickNext(self: *Runqueue, prev: ?*innigkeit.Task) ?*innigkeit.Task {
 pub fn setNextRunning(self: *Runqueue, task: *innigkeit.Task) void {
     std.debug.assert(self.nr_running > 0);
     self.nr_running -= 1;
+    self.syncQueuedHint();
     if (task.sched_class == &SchedClass.fair_class) {
         Eevdf.setRunning(&self.eevdf, task);
     }

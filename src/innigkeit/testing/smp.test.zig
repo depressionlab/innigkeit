@@ -6,20 +6,20 @@
 //! locking, and wakeups.
 //!
 //! - `Scheduler.Handle.get()` always returns the current executor's scheduler,
-//!   so plain `queueTask` only ever enqueues locally. There is no public
-//!   cross-executor placement API, no load balancing, and no work stealing.
-//! - The kernel itself enqueues on a remote executor in exactly one place:
-//!   `Task.wakeFromBlocked` (src/innigkeit/task/Task.zig) locks the target
-//!   executor's scheduler directly. `queueTaskOnExecutor` below reuses that
-//!   pattern for initial placement.
-//! - A remote executor that is halted in its idle loop picks the task up at
-//!   its next 5 ms timer tick; there is no reschedule IPI.
+//!   so plain `queueTask` only ever enqueues locally.
+//! - Cross-executor placement goes through `Scheduler.queueTaskOnRemote`,
+//!   which pairs the enqueue with the idle handshake: if the target executor
+//!   is halted in its idle loop it is kicked with a reschedule IPI (where the
+//!   architecture provides one); the 5 ms tick remains the backstop.
+//! - Idle executors also steal one queued fair-class task at a time from the
+//!   busiest other executor (never RT tasks, never migration-pinned tasks).
 //!
 //! Every wait in this file is bounded by a wallclock watchdog so a deadlock
 //! fails the test loudly instead of hanging the suite.
 
 const std = @import("std");
 const builtin = @import("builtin");
+const architecture = @import("architecture");
 const boot = @import("boot");
 const innigkeit = @import("innigkeit");
 
@@ -58,17 +58,10 @@ fn waitForCounter(counter: *const std.atomic.Value(u32), target: u32, what: []co
 }
 
 /// Enqueue a freshly created (state == .ready, never run) task onto a
-/// specific executor's runqueue.
-///
-/// There is no public cross-executor placement API; this is the same pattern
-/// the kernel itself uses for cross-executor wakeups in `Task.wakeFromBlocked`
-/// (src/innigkeit/task/Task.zig): lock the target executor's scheduler and
-/// enqueue directly. The target picks the task up at its next timer tick
-/// (<= 5 ms) or yield; there is no reschedule IPI.
+/// specific executor's runqueue, kicking the target out of its idle halt if
+/// necessary (same path the kernel uses for cross-executor wakeups).
 fn queueTaskOnExecutor(executor: *innigkeit.Executor, task: *innigkeit.Task) void {
-    executor.scheduler.lock();
-    defer executor.scheduler.unlock();
-    executor.scheduler.queueTask(task, .{ .initial = true });
+    innigkeit.Task.Scheduler.queueTaskOnRemote(executor, task, .{ .initial = true });
 }
 
 /// Create a kernel task running `entry` and place it on `executor`.
@@ -85,6 +78,28 @@ fn spawnOnExecutor(
     queueTaskOnExecutor(executor, task);
 }
 
+/// Like `spawnOnExecutor`, but the task starts migration-pinned to `executor`
+/// so it cannot be stolen by an idle executor while it waits in the queue.
+/// The task body must release the pin with a single
+/// `Task.Current.get().decrementMigrationDisable()` once it has recorded
+/// whatever needed the stable placement.
+fn spawnPinnedOnExecutor(
+    executor: *innigkeit.Executor,
+    name: []const u8,
+    entry: anytype,
+    args: std.meta.ArgsTuple(@TypeOf(entry)),
+) !void {
+    const task = try innigkeit.Task.createKernelTask(.{
+        .name = try .fromSlice(name),
+        .entry = .prepare(entry, args),
+    });
+    // The task has never run; we are its only owner. Pinned tasks must have a
+    // valid known_executor (see Task.wakeFromBlocked).
+    task.migration_disable_count.store(1, .release);
+    task.known_executor = executor;
+    queueTaskOnExecutor(executor, task);
+}
+
 var proof_state: struct {
     done: std.atomic.Value(u32) = .init(0),
     ran_on: [max_executors]std.atomic.Value(usize) = @splat(.init(std.math.maxInt(usize))),
@@ -92,11 +107,8 @@ var proof_state: struct {
 
 fn proofWorker(index: usize) void {
     const current: innigkeit.Task.Current = .get();
-
-    // Pin so known_executor is valid while we read the id.
-    current.incrementMigrationDisable();
     const id: usize = @intFromEnum(current.knownExecutor().id);
-    current.decrementMigrationDisable();
+    current.decrementMigrationDisable(); // releaase the spawn-time pin
 
     proof_state.ran_on[index].store(id, .release);
     _ = proof_state.done.fetchAdd(1, .release);
@@ -112,12 +124,14 @@ test "smp: every bootloader-reported CPU has a live, scheduling executor" {
     try std.testing.expectEqual(descriptors.count(), executors.len);
 
     // Prove each executor actually runs tasks: pin one worker per executor and
-    // record where it ran. Tasks never migrate while runnable (re-enqueue is
-    // always local), so ran_on[i] must equal i. If an AP was never booted, its
-    // worker never runs and the watchdog fails the test.
+    // record where it ran. The workers are spawned migration-pinned so idle
+    // work stealing cannot move them off a dead AP's queue (which would mask
+    // exactly the failure this test exists to catch), so ran_on[i] must equal
+    // i. If an AP was never booted, its worker never runs and the watchdog
+    // fails the test.
     proof_state = .{};
     for (executors, 0..) |*executor, i| {
-        try spawnOnExecutor(executor, "smp proof", proofWorker, .{i});
+        try spawnPinnedOnExecutor(executor, "smp proof", proofWorker, .{i});
     }
     try waitForCounter(&proof_state.done, @intCast(executors.len), "smp proof workers");
 
@@ -350,4 +364,169 @@ test "smp: concurrent blk reads from two executors return identical data" {
     try std.testing.expectEqual(@as(u32, 0), blk_state.errors.load(.acquire));
     try std.testing.expectEqualSlices(u8, &reference, &blk_state.buffers[0]);
     try std.testing.expectEqualSlices(u8, &reference, &blk_state.buffers[1]);
+}
+
+var ipi_state: struct {
+    run_tick: std.atomic.Value(u64) = .init(0),
+    done: std.atomic.Value(u32) = .init(0),
+} = .{};
+
+fn ipiWakeWorker() void {
+    ipi_state.run_tick.store(@intFromEnum(wallclock.read()), .release);
+    _ = ipi_state.done.fetchAdd(1, .release);
+}
+
+test "smp: reschedule IPI wakes an idle executor well before the next tick" {
+    // Without a reschedule IPI the idle pickup degrades to the 5 ms tick;
+    // nothing to measure.
+    if (comptime !architecture.interrupts.reschedule_ipi_available) return error.SkipZigTest;
+
+    const executors = innigkeit.Executor.executors();
+    if (executors.len < 2) return error.SkipZigTest;
+
+    // Two probabilistic races can spoil a single measurement without anything
+    // being wrong: (a) the target's 5 ms tick can win against our IPI (the
+    // task then runs fast but the IPI counter does not move), and (b) the IPI
+    // can land in the small window between the idle loop's unlock and its
+    // halt (the task then waits for the next tick, ~5 ms). Both are expected
+    // and rare, so we retry; a systematic failure exhausts all attempts.
+    const max_attempts: u32 = 10;
+    const latency_limit_ns: u64 = 4 * std.time.ns_per_ms; // well under the 5 ms tick
+
+    var attempt: u32 = 0;
+    while (attempt < max_attempts) : (attempt += 1) {
+        ipi_state = .{};
+
+        const current: innigkeit.Task.Current = .get();
+        // Pin for the whole attempt: keeps "self" stable for the idle scan
+        // and prevents this task from being stolen onto the target executor
+        // mid-measurement.
+        current.incrementMigrationDisable();
+        defer current.decrementMigrationDisable();
+        const self_executor = current.knownExecutor();
+
+        // Wait for some remote executor to declare itself idle.
+        const target = blk: {
+            const start = wallclock.read();
+            while (true) {
+                for (executors) |*executor| {
+                    if (executor == self_executor) continue;
+                    if (executor.scheduler.idle.load(.seq_cst)) break :blk executor;
+                }
+                if (wallclock.elapsed(start, wallclock.read()).value > watchdog_ns) {
+                    log.err("watchdog tripped waiting for an idle remote executor", .{});
+                    return error.WatchdogTimeout;
+                }
+                yieldNow();
+            }
+        };
+
+        const ipis_before = target.scheduler.reschedule_ipi_count.load(.monotonic);
+
+        const task = try innigkeit.Task.createKernelTask(.{
+            .name = try .fromSlice("smp ipi wake"),
+            .entry = .prepare(ipiWakeWorker, .{}),
+        });
+
+        const t0 = wallclock.read();
+        innigkeit.Task.Scheduler.queueTaskOnRemote(target, task, .{ .initial = true });
+
+        try waitForCounter(&ipi_state.done, 1, "ipi wake worker");
+
+        const run_tick: wallclock.Tick = @enumFromInt(ipi_state.run_tick.load(.acquire));
+        const latency_ns = wallclock.elapsed(t0, run_tick).value;
+        const ipi_delta = target.scheduler.reschedule_ipi_count.load(.monotonic) - ipis_before;
+
+        log.info(
+            "ipi wake attempt {d}: latency={d} ns, reschedule IPIs={d}",
+            .{ attempt, latency_ns, ipi_delta },
+        );
+
+        if (ipi_delta > 0 and latency_ns < latency_limit_ns) return; // pass
+    }
+
+    log.err("no attempt achieved IPI-driven wake under {d} ns", .{latency_limit_ns});
+    return error.RescheduleIpiWakeTooSlow;
+}
+
+const steal_worker_count: u32 = 4;
+
+var steal_test_state: struct {
+    /// Bit i set <-> some worker has run on executor i.
+    executors_seen: std.atomic.Value(u64) = .init(0),
+    stop: std.atomic.Value(bool) = .init(false),
+    done: std.atomic.Value(u32) = .init(0),
+} = .{};
+
+fn stealWorker() void {
+    const current: innigkeit.Task.Current = .get();
+    while (!steal_test_state.stop.load(.acquire)) {
+        // CPU-bound: never yields voluntarily, so the ONLY way these workers
+        // can spread across executors is idle work stealing. The interrupt
+        // disable toggle pins known_executor for the read and doubles as a
+        // preemption point (needs_resched from the tick is honoured on the
+        // 1 -> 0 transition), keeping the host executor live for other tasks.
+        current.incrementInterruptDisable();
+        const id: u6 = @intCast(@intFromEnum(current.knownExecutor().id));
+        current.decrementInterruptDisable();
+        _ = steal_test_state.executors_seen.fetchOr(@as(u64, 1) << id, .acq_rel);
+    }
+    _ = steal_test_state.done.fetchAdd(1, .release);
+}
+
+fn totalStealCount() u64 {
+    var total: u64 = 0;
+    for (innigkeit.Executor.executors()) |*executor| {
+        total += executor.scheduler.steal_count.load(.monotonic);
+    }
+    return total;
+}
+
+test "smp: idle executors steal queued fair tasks from a busy executor" {
+    const executors = innigkeit.Executor.executors();
+    if (executors.len < 2) return error.SkipZigTest;
+
+    steal_test_state = .{};
+    const steals_before = totalStealCount();
+
+    // Create all workers first, then enqueue every one of them onto OUR OWN
+    // runqueue in a single lock hold: a pile of runnable work on one executor
+    // that only stealing can redistribute.
+    var workers: [steal_worker_count]*innigkeit.Task = undefined;
+    for (&workers) |*slot| {
+        slot.* = try innigkeit.Task.createKernelTask(.{
+            .name = try .fromSlice("smp steal"),
+            .entry = .prepare(stealWorker, .{}),
+        });
+    }
+    {
+        const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
+        defer scheduler_handle.unlock();
+        for (workers) |task| scheduler_handle.queueTask(task, .{ .initial = true });
+    }
+
+    // Wait (watchdog-bounded) until the workers have demonstrably run on at
+    // least two distinct executors and at least one steal was recorded.
+    const start = wallclock.read();
+    while (true) {
+        const seen = steal_test_state.executors_seen.load(.acquire);
+        if (@popCount(seen) >= 2 and totalStealCount() > steals_before) break;
+
+        if (wallclock.elapsed(start, wallclock.read()).value > watchdog_ns) {
+            steal_test_state.stop.store(true, .release);
+            waitForCounter(&steal_test_state.done, steal_worker_count, "steal workers (cleanup)") catch {};
+            log.err(
+                "watchdog tripped: executors_seen={b}, steals delta={d}",
+                .{ seen, totalStealCount() - steals_before },
+            );
+            return error.WatchdogTimeout;
+        }
+        yieldNow();
+    }
+
+    steal_test_state.stop.store(true, .release);
+    try waitForCounter(&steal_test_state.done, steal_worker_count, "steal workers");
+
+    try std.testing.expect(@popCount(steal_test_state.executors_seen.load(.acquire)) >= 2);
+    try std.testing.expect(totalStealCount() > steals_before);
 }

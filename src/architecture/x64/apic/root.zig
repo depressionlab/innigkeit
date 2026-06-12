@@ -23,9 +23,32 @@ pub fn sendPanicIPI() void {
 
 /// Send a flush IPI to the given executor.
 pub fn sendFlushIPI(executor: *innigkeit.Executor) void {
+    sendFixedIPI(.flush_request, executor);
+}
+
+/// Send a reschedule IPI to the given executor.
+///
+/// The handler is (nearly) empty; the IPI exists only to break the target out
+/// of its idle `hlt` so it re-checks its runqueue immediately.
+pub fn sendRescheduleIPI(executor: *innigkeit.Executor) void {
+    sendFixedIPI(.reschedule, executor);
+}
+
+/// Send a fixed-delivery, edge-triggered IPI to one executor.
+///
+/// Interrupts are disabled across the ICR read-modify-write: reschedule IPIs
+/// can be sent from interrupt context (wakeFromBlocked runs in the periodic
+/// tick), and in xAPIC mode the ICR is two 32-bit registers (writing the low
+/// half fires the IPI). An interleaved send from a nested interrupt would
+/// otherwise corrupt an in-progress task-level send.
+fn sendFixedIPI(vector: x64.interrupts.Interrupt, executor: *innigkeit.Executor) void {
+    const interrupts_were_enabled = x64.instructions.interruptsEnabled();
+    x64.instructions.disableInterrupts();
+    defer if (interrupts_were_enabled) x64.instructions.enableInterrupts();
+
     var icr = globals.lapic.readInterruptCommandRegister();
 
-    icr.vector = .flush_request;
+    icr.vector = vector;
     icr.delivery_mode = .fixed;
     icr.destination_mode = .physical;
     icr.level = .assert;

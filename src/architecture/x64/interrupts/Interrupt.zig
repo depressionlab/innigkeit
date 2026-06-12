@@ -59,13 +59,14 @@ pub const Interrupt = enum(u8) {
 
     per_executor_periodic = 48,
 
+    reschedule = 253,
     flush_request = 254,
     spurious_interrupt = 255,
 
     _,
 
     pub const first_available_interrupt = @intFromEnum(Interrupt.per_executor_periodic) + 1;
-    pub const last_available_interrupt = @intFromEnum(Interrupt.flush_request) - 1;
+    pub const last_available_interrupt = @intFromEnum(Interrupt.reschedule) - 1;
 
     /// Checks if the given interrupt vector pushes an error code.
     pub fn hasErrorCode(vector: Interrupt) bool {

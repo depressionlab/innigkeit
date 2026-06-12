@@ -78,6 +78,17 @@ pub fn flushRequestHandler(
     innigkeit.mem.FlushRequest.processFlushRequests();
 }
 
+pub fn rescheduleHandler(
+    _: architecture.interrupts.InterruptFrame,
+    _: innigkeit.Task.Current.StateBeforeInterrupt,
+) void {
+    // The reschedule IPI's only job is to break the target executor out of
+    // `hlt` in the idle loop; after the handler returns the idle loop
+    // re-checks its runqueue. Count receipts for diagnostics and tests.
+    _ = innigkeit.Task.Current.get()
+        .knownExecutor().scheduler.reschedule_ipi_count.fetchAdd(1, .monotonic);
+}
+
 pub fn perExecutorPeriodicHandler(
     _: architecture.interrupts.InterruptFrame,
     _: innigkeit.Task.Current.StateBeforeInterrupt,

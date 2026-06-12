@@ -35,6 +35,14 @@ interrupts: struct {
     /// Send a flush IPI to the given executor.
     sendFlushIPI: ?fn (executor: *innigkeit.Executor) void = null,
 
+    /// Send a reschedule IPI to the given executor.
+    ///
+    /// The IPI's only job is to break the target executor out of its idle
+    /// halt so it re-checks its runqueue immediately. Optional: architectures
+    /// without it fall back to the periodic tick for idle pickup (callers
+    /// must check `architecture.interrupts.reschedule_ipi_available`).
+    sendRescheduleIPI: ?fn (executor: *innigkeit.Executor) void = null,
+
     /// Get the EOI type for the given external interrupt if known.
     eoiType: ?fn (external_interrupt: u32) ?architecture.interrupts.Interrupt.Handler.EOI = null,
 

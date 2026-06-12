@@ -116,6 +116,7 @@ pub fn putPrev(rq: *Runqueue, prev: *innigkeit.Task) void {
     if (prev.state == .ready) {
         rq.rt.push(prev);
         rq.nr_running += 1; // balance the setNextRunning decrement that will follow
+        rq.syncQueuedHint();
     }
 }
 

@@ -14,6 +14,7 @@ pub const functions: architecture.Functions = .{
 
         .sendPanicIPI = x64.apic.sendPanicIPI,
         .sendFlushIPI = x64.apic.sendFlushIPI,
+        .sendRescheduleIPI = x64.apic.sendRescheduleIPI,
         .eoiType = x64.ioapic.eoiType,
 
         .allocateInterrupt = x64.interrupts.Interrupt.allocate,

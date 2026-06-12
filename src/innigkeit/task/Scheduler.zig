@@ -1,6 +1,7 @@
 const Scheduler = @This();
 
 const std = @import("std");
+const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
 
@@ -12,6 +13,31 @@ const wallclock = innigkeit.time.wallclock;
 
 single_spin_lock: innigkeit.sync.SingleSpinLock = .{},
 runqueue: Runqueue = .{},
+
+/// Idle handshake flag: true while this executor's idle loop is about to halt
+/// (or is halted) with an empty runqueue.
+///
+/// Lost-wakeup-freedom invariant: the idle loop performs its FINAL
+/// runqueue-empty check and sets this flag while holding `single_spin_lock`,
+/// then unlocks and halts. Every remote enqueue also happens under that same
+/// lock (see `queueTaskOnRemote`). Therefore, after enqueueing and unlocking,
+/// a waker that reads `idle == false` knows the idle loop's final check
+/// happens-after its enqueue and will see the task; if it reads `idle == true`
+/// it sends a reschedule IPI (when the architecture provides one), breaking
+/// the target out of `halt`. Either way the wakeup cannot be lost; on
+/// architectures without a reschedule IPI the 5 ms tick remains the backstop.
+idle: std.atomic.Value(bool) = .init(false),
+
+/// Number of reschedule IPIs received by this executor.
+///
+/// Diagnostics/tests only; incremented by the (otherwise empty) reschedule
+/// IPI handler.
+reschedule_ipi_count: std.atomic.Value(u64) = .init(0),
+
+/// Number of tasks this executor's idle loop has stolen from other executors.
+///
+/// Diagnostics/tests only.
+steal_count: std.atomic.Value(u64) = .init(0),
 
 /// Used as the current task during idle and also during the transition between tasks when executing a deferred action.
 task: innigkeit.Task,
@@ -61,9 +87,68 @@ pub fn lock(self: *Scheduler) void {
     innigkeit.Task.Current.get().task.scheduler_locked = true;
 }
 
+/// Attempt to lock the scheduler without spinning.
+///
+/// Returns true if the lock was acquired (release with `unlock`).
+///
+/// Used by the idle work-stealing path: a stealer never waits for a victim's
+/// lock, it simply retries on its next idle iteration.
+pub fn tryLock(self: *Scheduler) bool {
+    if (!self.single_spin_lock.tryLock()) return false;
+    innigkeit.Task.Current.get().task.scheduler_locked = true;
+    return true;
+}
+
 pub fn unlock(self: *Scheduler) void {
     innigkeit.Task.Current.get().task.scheduler_locked = false;
     self.single_spin_lock.unlock();
+}
+
+/// Enqueue `task` onto `executor`'s runqueue and kick the executor out of its
+/// idle halt if necessary.
+///
+/// This is the ONE way to place a task on another executor's runqueue; it
+/// pairs the enqueue with the idle handshake (see the `idle` field) so the
+/// wakeup cannot be lost.
+///
+/// Scheduler lock rule (deadlock-freedom argument): no path in the kernel
+/// ever holds two scheduler locks at the same time. The caller must therefore
+/// hold NO scheduler lock when calling this; while `executor`'s lock is held
+/// here no other scheduler lock is taken.
+pub fn queueTaskOnRemote(
+    executor: *innigkeit.Executor,
+    task: *innigkeit.Task,
+    flags: SchedClass.EnqueueFlags,
+) void {
+    if (core.is_debug) {
+        std.debug.assert(!innigkeit.Task.Current.get().task.scheduler_locked);
+        std.debug.assert(!task.is_scheduler_task);
+        std.debug.assert(task.state == .ready);
+    }
+
+    executor.scheduler.lock();
+    executor.scheduler.queueTask(task, flags);
+    executor.scheduler.unlock();
+
+    kickIfIdle(executor);
+}
+
+/// If `executor` is (about to be) halted in its idle loop, send it a
+/// reschedule IPI so it picks up newly queued work immediately instead of at
+/// its next 5 ms tick.
+///
+/// Must be called AFTER enqueueing under (and releasing) `executor`'s
+/// scheduler lock: the lock orders the enqueue against the idle loop's final
+/// empty check + flag set, so either the idle loop saw the task or `idle` is
+/// observed true here (see the `idle` field invariant).
+///
+/// No-op on architectures without a reschedule IPI; the periodic tick remains
+/// the pickup mechanism there.
+pub fn kickIfIdle(executor: *innigkeit.Executor) void {
+    if (comptime !architecture.interrupts.reschedule_ipi_available) return;
+    if (executor.scheduler.idle.load(.seq_cst)) {
+        architecture.interrupts.sendRescheduleIPI(executor);
+    }
 }
 
 /// Asserts that the scheduler lock is held by the current task.

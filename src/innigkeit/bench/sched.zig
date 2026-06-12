@@ -1,4 +1,5 @@
-//! Scheduler benchmark: measures yield latency and fairness across N worker tasks.
+//! Scheduler benchmark: measures yield latency and fairness across N worker tasks,
+//! plus cross-executor wake latency.
 //!
 //! Each worker yields `yields_per_task` times then exits. The main task waits
 //! until all workers have finished, then prints a summary:
@@ -6,6 +7,14 @@
 //!   - average yield latency (sum of per-worker wall time / total yields)
 //!   - per-worker wall time and CPU time (sum_exec_runtime)
 //!   - fairness: max deviation from ideal equal wall time across workers
+//!
+//!
+//! The wake-latency benchmark measures unpark -> running for a blocked task
+//! while the waker keeps the CPU busy (it never yields voluntarily), so the
+//! number reflects how quickly the woken task actually gets a CPU: with idle
+//! wake placement + reschedule IPI it lands on an idle executor within
+//! microseconds; without them it waits for the waker's executor to be
+//! preempted at a timer tick (up to 5 ms).
 
 const std = @import("std");
 const innigkeit = @import("innigkeit");
@@ -116,4 +125,100 @@ pub fn run() !void {
     for (global_state.worker_wall_ns, global_state.exec_runtime, 0..) |wall, cpu, i| {
         log.info("sched bench:   worker[{}] wall_ns={}  cpu_ns={}", .{ i, wall, cpu });
     }
+
+    try runWakeLatency();
+}
+
+const wake_rounds: u32 = 64;
+const wake_round_timeout_ns: u64 = 10 * std.time.ns_per_s;
+
+var wake_state: struct {
+    parker: innigkeit.sync.Parker = .empty,
+    /// Wallclock tick recorded by the sleeper right after park() returned.
+    t1: std.atomic.Value(u64) = .init(0),
+    rounds_done: std.atomic.Value(u32) = .init(0),
+    stop: std.atomic.Value(bool) = .init(false),
+    exited: std.atomic.Value(u32) = .init(0),
+} = .{};
+
+fn wakeSleeper() void {
+    while (true) {
+        wake_state.parker.park();
+        if (wake_state.stop.load(.acquire)) break;
+        wake_state.t1.store(@intFromEnum(wallclock.read()), .release);
+        _ = wake_state.rounds_done.fetchAdd(1, .release);
+    }
+    _ = wake_state.exited.fetchAdd(1, .release);
+}
+
+/// Measure unpark -> running latency for a parked task while the waker stays
+/// CPU-bound (preemptible at ticks, but never yielding voluntarily).
+fn runWakeLatency() !void {
+    wake_state = .{};
+
+    const sleeper = try innigkeit.Task.createKernelTask(.{
+        .name = try .fromSlice("bench wake"),
+        .entry = .prepare(wakeSleeper, .{}),
+    });
+    {
+        const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
+        defer scheduler_handle.unlock();
+        scheduler_handle.queueTask(sleeper, .{ .initial = true });
+    }
+
+    const current: innigkeit.Task.Current = .get();
+
+    var sum_ns: u64 = 0;
+    var min_ns: u64 = std.math.maxInt(u64);
+    var max_ns: u64 = 0;
+
+    // One extra warmup round (the very first unpark also pays for the
+    // sleeper's initial scheduling) that is excluded from the stats.
+    var round: u32 = 0;
+    while (round < wake_rounds + 1) : (round += 1) {
+        const expected_done = round + 1;
+
+        const t0 = wallclock.read();
+        wake_state.parker.unpark();
+
+        // CPU-bound wait: the interrupt-disable toggle is a preemption point
+        // (needs_resched is honoured on the 1 -> 0 transition) but we never
+        // yield, so the woken sleeper only runs here if it got its own CPU.
+        while (wake_state.rounds_done.load(.acquire) < expected_done) {
+            if (wallclock.elapsed(t0, wallclock.read()).value > wake_round_timeout_ns) {
+                return error.WakeLatencyTimeout;
+            }
+            current.incrementInterruptDisable();
+            current.decrementInterruptDisable();
+        }
+
+        if (round == 0) continue; // warmup
+
+        const t1: wallclock.Tick = @enumFromInt(wake_state.t1.load(.acquire));
+        const latency_ns = wallclock.elapsed(t0, t1).value;
+        sum_ns += latency_ns;
+        min_ns = @min(min_ns, latency_ns);
+        max_ns = @max(max_ns, latency_ns);
+    }
+
+    wake_state.stop.store(true, .release);
+    wake_state.parker.unpark();
+    {
+        const start = wallclock.read();
+        while (wake_state.exited.load(.acquire) == 0) {
+            if (wallclock.elapsed(start, wallclock.read()).value > wake_round_timeout_ns) {
+                return error.WakeLatencyTimeout;
+            }
+            const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
+            defer scheduler_handle.unlock();
+            scheduler_handle.yield();
+        }
+    }
+
+    log.info("sched bench: wake latency ({} rounds)  avg={} ns  min={} ns  max={} ns", .{
+        wake_rounds,
+        sum_ns / wake_rounds,
+        min_ns,
+        max_ns,
+    });
 }

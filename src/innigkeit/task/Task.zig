@@ -104,6 +104,22 @@ sched_class: *const SchedClass = SchedClass.default_class,
 /// next safe point (scheduler lock not held, spinlocks_held == 0).
 needs_resched: bool = false,
 
+/// True when this queued task may be stolen by an idle executor.
+///
+/// A queued task's suspended continuation is only migration-safe when it
+/// re-derives its executor's scheduler on resume: fresh tasks (first dispatch
+/// unlocks via `Task.Current`, see `internal.taskEntry`) and tasks suspended
+/// in `Scheduler.Handle.block` (which returns a re-derived handle). Tasks
+/// re-enqueued mid-`yield`/preemption by `putPrev` resume into stack frames
+/// holding a `Scheduler.Handle` captured on their ORIGINAL executor, so
+/// resuming them elsewhere would unlock the wrong scheduler (they must never
+/// be stolen).
+///
+/// Maintained at every enqueue (`Runqueue.enqueueTask` sets it from the
+/// enqueue flags; the putPrev re-enqueue paths clear it). Only meaningful
+/// while the task is queued.
+stealable: bool = false,
+
 /// Per-task IPC scratch used by Endpoint.call() / Endpoint.reply():
 ///   - Caller writes message here before blocking; replier writes reply here before waking.
 ipc_message: innigkeit.capabilities.Message = .{},
@@ -179,17 +195,57 @@ pub fn wakeFromBlocked(task_to_wake: *innigkeit.Task) void {
             .{task_to_wake},
         );
 
-        executor.scheduler.lock();
-        defer executor.scheduler.unlock();
-
-        executor.scheduler.queueTask(task_to_wake, .{ .wakeup = true });
+        // The waker holds no scheduler lock on this path (queueTaskOnRemote
+        // asserts it): enqueue on the pinned task's executor and kick it out
+        // of idle halt if needed.
+        innigkeit.Task.Scheduler.queueTaskOnRemote(executor, task_to_wake, .{ .wakeup = true });
         return;
+    }
+
+    // Unpinned wake placement: if another executor is idle, place the woken
+    // task there (and kick it) so it runs immediately instead of waiting for
+    // the waker's queue to drain.
+    //
+    // Skipped when the waker already holds its own scheduler lock: placing
+    // remotely would require a second scheduler lock, which the scheduler
+    // lock rule forbids (no path ever holds two scheduler locks at once).
+    {
+        const current_task: innigkeit.Task.Current = .get();
+        if (!current_task.task.scheduler_locked) {
+            current_task.incrementMigrationDisable();
+            defer current_task.decrementMigrationDisable();
+
+            if (findIdleExecutor(current_task.knownExecutor())) |target| {
+                innigkeit.Task.Scheduler.queueTaskOnRemote(target, task_to_wake, .{
+                    .wakeup = true,
+                    .migrated = true,
+                });
+                return;
+            }
+        }
     }
 
     const maybe_locked: innigkeit.Task.Scheduler.Handle.MaybeLocked = .get();
     defer maybe_locked.unlock();
 
     maybe_locked.scheduler_handle.queueTask(task_to_wake, .{ .wakeup = true });
+}
+
+/// Find an executor (other than `self_executor`) whose idle loop has declared
+/// itself idle, or null if every other executor is busy.
+///
+/// The flag is a snapshot: a returned executor may have started running again
+/// by the time the caller enqueues on it. This is harmless, the task simply
+/// queues there and the kick degrades to a no-op (or a spurious IPI).
+fn findIdleExecutor(self_executor: *const innigkeit.Executor) ?*innigkeit.Executor {
+    const executors = innigkeit.Executor.executors();
+    if (executors.len < 2) return null;
+
+    for (executors) |*executor| {
+        if (executor == self_executor) continue;
+        if (executor.scheduler.idle.load(.seq_cst)) return executor;
+    }
+    return null;
 }
 
 pub const CreateKernelTaskOptions = struct {

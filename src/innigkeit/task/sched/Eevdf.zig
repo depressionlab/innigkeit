@@ -426,6 +426,7 @@ pub fn putPrev(rq: *Runqueue, prev: *innigkeit.Task) void {
         se.on_rq = true;
         erq.updateMinVruntime();
         rq.nr_running += 1; // balance the setNextRunning decrement that will follow
+        rq.syncQueuedHint();
     }
 
     if (core.is_debug) log.verbose("putPrev {f} vr={} dl={}", .{ prev, se.vruntime, se.deadline });
@@ -471,6 +472,26 @@ pub fn taskWaking(task: *innigkeit.Task) void {
 
 pub fn taskDead(task: *innigkeit.Task) void {
     _ = task;
+}
+
+/// Find one stealable queued entity: the earliest-deadline queued task whose
+/// `migration_disable_count` is zero (in-order tree walk; the tree is keyed by
+/// deadline). Does not dequeue; the caller dequeues via the class vtable so
+/// the existing remove/avg bookkeeping runs.
+///
+/// Caller must hold the owning scheduler's lock. Eligibility is deliberately
+/// ignored: the thief's queue is empty, so any queued task is better than
+/// idling, and `placeEntity(.wakeup)` re-bases vruntime on the new queue.
+pub fn findStealable(erq: *const EevdfRunqueue) ?*innigkeit.Task {
+    return findStealableNode(erq.tree.root);
+}
+
+fn findStealableNode(node_opt: ?*RbTree.Node) ?*innigkeit.Task {
+    const node = node_opt orelse return null;
+    if (findStealableNode(node.left)) |t| return t;
+    const task = SchedEntity.fromNode(node).task();
+    if (task.stealable and task.migration_disable_count.load(.acquire) == 0) return task;
+    return findStealableNode(node.right);
 }
 
 /// Remove `task` from the EEVDF tree and mark it as the currently-running entity.
