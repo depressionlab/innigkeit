@@ -1,0 +1,8 @@
+name = "std_demo"
+version = "0.1.0"
+description = "Demonstrates the innigkeit std.Io backend"
+
+[entitlements]
+spawn = false
+
+[trust]

@@ -28,10 +28,13 @@
 //!
 //! ## I/O
 //!
-//! `innigkeit.io.stdout` / `.stderr`: direct write syscall wrappers.
-//! `.stdWriter()`: on either returns a `std.Io.Writer` for stdlib APIs.
-//! `std.fs`: is not supported for `.os = .other`; use initfs for read-only
-//! init-time files and future VFS capability for general file I/O.
+//! * `innigkeit.io.stdout` / `.stderr`: direct write syscall wrappers.
+//! * `.stdWriter()`: on either returns a `std.Io.Writer` for stdlib APIs.
+//! * `innigkeit.stdio.io()`: a full synchronous `std.Io` backend (eager async,
+//!   futexes, monotonic clock, sleep, standard-stream file I/O) for std APIs
+//!   that take an `Io` parameter; see library/innigkeit/stdio.zig.
+//! * `std.fs`: is not supported for `.os = .other`; use initfs for read-only
+//!   init-time files and future VFS capability for general file I/O.
 const std = @import("std");
 const innigkeit = @import("innigkeit");
 
