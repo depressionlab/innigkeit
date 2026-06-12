@@ -41,7 +41,7 @@ impl NetFrom {
 	}
 }
 
-/// A bound UDP socket.  Closed automatically on drop.
+/// A bound UDP socket. Closed automatically on drop.
 pub struct UdpSocket {
 	id: u32,
 }

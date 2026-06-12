@@ -66,7 +66,7 @@ var pkt_idx: u8 = 0;
 /// Initialize the PS/2 mouse.
 ///
 /// Enables the 8042 aux interface, sets IRQ12, resets the mouse, applies
-/// default settings, and starts streaming.  Safe to call once from stage 4.
+/// default settings, and starts streaming. Safe to call once from stage 4.
 pub fn init() !void {
     const cmd_port = architecture.io.Port.from(PORT_CMD) catch unreachable;
     const data_port = architecture.io.Port.from(PORT_DATA) catch unreachable;

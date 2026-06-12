@@ -21,7 +21,7 @@ impl core::ops::BitOr for OpenFlags {
 	}
 }
 
-/// An open file descriptor.  Closed automatically on drop.
+/// An open file descriptor. Closed automatically on drop.
 pub struct File {
 	fd: u32,
 }
@@ -40,7 +40,7 @@ impl File {
 		sys::ok(ret).map(|fd| File { fd: fd as u32 })
 	}
 
-	/// Read up to `buf.len()` bytes.  Returns 0 on EOF.
+	/// Read up to `buf.len()` bytes. Returns 0 on EOF.
 	pub fn read(&self, buf: &mut [u8]) -> Result<usize, Errno> {
 		let ret = unsafe {
 			sys::syscall3(

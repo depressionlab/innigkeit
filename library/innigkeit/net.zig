@@ -45,7 +45,7 @@ pub fn setIp(ip: Ip4) void {
     _ = Syscall.invoke(.net_set_ip, .{@as(usize, ip_u32)});
 }
 
-/// Read the NIC's MAC address.  Returns null if no NIC is present.
+/// Read the NIC's MAC address. Returns null if no NIC is present.
 pub fn getMac() ?[6]u8 {
     var mac: [6]u8 = undefined;
     const r = Syscall.invoke(.net_get_mac, .{@intFromPtr(&mac)});
@@ -98,7 +98,7 @@ pub const UdpSocket = struct {
         return Syscall.decode(r);
     }
 
-    /// Non-blocking receive.  Fills `from` and `buf[0..n]`.
+    /// Non-blocking receive. Fills `from` and `buf[0..n]`.
     /// Returns `error.WouldBlock` immediately if no data is available.
     pub fn recvNonblocking(self: UdpSocket, from: *From, buf: []u8) Syscall.Error!usize {
         const r = Syscall.invoke(.net_udp_recv_nb, .{

@@ -17,7 +17,7 @@ var ext4_fs: Ext4 = undefined;
 var init_lock: innigkeit.sync.Mutex = .{};
 var init_attempted: bool = false;
 
-/// Lazily run `init()` exactly once.  Called on the first `open()` so callers
+/// Lazily run `init()` exactly once. Called on the first `open()` so callers
 /// (e.g. the per-process fd-table syscalls) don't need a dedicated boot hook.
 /// May block on disk I/O; only call from task context.
 pub fn ensureInit() void {
@@ -28,7 +28,7 @@ pub fn ensureInit() void {
     init();
 }
 
-/// Try to mount ext4 on the data device.  Falls back to simple_fs silently.
+/// Try to mount ext4 on the data device. Falls back to simple_fs silently.
 pub fn init() void {
     if (!innigkeit.drivers.virtio.blk.isDataReady()) return;
     const dev = innigkeit.drivers.virtio.blk.dataDeviceIndex();

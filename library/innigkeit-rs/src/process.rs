@@ -136,7 +136,7 @@ pub fn spawn(path: &[u8]) -> Result<u32, Errno> {
 	sys::ok(ret).map(|h| h as u32)
 }
 
-/// Block until the child identified by `notify_handle` exits.  Returns its exit
+/// Block until the child identified by `notify_handle` exits. Returns its exit
 /// status.
 pub fn wait(notify_handle: u32) -> Result<u8, Errno> {
 	let ret = unsafe { sys::syscall1(sys::Syscall::WaitProcess, notify_handle as usize) };

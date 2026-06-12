@@ -219,7 +219,7 @@ pub fn writeFile(self: *FdTable, fd: usize, buf: []const u8) Error!usize {
 
 /// Reposition the offset of the file at `fd`.
 /// whence: 0 = SET, 1 = CUR, 2 = END. Returns the new offset.
-/// Metadata only — no disk I/O — so it runs entirely under the lock.
+/// Metadata only (no disk I/O) so it runs entirely under the lock.
 pub fn lseek(self: *FdTable, fd: usize, offset: i64, whence: u32) Error!u64 {
     if (fd >= max_descriptors) return error.BadFd;
     self.lock.lock();

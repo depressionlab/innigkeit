@@ -30,7 +30,7 @@
 //!   `Queue`, ...): wired to the `futex_wait` / `futex_wait_timeout` /
 //!   `futex_wake` syscalls.
 //! * **Time**: `now` returns milliseconds since kernel boot (`uptime_ms`)
-//!   scaled to nanoseconds, for *every* clock — including `.real`, since the
+//!   scaled to nanoseconds, for *every* clock, including `.real`, since the
 //!   kernel exposes no wall clock; treat all clocks as one monotonic boot
 //!   clock. `clockResolution` reports 1 ms. `sleep` rounds the requested
 //!   duration/deadline *up* to the next millisecond and uses `nanosleep_ms`.
@@ -55,7 +55,7 @@
 //! denotes the process standard streams: streaming reads come from fd 0
 //! (stdin) and streaming writes go to fd 1 (stdout). This makes
 //! `std.Io.File.Reader` / `std.Io.File.Writer` (and thus all std formatting)
-//! fully usable for console I/O — construct the file with `stdoutFile()` /
+//! fully usable for console I/O - construct the file with `stdoutFile()` /
 //! `stdinFile()`. Positional reads/writes and seeks return
 //! `error.Unseekable`, which `std.Io.File.{Reader,Writer}` handle by falling
 //! back to streaming mode automatically.
@@ -77,6 +77,8 @@ const std = @import("std");
 const innigkeit = @import("innigkeit");
 const Io = std.Io;
 const Syscall = innigkeit.Syscall;
+
+// TODO: N/AI
 
 /// The singleton synchronous `std.Io` backend instance.
 pub const backend: Io = .{
@@ -466,12 +468,12 @@ fn random(_: ?*anyopaque, buffer: []u8) void {
 
 // Slots without Innigkeit support delegate to the canonical pub stubs that
 // back `std.Io.failing`:
-// * `failing*` — reachable, returns the closest "unsupported" error of the
+// * `failing*`: reachable, returns the closest "unsupported" error of the
 //   slot's error set.
-// * `no*` — reachable, succeeds as a no-op (or, for `noAsync` /
+// * `no*`: reachable, succeeds as a no-op (or, for `noAsync` /
 //   `noGroupAsync`, runs the task eagerly inline, which is exactly this
 //   backend's execution model).
-// * `unreachable*` — only reachable after another slot returned a value
+// * `unreachable*`: only reachable after another slot returned a value
 //   this backend never produces (non-null future, group token, ...).
 const vtable: Io.VTable = .{
     .crashHandler = crashHandler,

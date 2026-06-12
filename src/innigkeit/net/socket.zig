@@ -71,7 +71,7 @@ var arp_cache: [ARP_CACHE_MAX]ArpEntry = [_]ArpEntry{.{}} ** ARP_CACHE_MAX;
 var ping_state: PingState = .{};
 var lock: innigkeit.sync.TicketSpinLock = .{};
 
-/// Open a UDP socket bound to `port`.  Returns the socket id (0–15) or null
+/// Open a UDP socket bound to `port`. Returns the socket id (0–15) or null
 /// if all slots are taken or the port is already in use.
 pub fn openSocket(port: u16) ?u8 {
     lock.lock();
@@ -98,8 +98,8 @@ pub fn closeSocket(id: u8) void {
         s.waiters.wakeOne(&lock);
 }
 
-/// Send a UDP datagram.  Resolves the target IP via ARP (blocking with up to
-/// 100 yield iterations ≈ ~500 ms).  Returns false on error (no NIC, ARP
+/// Send a UDP datagram. Resolves the target IP via ARP (blocking with up to
+/// 100 yield iterations ≈ ~500 ms). Returns false on error (no NIC, ARP
 /// timeout, send failure).
 pub fn sendUdp(
     sock_id: u8,
@@ -146,7 +146,7 @@ pub fn sendUdp(
 }
 
 /// Send an ICMP echo request to `dst_ip` and wait up to `timeout_ms` for a
-/// reply.  Returns the round-trip time in milliseconds, or null on timeout.
+/// reply. Returns the round-trip time in milliseconds, or null on timeout.
 pub fn ping(dst_ip: [4]u8, timeout_ms: u64) ?u64 {
     const our_mac = innigkeit.drivers.virtio.net.getMac() orelse return null;
     const our_ip_ptr = innigkeit.drivers.virtio.net.getIp() orelse return null;
@@ -457,7 +457,7 @@ pub fn closeTcp(id: u8) void {
     return tcp_sock.closeSocket(id);
 }
 
-/// Resolve dst_ip -> MAC.  Sends an ARP request if not cached; yields up to 100
+/// Resolve dst_ip -> MAC. Sends an ARP request if not cached; yields up to 100
 /// times (each yield allows the net-poll thread to process one batch of frames).
 fn resolveArpWithRetry(dst_ip: [4]u8, our_mac: *const [6]u8, our_ip: [4]u8) ?[6]u8 {
     if (lookupArpCache(dst_ip)) |m| return m;

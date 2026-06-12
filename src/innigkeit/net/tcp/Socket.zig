@@ -160,7 +160,7 @@ fn allocSlot() ?usize {
     return null;
 }
 
-/// Open a TCP listening socket on `port`.  Returns slot id or null.
+/// Open a TCP listening socket on `port`. Returns slot id or null.
 pub fn openListener(port: u16) ?u8 {
     lock.lock();
     defer lock.unlock();

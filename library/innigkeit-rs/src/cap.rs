@@ -38,7 +38,7 @@ impl RawHandle {
 	}
 }
 
-/// A borrowed, typed capability.  Does NOT close on drop.
+/// A borrowed, typed capability. Does NOT close on drop.
 #[derive(Clone, Copy)]
 pub struct Cap<T: CapKind>(pub RawHandle, PhantomData<fn() -> T>);
 
@@ -52,7 +52,7 @@ impl<T: CapKind> Cap<T> {
 	}
 }
 
-/// An owned, typed capability.  Calls `cap_delete` on drop.
+/// An owned, typed capability. Calls `cap_delete` on drop.
 pub struct OwnedCap<T: CapKind> {
 	handle: RawHandle,
 	_kind: PhantomData<fn() -> T>,
@@ -90,7 +90,7 @@ impl<T: CapKind> Drop for OwnedCap<T> {
 	}
 }
 
-/// Create a new kernel object of type `T`.  `arg` is type-specific (e.g., page
+/// Create a new kernel object of type `T`. `arg` is type-specific (e.g., page
 /// count for GpuBuffer, 0 for Notify/Endpoint).
 pub fn create<T: CapKind>(arg: usize) -> Result<OwnedCap<T>, Errno> {
 	let ret = unsafe { sys::syscall2(sys::Syscall::CapCreate, T::CODE as usize, arg) };

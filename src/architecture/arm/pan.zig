@@ -22,7 +22,7 @@ pub var pan_available: bool = false;
 
 /// `SCTLR_EL1.SPAN` (bit 23): when clear, taking an exception to EL1
 /// automatically sets `PSTATE.PAN`, so kernel entry paths never inherit an
-/// open user-access window from the interrupted context.  The interrupted
+/// open user-access window from the interrupted context. The interrupted
 /// context's own PAN bit is preserved in `SPSR_EL1` and restored by `eret`.
 const SCTLR_EL1_SPAN: u64 = 1 << 23;
 
@@ -77,7 +77,7 @@ pub fn disableAccessToUserMemory() void {
 ///
 /// Encoded as a raw instruction (MSR (immediate): op1=0b000, op2=0b100,
 /// CRm=imm) so the assembler does not need the `pan` target feature.
-/// Writes to PSTATE.PAN via MSR (immediate) are self-synchronising — no ISB
+/// Writes to PSTATE.PAN via MSR (immediate) are self-synchronising. No ISB
 /// is required.
 inline fn setPan() void {
     asm volatile (".inst 0xd500419f" ::: .{ .memory = true });

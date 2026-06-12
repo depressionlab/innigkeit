@@ -170,7 +170,8 @@ pub fn buildTestQemuStep(
     options: Options,
 ) !*std.Build.Step.Run {
     var test_opts = options;
-    test_opts.emulator.cpus = 1;
+    // TODO: adjustable test options (set to 1 to verify single core)
+    test_opts.emulator.cpus = 4;
     test_opts.emulator.memory = 256;
 
     const run = try buildQemuCommand(b, arch, image, test_opts);

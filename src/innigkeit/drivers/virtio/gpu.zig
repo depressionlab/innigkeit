@@ -338,7 +338,7 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
 
     // Allocate physical pages for RESOURCE_ATTACH_BACKING mem entries.
     // Heap memory is outside the HHDM so we can't use fromDirectMap on heap
-    // pointers.  Physical pages are always in the direct map.
+    // pointers. Physical pages are always in the direct map.
     const entry_bytes = fb_page_count * @sizeOf(GpuMemEntry);
     const ep_count = (entry_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
 

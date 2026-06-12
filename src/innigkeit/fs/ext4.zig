@@ -246,7 +246,7 @@ const DirBlockIter = struct {
 };
 
 /// ceil(size / unit), clamped to u32, without the overflowing
-/// `(size + unit - 1) / unit` formulation.  Used for block/group counts;
+/// `(size + unit - 1) / unit` formulation. Used for block/group counts;
 /// ext4 logical block numbers are 32-bit, so anything past maxInt(u32) is
 /// unmappable anyway.
 fn divCeilClampU32(size: u64, unit: u32) u32 {
@@ -766,8 +766,8 @@ pub const Ext4 = struct {
         ) catch return error.IoError;
     }
 
-    /// Allocate one free block in the filesystem.  Updates the block bitmap and
-    /// the group descriptor's free-block counter.  Returns the allocated block number.
+    /// Allocate one free block in the filesystem. Updates the block bitmap and
+    /// the group descriptor's free-block counter. Returns the allocated block number.
     fn allocBlock(self: *Ext4) !u64 {
         const blocks_count = blk: {
             var raw: [SUPERBLOCK_SIZE]u8 align(8) = undefined;
@@ -889,7 +889,7 @@ pub const Ext4 = struct {
         try self.incrementSbFreeBlocks();
     }
 
-    /// Allocate a fresh inode.  Returns the inode number (1-based).
+    /// Allocate a fresh inode. Returns the inode number (1-based).
     fn allocInode(self: *Ext4, mode: u16) !u32 {
         const num_groups: u32 = @intCast(
             (@as(u64, self.sb.inodes_count) + self.sb.inodes_per_group - 1) / self.sb.inodes_per_group,
@@ -1158,7 +1158,7 @@ pub const Ext4 = struct {
         return self.writeFileInode(try self.lookup(path), data, offset);
     }
 
-    /// Truncate a file to `new_size` bytes.  Frees any blocks past `new_size`.
+    /// Truncate a file to `new_size` bytes. Frees any blocks past `new_size`.
     pub fn truncateInode(self: *Ext4, inode_num: u32, new_size: u64) !void {
         var inode = try self.readInode(inode_num);
         if (inode.mode & S_IFMT != S_IFREG) return error.NotAFile;
@@ -1210,7 +1210,7 @@ pub const Ext4 = struct {
         try self.writeInode(inode_num, &inode);
     }
 
-    /// Create a new regular file at `path`.  The parent directory must exist.
+    /// Create a new regular file at `path`. The parent directory must exist.
     /// Returns the new inode number.
     pub fn createFile(self: *Ext4, path: []const u8) !u32 {
         if (path.len == 0 or path[0] != '/') return error.InvalidPath;
@@ -1229,7 +1229,7 @@ pub const Ext4 = struct {
         return ino;
     }
 
-    /// Delete a regular file at `path` (unlink).  Frees data blocks + inode.
+    /// Delete a regular file at `path` (unlink). Frees data blocks + inode.
     pub fn deleteFile(self: *Ext4, path: []const u8) !void {
         const ino = try self.lookup(path);
         const inode = try self.readInode(ino);

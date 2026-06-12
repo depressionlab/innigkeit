@@ -50,7 +50,7 @@ pub fn _print(fd: u64, args: fmt::Arguments) {
 	FdWriter(fd).write_fmt(args).ok();
 }
 
-/// Read one line from stdin (fd 0) into `buf`.  Returns the slice without the
+/// Read one line from stdin (fd 0) into `buf`. Returns the slice without the
 /// trailing newline, or `Err` on I/O failure.
 pub fn read_line(buf: &mut [u8]) -> Result<&[u8], Errno> {
 	let mut pos = 0;

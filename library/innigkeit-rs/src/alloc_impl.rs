@@ -50,7 +50,7 @@ impl PoolAlloc {
 		self.lock.store(false, Ordering::Release);
 	}
 
-	// Called while lock is held.  Returns false if mmap failed.
+	// Called while lock is held. Returns false if mmap failed.
 	unsafe fn refill(&self, class: usize) -> bool {
 		let block = CLASSES[class];
 		let arena_size = if block >= 1024 { block * 8 } else { 4096 };
