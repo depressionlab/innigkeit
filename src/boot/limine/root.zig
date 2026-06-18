@@ -1,6 +1,6 @@
-//! This module contains the definitions of the Limine protocol as of 6f3fafe337c30f94e7c2f5c4a21498346c5604bf.
+//! This module contains the definitions of the Limine protocol as of 5b9d13e557590d8eab93fa7449bdd1d7ed72ba8c.
 //!
-//! [PROTOCOL DOC](https://github.com/Limine-Bootloader/limine-protocol/blob/6f3fafe337c30f94e7c2f5c4a21498346c5604bf/PROTOCOL.md)
+//! [PROTOCOL DOC](https://github.com/Limine-Bootloader/limine-protocol/blob/5b9d13e557590d8eab93fa7449bdd1d7ed72ba8c/PROTOCOL.md)
 
 const std = @import("std");
 
@@ -30,6 +30,7 @@ pub const BSPHartID = @import("BSPHartID.zig");
 pub const RSDP = @import("RSDP.zig");
 pub const SMBIOS = @import("SMBIOS.zig");
 pub const StackSize = @import("StackSize.zig");
+pub const TPMEventLog = @import("TPMEventLog.zig");
 pub const TSCFrequency = @import("TSCFrequency.zig");
 
 /// Generates a Limine protocol request identifier.

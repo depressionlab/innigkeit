@@ -2,10 +2,8 @@
 //! hand-off. This is intended for security-conscious executables that wish to preserve DMA protection set up by firmware.
 //!
 //! If this feature is not requested, the bootloader reserves the right to disable any active IOMMUs before handing control to the
-//! executable, for compatibility with executables that do not support these.
-//!
-//! Note: Not passing this request does not imply that the bootloader is mandated to disable the IOMMUs, though newly implemented
-//! bootloaders are strongly recommended to, and should, disable them.
+//! executable. This is especially of note for base revisions 5 and greater, where the bootloader is mandated to disable VT-d and AMD-Vi
+//! IOMMUs, unless this feature is requested.
 //!
 //! Note: On non-x86 platforms, no response will be provided.
 

@@ -6,6 +6,7 @@ INFO.md
 /target
 *.patch
 .tools/
+docs/
 
 # Created by https://www.toptal.com/developers/gitignore/api/c,c++,rust,cmake,linux,macos,windows,rust-analyzer,visualstudiocode,archlinuxpackages,zig
 # Edit at https://www.toptal.com/developers/gitignore?templates=c,c++,rust,cmake,linux,macos,windows,rust-analyzer,visualstudiocode,archlinuxpackages,zig

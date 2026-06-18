@@ -67,16 +67,23 @@ pub const Response = extern struct {
     }
 };
 
-/// Internal Limine modules are guaranteed to be loaded before user-specified (configuration) modules,
-/// and thus they are guaranteed to appear before user-specified modules in the modules array in the response.
+/// Internal Limine modules are guaranteed to be loaded before user-specified (configuration) modules, and thus they are guaranteed to
+/// appear before user-specified modules in the modules array in the response.
+///
+/// When Secure Boot is active, every loaded file must have an associated blake2b hash, and internal modules are no exception: a `path`
+/// lacking a `#<hash>` suffix will cause the bootloader to panic, regardless of the `LIMINE_INTERNAL_MODULE_REQUIRED` flag.
+///
+/// There is no separate hash field on `struct limine_internal_module`; the hash must be appended to the `path` string.
+///
+/// Executables intended to be bootable under Secure Boot must therefore embed the precomputed hash of each internal module in the path
+/// they hand to the bootloader.
 pub const InternalModule = extern struct {
     /// Path to the module to load.
     ///
     /// This path is relative to the location of the executable.
     ///
-    /// The path may be suffixed with `#` followed by a 128-character
-    /// hexadecimal blake2b hash of the file contents, in which case the bootloader will
-    /// verify the hash before honouring the module.
+    /// The path may be suffixed with `#` followed by a 128-character hexadecimal blake2b hash of the file contents, in which case the
+    /// bootloader will verify the hash before honouring the module.
     path: [*:0]const u8,
 
     /// String associated with the given module.
