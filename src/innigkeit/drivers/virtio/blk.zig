@@ -130,14 +130,27 @@ fn onInterrupt(
     }
 }
 
+/// QEMU `virt` PCI I/O-space aperture CPU physical base, used as a fallback if
+/// the device tree cannot be parsed. The `virt` machine maps the host bridge's
+/// PCI I/O window here (size 0x10000); the `pcie` node's `ranges` I/O entry
+/// describes it (`<0x01000000 0 0  0 0x3eff0000  0 0x10000>`). Derived at
+/// runtime from the DTB in `resolveBar0`; this constant is the documented
+/// QEMU-virt default for when no device tree is available.
+const VIRT_PCI_IO_FALLBACK_BASE: u64 = 0x3eff_0000;
+
 /// Resolve the legacy register window base for `func` into a `PortIo.base`.
 ///
 /// x86-64: BAR0 is an I/O-space BAR; the base is the 16-bit port number.
-/// aarch64 (QEMU virt): there is no usable PCI I/O space, so EDK2 leaves the I/O
-/// BAR (BAR0) unprogrammed (reads back 0x1: I/O indicator, zero address). QEMU's
-/// legacy virtio-pci aliases the SAME legacy register block behind a 32-bit
-/// MEMORY BAR at BAR1 (observed phys 0x10000000, in the virt PCIe MMIO window).
-/// We use BAR1, map it Device-nGnRE, and return the kernel virtual base address.
+///
+/// aarch64 (QEMU virt): the legacy register block lives behind BAR0, which is a
+/// PCI **I/O-space** BAR. There is no CPU port I/O, so the I/O space is exposed
+/// as an MMIO aperture (the `pcie` node's `ranges` I/O entry: CPU phys
+/// 0x3eff0000, size 0x10000). An I/O BAR holds an OFFSET into that aperture.
+/// EDK2 on virt leaves the I/O BAR unprogrammed (reads back 0x1: I/O indicator,
+/// zero address), so we assign it ourselves: program BAR0 with an offset, then
+/// access the registers at `io_aperture_cpu_base + offset`, mapped Device-nGnRE.
+/// (BAR1 is a 4 KiB memory BAR so the MSI-X table, NOT the legacy registers are used;
+/// writing it takes a synchronous external abort.)
 ///
 /// Returns null (the device is skipped) on an unexpected BAR layout.
 fn resolveBar0(func: *innigkeit.pci.Function) ?u64 {
@@ -150,26 +163,41 @@ fn resolveBar0(func: *innigkeit.pci.Function) ?u64 {
         return @as(u64, bar0 & 0xFFFC);
     }
 
-    // BAR1: a memory BAR aliasing the legacy register block. Memory BAR:
-    // bit 0 = 0 (memory), bits [2:1] = type (00 = 32-bit, 10 = 64-bit).
-    const bar1 = func.read(u32, 0x14);
-    if (bar1 & 1 != 0) {
-        log.warn("virtio-blk BAR1 is not a memory BAR ({x}), skipping", .{bar1});
+    // BAR0 must be an I/O-space BAR (bit 0 = 1).
+    const bar0 = func.read(u32, 0x10);
+    if (bar0 & 1 == 0) {
+        log.warn("virtio-blk BAR0 is not an I/O BAR ({x}), skipping", .{bar0});
         return null;
     }
-    const bar_type: u32 = (bar1 >> 1) & 0x3;
-    const phys_base: u64 = switch (bar_type) {
-        0 => @as(u64, bar1 & 0xFFFF_FFF0),
-        2 => @as(u64, bar1 & 0xFFFF_FFF0) | (@as(u64, func.read(u32, 0x18)) << 32),
-        else => {
-            log.warn("virtio-blk BAR1 has reserved memory type {}, skipping", .{bar_type});
-            return null;
-        },
-    };
-    if (phys_base == 0) {
-        log.warn("virtio-blk BAR1 not assigned (firmware did not program it), skipping", .{});
+
+    // Find the PCI I/O aperture's CPU physical base from the device tree, with
+    // a QEMU-virt fallback. The I/O BAR value is an offset into this aperture.
+    const io_window = innigkeit.init.devicetree.pciIoWindow();
+    const aperture_base: u64 = if (io_window) |w| w.cpu_base else VIRT_PCI_IO_FALLBACK_BASE;
+    const aperture_size: u64 = if (io_window) |w| w.size else 0x1_0000;
+    if (io_window == null) {
+        log.warn("virtio-blk: no DTB I/O range; using QEMU-virt default 0x{x}", .{aperture_base});
+    }
+
+    // The I/O BAR's currently-programmed offset (bits above the type bits).
+    // Firmware leaves it 0 on virt, so assign a small offset within the
+    // aperture. The legacy register block is tiny (< 0x40 bytes); pick 0.
+    var io_offset: u64 = @as(u64, bar0 & 0xFFFF_FFFC);
+    if (io_offset == 0) {
+        io_offset = 0;
+        // Assign the BAR: low two bits are the I/O-space indicator (01). The
+        // device decodes I/O accesses at this offset within the aperture once
+        // I/O-space decode is enabled (PCI command bit 0, set in tryInit).
+        func.write(u32, 0x10, @as(u32, @intCast(io_offset)) | 1);
+        log.debug("virtio-blk: assigned I/O BAR0 offset=0x{x}", .{io_offset});
+    }
+
+    if (io_offset + 0x1000 > aperture_size) {
+        log.warn("virtio-blk: I/O offset 0x{x} outside aperture (size 0x{x}), skipping", .{ io_offset, aperture_size });
         return null;
     }
+
+    const phys_base: u64 = aperture_base + io_offset;
 
     // Map one page Device-nGnRE (`.uncached` -> Device-nGnRE on aarch64). The
     // legacy register block (offsets 0x00..0x14) plus block config fits well
@@ -179,10 +207,10 @@ fn resolveBar0(func: *innigkeit.pci.Function) ?u64 {
         .protection = .{ .read = true, .write = true },
         .cache = .uncached,
     }) catch |err| {
-        log.err("virtio-blk: failed to map BAR1 phys=0x{x}: {t}", .{ phys_base, err });
+        log.err("virtio-blk: failed to map I/O aperture phys=0x{x}: {t}", .{ phys_base, err });
         return null;
     };
-    log.debug("virtio-blk: BAR1 phys=0x{x} mapped at 0x{x}", .{ phys_base, mapping.address.value });
+    log.debug("virtio-blk: I/O regs phys=0x{x} mapped at 0x{x}", .{ phys_base, mapping.address.value });
     return mapping.address.value;
 }
 
@@ -266,6 +294,17 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
         .call = .prepare(onInterrupt, .{idx}),
     };
     devices[idx].?.irq_enabled = legacy.setupIrq(addr, func, handler, "virtio-blk");
+
+    // aarch64 (M2): the PCI INTx line routes to a GIC SPI (logged by setupIrq),
+    // but completions are not yet observed to be delivered. The QEMU-virt PCIe
+    // INTx->SPI swizzle must be taken from the DTB `interrupt-map` to pick the
+    // exact SPI, which is not yet parsed (we use a computed swizzle + the I/O
+    // aperture fallback). Until INTx delivery is verified, use poll mode so a
+    // non-firing IRQ cannot hang a disk read forever. virtio-blk completions
+    // are fast under QEMU, so the bounded-spin poll path is correct and cheap.
+    // The interrupt-driven-completion test (below) skips while this is false.
+    // x86-64 keeps interrupt-driven completion. See docs/aarch64-port.md.
+    if (builtin.cpu.arch != .x86_64) devices[idx].?.irq_enabled = false;
 
     log.info("virtio-blk[{}] ready ({s} mode)", .{
         idx,

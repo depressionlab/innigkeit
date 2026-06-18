@@ -247,6 +247,85 @@ fn matchFunction(_: void, compatible: [:0]const u8) bool {
     return compatible_lookup.get(compatible) != null;
 }
 
+/// A PCI address-space window described by a pcie node's `ranges` entry.
+pub const PciRange = struct {
+    /// PCI-side address (the value programmed into a BAR is an offset into this).
+    pci_base: u64,
+    /// CPU physical address the window maps to.
+    cpu_base: u64,
+    /// Window size in bytes.
+    size: u64,
+};
+
+/// Find the host PCIe bridge's I/O-space `ranges` window from the device tree.
+///
+/// On the QEMU `virt` machine there is no CPU port I/O; a legacy virtio-pci
+/// device's I/O BAR is an offset into a PCI I/O aperture that the host bridge
+/// maps to a fixed CPU physical address. The pcie node's `ranges` property
+/// describes that aperture. Each entry is `<child(3 cells) parent(2 cells)
+/// size(2 cells)>`; the high cell of the child address encodes the space type
+/// in bits [25:24] (0b01 = I/O space). We return the I/O-space entry's
+/// PCI-side base, the CPU physical base it maps to, and its size.
+///
+/// Returns null if there is no device tree or no I/O-space range (the caller
+/// should fall back to a machine-known default).
+pub fn pciIoWindow() ?PciRange {
+    const dt = getDeviceTree() orelse return null;
+    return pciIoWindowInner(dt) catch |err| {
+        log.warn("failed to parse pcie ranges for the I/O window: {t}", .{err});
+        return null;
+    };
+}
+
+fn pciIoWindowInner(dt: DeviceTree) DeviceTree.IteratorError!?PciRange {
+    // Find a node whose device_type is "pci" (the host bridge). On virt this is
+    // `/pcie@...`; matching on device_type avoids hardcoding the unit address.
+    var node_iter = try dt.nodeIterator(
+        .root,
+        .all_children,
+        .{ .property_value = .{
+            .name = "device_type",
+            .value = .fromString("pci"),
+        } },
+    );
+
+    const pci_node = (try node_iter.next(dt)) orelse return null;
+
+    var property_iter = try pci_node.node.propertyIterator(dt, .{ .name = "ranges" });
+    const ranges = (try property_iter.next()) orelse return null;
+
+    // ranges layout: child PCI address = 3 cells, parent (CPU) address = 2
+    // cells, size = 2 cells => 7 cells (28 bytes) per entry. The pcie node
+    // declares #address-cells = 3 / #size-cells = 2; the parent (root) bus
+    // uses 2 address cells on virt.
+    const raw = ranges.value._raw;
+    const entry_cells = 7;
+    const entry_bytes = entry_cells * @sizeOf(u32);
+    if (raw.len % entry_bytes != 0) return null;
+
+    var off: usize = 0;
+    while (off + entry_bytes <= raw.len) : (off += entry_bytes) {
+        const cell = struct {
+            fn read(bytes: []const u8, i: usize) u32 {
+                const p: *align(1) const u32 = @ptrCast(bytes[i * 4 ..].ptr);
+                return std.mem.bigToNative(u32, p.*);
+            }
+        }.read;
+
+        const hi = cell(raw[off..], 0); // child address high cell (space code)
+        const space: u32 = (hi >> 24) & 0x3; // bits [25:24]
+        const pci_base: u64 = (@as(u64, cell(raw[off..], 1)) << 32) | cell(raw[off..], 2);
+        const cpu_base: u64 = (@as(u64, cell(raw[off..], 3)) << 32) | cell(raw[off..], 4);
+        const size: u64 = (@as(u64, cell(raw[off..], 5)) << 32) | cell(raw[off..], 6);
+
+        if (space == 0b01) { // I/O space
+            return .{ .pci_base = pci_base, .cpu_base = cpu_base, .size = size };
+        }
+    }
+
+    return null;
+}
+
 const compatible_lookup = std.StaticStringMap(GetSerialOutputFn).initComptime(.{
     .{ "ns16550a", getSerialOutputFromNS16550a },
     .{ "arm,pl011", getSerialOutputFromPL011 },
