@@ -1051,9 +1051,21 @@ const device_mmio_regions = [_]struct { base: u64, size: core.Size }{
     .{ .base = 0x0900_0000, .size = .from(4, .kib) },
 };
 
+/// True once the early device-MMIO regions have been mapped into the (single,
+/// shared) kernel page table. `loadPageTable` runs on every TTBR1 switch (
+/// the bootstrap executor's initial build plus each executor's `stage2`
+/// `kernelPageTable().load()`) but the regions only need mapping once: the
+/// kernel root is built a single time and shared by all executors. Mapping
+/// again would hit `AlreadyMapped`. This also makes the single-executor M1
+/// path tolerant of the second `load()` in stage2.
+var device_mmio_mapped: bool = false;
+
 /// Map the early device-MMIO regions Device-nGnRE into the direct map of the
 /// kernel page table rooted at `physical_page`.
 fn mapDeviceMmio(physical_page: innigkeit.mem.PhysicalPage.Index) void {
+    if (device_mmio_mapped) return;
+    device_mmio_mapped = true;
+
     const root_table = physical_page.baseAddress().toDirectMap().toPtr(*PageTable);
     const direct_map_base = innigkeit.mem.globals.direct_map.address;
 

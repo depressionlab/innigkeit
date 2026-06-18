@@ -68,10 +68,16 @@ pub const functions: architecture.Functions = .{
     },
 
     .user = .{
+        .createThread = arm.user.createThread,
+        .destroyThread = arm.user.destroyThread,
+        .initializeThread = arm.user.initializeThread,
+        .enterUserspace = arm.user.enterUserspace,
         .syscallFromSyscallFrame = arm.SyscallFrame.syscall,
         .argFromSyscallFrame = arm.SyscallFrame.arg,
 
-        .init = .{},
+        .init = .{
+            .initialize = arm.user.init.initialize,
+        },
     },
 
     .scheduling = .{

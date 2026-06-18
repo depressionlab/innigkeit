@@ -1,4 +1,5 @@
 pub const TPIDR_EL1 = MSR(u64, "TPIDR_EL1");
+pub const TPIDR_EL0 = MSR(u64, "TPIDR_EL0");
 
 pub const SCTLR_EL1 = MSR(u64, "SCTLR_EL1");
 pub const TCR_EL1 = MSR(u64, "TCR_EL1");

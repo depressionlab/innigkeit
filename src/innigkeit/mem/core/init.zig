@@ -277,9 +277,18 @@ fn buildAndLoadKernelPageTable() architecture.paging.PageTable {
         switch (region.type) {
             .direct_map => {
                 const direct_map_base = region.range.address;
+                const page_alignment = architecture.paging.standard_page_size_alignment;
 
                 var iter = boot.memoryMap() catch
                     @panic("no memory map!");
+
+                // Highest physical address already mapped into the direct map.
+                // The bootloader memory map is sorted ascending, so rounding an
+                // entry's range out to page boundaries can extend it into the
+                // boundary page of the next entry. Each entry's mapping is
+                // clamped to start at `mapped_until` to avoid double-mapping a
+                // shared page (which `mapToPhysicalRangeAllPageSizes` rejects).
+                var mapped_until: innigkeit.PhysicalAddress = .zero;
 
                 while (iter.next()) |entry| {
                     const cache_type: innigkeit.mem.MapType.Cache = switch (entry.type) {
@@ -287,17 +296,30 @@ fn buildAndLoadKernelPageTable() architecture.paging.PageTable {
                         .framebuffer => .write_combining,
                         .reserved, .unusable, .unknown => continue,
                     };
-                    std.debug.assert(entry.range.pageAligned());
+
+                    // Round the entry out to whole pages. x86-64 bootloaders
+                    // already report page-aligned entries (this is a no-op
+                    // there); aarch64 (Limine/QEMU virt) can report sub-page
+                    // sizes, which `mapToPhysicalRangeAllPageSizes` cannot map.
+                    var phys_start = entry.range.address.alignBackward(page_alignment);
+                    const phys_end = entry.range.after().alignForward(page_alignment);
+                    if (phys_start.lessThan(mapped_until)) phys_start = mapped_until;
+                    if (!phys_start.lessThan(phys_end)) continue; // fully covered
+                    const phys_range: innigkeit.PhysicalRange = .from(
+                        phys_start,
+                        core.Size.from(phys_end.value - phys_start.value, .byte),
+                    );
+                    mapped_until = phys_end;
 
                     architecture.paging.init.mapToPhysicalRangeAllPageSizes(
                         kernel_page_table,
                         innigkeit.KernelVirtualRange.from(
                             direct_map_base.moveForward(
-                                innigkeit.PhysicalAddress.zero.difference(entry.range.address),
+                                innigkeit.PhysicalAddress.zero.difference(phys_range.address),
                             ),
-                            entry.range.size,
+                            phys_range.size,
                         ).toVirtualRange(),
-                        entry.range,
+                        phys_range,
                         .{
                             .type = .kernel,
                             .protection = .{ .read = true, .write = true },
