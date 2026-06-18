@@ -24,26 +24,40 @@ comptime {
 /// For now this just panics; a real kernel would dispatch to IRQ, syscall,
 /// and fault handlers here.
 export fn arm_handle_exception(frame: *InterruptFrame, vector_idx: u8) callconv(.c) void {
-    _ = frame;
     // IRQ vectors (indices 1, 5, 9, 13) are dispatched through the GIC.
     // All other exceptions still panic until full handlers are implemented.
     switch (vector_idx) {
         1, 5, 9, 13 => gic.handleIrq(),
-        else => @panic(switch (vector_idx) {
-            0 => "arm64: exception: current-EL SP_EL0 synchronous",
-            2 => "arm64: exception: current-EL SP_EL0 FIQ",
-            3 => "arm64: exception: current-EL SP_EL0 SError",
-            4 => "arm64: exception: current-EL SP_EL1 synchronous",
-            6 => "arm64: exception: current-EL SP_EL1 FIQ",
-            7 => "arm64: exception: current-EL SP_EL1 SError",
-            8 => "arm64: exception: lower-EL AArch64 synchronous",
-            10 => "arm64: exception: lower-EL AArch64 FIQ",
-            11 => "arm64: exception: lower-EL AArch64 SError",
-            12 => "arm64: exception: lower-EL AArch32 synchronous",
-            14 => "arm64: exception: lower-EL AArch32 FIQ",
-            15 => "arm64: exception: lower-EL AArch32 SError",
-            else => "arm64: exception: unknown vector",
-        }),
+        else => {
+            // Dump fault state via semihosting first: during early init no
+            // output device is registered yet, so a bare @panic would be
+            // silent. ESR/FAR/ELR are the minimum needed to classify the
+            // fault (EC field of ESR, faulting address, faulting PC).
+            arm.semihost.write("\narm64 EXCEPTION vector=");
+            arm.semihost.writeHex(vector_idx);
+            arm.semihost.write(" ESR=");
+            arm.semihost.writeHex(arm.registers.ESR_EL1.read());
+            arm.semihost.write(" FAR=");
+            arm.semihost.writeHex(arm.registers.FAR_EL1.read());
+            arm.semihost.write(" ELR=");
+            arm.semihost.writeHex(frame.elr);
+            arm.semihost.write("\n");
+            @panic(switch (vector_idx) {
+                0 => "arm64: exception: current-EL SP_EL0 synchronous",
+                2 => "arm64: exception: current-EL SP_EL0 FIQ",
+                3 => "arm64: exception: current-EL SP_EL0 SError",
+                4 => "arm64: exception: current-EL SP_EL1 synchronous",
+                6 => "arm64: exception: current-EL SP_EL1 FIQ",
+                7 => "arm64: exception: current-EL SP_EL1 SError",
+                8 => "arm64: exception: lower-EL AArch64 synchronous",
+                10 => "arm64: exception: lower-EL AArch64 FIQ",
+                11 => "arm64: exception: lower-EL AArch64 SError",
+                12 => "arm64: exception: lower-EL AArch32 synchronous",
+                14 => "arm64: exception: lower-EL AArch32 FIQ",
+                15 => "arm64: exception: lower-EL AArch32 SError",
+                else => "arm64: exception: unknown vector",
+            });
+        },
     }
 }
 

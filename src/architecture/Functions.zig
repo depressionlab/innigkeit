@@ -9,6 +9,15 @@ const architecture = @import("architecture");
 /// Issues an architecture specific hint to the executor that we are spinning in a loop.
 spinLoopHint: ?fn () callconv(.@"inline") void = null,
 
+/// Write a string to an architecture debug channel that works prior to
+/// ANY kernel initialization (no MMU mappings, no allocators, no output devices).
+///
+/// - arm: QEMU semihosting
+/// - x64: could be port `0xe9` (not currently wired)
+///
+/// `null` means early boot is silent until the regular output path comes up.
+earlyDebugWrite: ?fn (s: []const u8) void = null,
+
 /// Halts the current executor.
 halt: ?fn () callconv(.@"inline") void = null,
 

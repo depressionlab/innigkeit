@@ -7,6 +7,7 @@ pub const VBAR_EL1 = MSR(u64, "VBAR_EL1");
 pub const TTBR0_EL1 = MSR(u64, "TTBR0_EL1");
 pub const TTBR1_EL1 = MSR(u64, "TTBR1_EL1");
 pub const ESR_EL1 = MSR(u64, "ESR_EL1");
+pub const FAR_EL1 = MSR(u64, "FAR_EL1");
 pub const ELR_EL1 = MSR(u64, "ELR_EL1");
 pub const SPSR_EL1 = MSR(u64, "SPSR_EL1");
 pub const SP_EL0 = MSR(u64, "SP_EL0");
@@ -23,7 +24,15 @@ pub const ID_AA64MMFR1_EL1 = MSR(u64, "ID_AA64MMFR1_EL1");
 
 /// Switch to using SP_EL1 as the stack pointer at all ELs.
 pub fn spSel1() void {
-    asm volatile ("msr SPSel, #1");
+    // Switching SPSel from 0 to 1 makes `sp` alias SP_EL1, which the
+    // bootloader never initialized (using it directly would fault on the
+    // next stack access). Seed SP_EL1 from the current (SP_EL0) stack so the
+    // active stack is preserved across the switch.
+    asm volatile (
+        \\ mov x9, sp
+        \\ msr SPSel, #1
+        \\ mov sp, x9
+        ::: .{ .x9 = true });
 }
 
 /// Switch to using SP_EL0 as the stack pointer at all ELs.

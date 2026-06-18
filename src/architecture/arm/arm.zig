@@ -1,5 +1,6 @@
 pub const instructions = @import("instructions.zig");
 pub const registers = @import("registers.zig");
+pub const semihost = @import("semihost.zig");
 pub const vectors = @import("vectors.zig");
 pub const pl011 = @import("pl011.zig");
 pub const gic = @import("gic.zig");

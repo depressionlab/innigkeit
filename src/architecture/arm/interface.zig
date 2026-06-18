@@ -7,6 +7,7 @@ const arm = @import("arm.zig");
 pub const functions: architecture.Functions = .{
     .spinLoopHint = arm.instructions.isb,
     .halt = arm.instructions.halt,
+    .earlyDebugWrite = arm.semihost.write,
 
     .interrupts = .{
         .disableAndHalt = arm.instructions.disableInterruptsAndHalt,
@@ -92,14 +93,14 @@ pub const functions: architecture.Functions = .{
         }.prepareBootstrapExecutor,
 
         .initExecutor = struct {
-            fn initExecutor(
-                executor: *innigkeit.Executor,
-            ) void {
+            fn initExecutor(executor: *innigkeit.Executor) void {
+                // Install the exception vector table first, so any subsequent
+                // fault produces a diagnosable exception (with VBAR_EL1 unset
+                // a fault vectors to physical 0 and is unrecoverable).
+                arm.registers.VBAR_EL1.write(@intFromPtr(&arm.vectors.vector_table));
+
                 // Use SP_EL1 as the stack pointer while running at EL1.
                 arm.registers.spSel1();
-
-                // Install the exception vector table.
-                arm.registers.VBAR_EL1.write(@intFromPtr(&arm.vectors.vector_table));
 
                 // Record the CPU affinity register for this executor.
                 executor.arch_specific.mpidr = arm.registers.MPIDR_EL1.read();
@@ -108,10 +109,16 @@ pub const functions: architecture.Functions = .{
                 // this executor if FEAT_PAN is implemented.
                 arm.pan.init();
 
-                // Initialise the GICv2 and generic timer for this CPU.
-                arm.gic.init();
-                arm.timer.init();
-                arm.gic.registerHandler(arm.timer.IRQ, arm.timer.irqHandler);
+                // GIC + generic timer init touch MMIO and must run after the
+                // kernel page tables map device memory (Limine's HHDM does not
+                // cover the low device-MIMO hole on aarch64, and this runs
+                // prior to `initializeMemorySystem` and we take over).
+                // Deferred: see `docs/aarch64-port.md` "## Progress log."
+                // Unitl then, the bootstrap executor has no GIC/timer (no
+                // preemption tick yet).
+                // arm.gic.init();
+                // arm.timer.init();
+                // arm.gic.registerHandler(arm.timer.IRQ, arm.timer.irqHandler);
             }
         }.initExecutor,
     },

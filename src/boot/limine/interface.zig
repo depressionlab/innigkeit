@@ -197,6 +197,8 @@ pub fn deviceTreeBlob() ?innigkeit.KernelVirtualAddress {
 fn limineEntryPoint() callconv(.c) noreturn {
     asm volatile (architecture.scheduling.cfi_prevent_unwinding);
 
+    architecture.earlyDebugWrite("innigkeit: limine entry\n");
+
     boot.bootloader_api = .limine;
 
     limine_revison = requests.limine_base_revison.loadedRevision() orelse {

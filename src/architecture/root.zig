@@ -24,6 +24,13 @@ pub fn halt() callconv(core.inline_in_non_debug) void {
     )();
 }
 
+/// Write a string to an architecture debug channel that works before ANY
+/// kernel initialization. No-op when the architecture provides none.
+pub fn earlyDebugWrite(s: []const u8) void {
+    const f = current_functions.earlyDebugWrite orelse return;
+    f(s);
+}
+
 pub const interrupts = @import("interrupts.zig");
 pub const paging = @import("paging.zig");
 pub const scheduling = @import("scheduling.zig");

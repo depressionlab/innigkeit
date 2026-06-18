@@ -8,6 +8,7 @@
 //! IRQ 27 = virtual timer (PPI, per-CPU).
 
 const arm = @import("arm.zig");
+const innigkeit = @import("innigkeit");
 
 const GICD_BASE: u64 = 0x0800_0000;
 const GICC_BASE: u64 = 0x0801_0000;
@@ -30,12 +31,21 @@ const GICC_BPR: u64 = GICC_BASE + 0x008;
 const GICC_IAR: u64 = GICC_BASE + 0x00C;
 const GICC_EOIR: u64 = GICC_BASE + 0x010;
 
+/// The GIC MMIO lives at low physical addresses (below RAM) which are not
+/// mapped at their identity address once the kernel runs in the higher half.
+/// Limine's HHDM covers at least the first 4 GiB of physical memory, so the
+/// GIC (at `0x0800_0000`) is reachable through the direct map. Note that this
+/// maps the device as normal cacheable memory; that works under QEMU but a
+/// proper device-memory (nGnRE) mapping should be installed once the kernel
+/// page tables own this region. See `docs/aarch64-port.md`.
 inline fn gicdReg(offset: u64) *volatile u32 {
-    return @ptrFromInt(GICD_BASE + offset);
+    const phys: innigkeit.PhysicalAddress = .from(GICD_BASE + offset);
+    return phys.toDirectMap().toPtr(*volatile u32);
 }
 
 inline fn giccReg(offset: u64) *volatile u32 {
-    return @ptrFromInt(GICC_BASE + offset);
+    const phys: innigkeit.PhysicalAddress = .from(GICC_BASE + offset);
+    return phys.toDirectMap().toPtr(*volatile u32);
 }
 
 /// Initialise the GICv2 distributor and this CPU's interface.
