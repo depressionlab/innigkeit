@@ -1,7 +1,43 @@
+const innigkeit = @import("innigkeit");
+
 pub inline fn readPhysicalCount() u64 {
     return asm ("mrs %[ret], cntpct_el0"
         : [ret] "=r" (-> u64),
     );
+}
+
+// PCI enhanced configuration space (ECAM) access.
+//
+// `address` is a kernel virtual address into the ECAM window, which is mapped
+// Device-nGnRE by `pci/init.zig initializeECAM` (`allocateSpecial(.cache =
+// .uncached)`). On AArch64 a plain (size-correct) load/store at that address
+// performs the MMIO config-space access. The x86 equivalent of the `mov`s in
+// `x64/instructions.zig`. Volatile pointer dereferences emit the right
+// `ldr`/`str` and (because the mapping is Device-nGnRE) are not reordered or
+// elided; the same helpers also back the virtio legacy memory-BAR `PortIo`.
+
+pub inline fn readPciU8(address: innigkeit.KernelVirtualAddress) u8 {
+    return @as(*const volatile u8, @ptrFromInt(address.value)).*;
+}
+
+pub inline fn readPciU16(address: innigkeit.KernelVirtualAddress) u16 {
+    return @as(*const volatile u16, @ptrFromInt(address.value)).*;
+}
+
+pub inline fn readPciU32(address: innigkeit.KernelVirtualAddress) u32 {
+    return @as(*const volatile u32, @ptrFromInt(address.value)).*;
+}
+
+pub inline fn writePciU8(address: innigkeit.KernelVirtualAddress, value: u8) void {
+    @as(*volatile u8, @ptrFromInt(address.value)).* = value;
+}
+
+pub inline fn writePciU16(address: innigkeit.KernelVirtualAddress, value: u16) void {
+    @as(*volatile u16, @ptrFromInt(address.value)).* = value;
+}
+
+pub inline fn writePciU32(address: innigkeit.KernelVirtualAddress, value: u32) void {
+    @as(*volatile u32, @ptrFromInt(address.value)).* = value;
 }
 
 pub inline fn halt() void {

@@ -17,7 +17,7 @@ pub fn start() !void {
         // Bring up PCI and the virtio-blk driver so the disk-I/O tests can
         // exercise the real (interrupt-driven) completion path. Any failure
         // just leaves the boot device unavailable and those tests skip.
-        if (comptime builtin.cpu.arch == .x86_64) {
+        if (comptime builtin.cpu.arch == .x86_64 or builtin.cpu.arch == .aarch64) {
             innigkeit.pci.init.initializeECAM() catch |err|
                 log.warn("test setup: PCI ECAM init failed: {t}", .{err});
             innigkeit.drivers.virtio.blk.init();

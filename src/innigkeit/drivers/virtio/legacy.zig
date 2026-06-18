@@ -257,34 +257,61 @@ pub fn readIsr(io: PortIo) u8 {
     return io.r8(REG_ISR);
 }
 
-/// Set up a legacy virtio INTx interrupt for `func`.
+/// Resolve the GSI a function's INTx pin is routed to.
 ///
-/// Reads the interrupt pin/line from PCI config space, makes sure INTx is
-/// not masked in the command register, allocates a vector for `handler`
+/// x86-64 (QEMU q35): firmware programs the PCI config "Interrupt Line"
+/// register (offset 0x3c) with the GSI (16-23). Read it directly.
+///
+/// aarch64 (QEMU virt): there is no meaningful Interrupt Line register; the
+/// devicetree `interrupt-map` wires the 4 PCIe INTx pins to GIC SPIs 3..6 via
+/// the standard PCI swizzle. With SPI base 3 (GIC interrupt id base 32+3=35):
+///   gic_id = 32 + 3 + ((device_slot + (pin - 1)) % 4)
+/// where `pin` is 1..4 (INTA#..INTD#).
+fn resolveGsi(addr: innigkeit.pci.Address, pin: u8) ?u32 {
+    if (@import("builtin").cpu.arch == .x86_64) {
+        return null; // caller uses interruptLine() on x86-64
+    }
+    const swizzle: u32 = (@as(u32, addr.device) + (@as(u32, pin) - 1)) % 4;
+    return 32 + 3 + swizzle;
+}
+
+/// Set up a legacy virtio INTx interrupt for `func` at PCI `addr`.
+///
+/// Reads the interrupt pin from PCI config space, makes sure INTx is not
+/// masked in the command register, allocates a generic interrupt for `handler`
 /// (which must use `.eoi = .level` and must call `readIsr` on every
-/// invocation), and routes the GSI level-triggered/active-low (PCI INTx
-/// semantics; on QEMU q35 the line register holds the GSI, 16-23).
+/// invocation), and routes the GSI level-sensitive/active-low (PCI INTx
+/// semantics). The GSI comes from the config "Interrupt Line" register on
+/// x86-64 (q35: 16-23) or from the GIC SPI swizzle on aarch64 (virt: 35-38).
 ///
-/// Returns false (with nothing routed) if the device has no INTx pin, the
-/// line is unusable, or this architecture has no PCI interrupt routing; the
-/// caller should fall back to poll mode.
+/// Returns false (with nothing routed) if the device has no INTx pin, the GSI
+/// is unusable, or routing fails; the caller should fall back to poll mode.
 pub fn setupIrq(
+    addr: innigkeit.pci.Address,
     func: *innigkeit.pci.Function,
     handler: architecture.interrupts.Interrupt.Handler,
     what: []const u8,
 ) bool {
-    if (comptime @import("builtin").cpu.arch != .x86_64) return false;
+    // Architectures without PCI interrupt routing have a null allocate slot.
+    if (comptime architecture.current_functions.interrupts.routeInterruptPci == null) return false;
 
     const pin = func.interruptPin();
     if (pin == 0) {
         log.info("{s}: no INTx pin, staying in poll mode", .{what});
         return false;
     }
-    const line = func.interruptLine();
-    if (line == 0 or line == 0xFF) {
-        log.info("{s}: INTx line {} unusable, staying in poll mode", .{ what, line });
+
+    const gsi: u32 = if (@import("builtin").cpu.arch == .x86_64) blk: {
+        const line = func.interruptLine();
+        if (line == 0 or line == 0xFF) {
+            log.info("{s}: INTx line {} unusable, staying in poll mode", .{ what, line });
+            return false;
+        }
+        break :blk line;
+    } else resolveGsi(addr, pin) orelse {
+        log.info("{s}: could not resolve INTx GSI, staying in poll mode", .{what});
         return false;
-    }
+    };
 
     // PCI command register bit 10 (INTx disable) must be clear.
     const cmd = func.read(u16, 0x04);
@@ -294,13 +321,13 @@ pub fn setupIrq(
         log.warn("{s}: interrupt vector allocation failed, staying in poll mode", .{what});
         return false;
     };
-    vector.routePci(line) catch {
+    vector.routePci(gsi) catch {
         vector.deallocate();
-        log.warn("{s}: routing INTx GSI {} failed, staying in poll mode", .{ what, line });
+        log.warn("{s}: routing INTx GSI {} failed, staying in poll mode", .{ what, gsi });
         return false;
     };
 
-    log.info("{s}: INTx pin {} routed via GSI {} (level/active-low)", .{ what, pin, line });
+    log.info("{s}: INTx pin {} routed via GSI {} (level/active-low)", .{ what, pin, gsi });
     return true;
 }
 

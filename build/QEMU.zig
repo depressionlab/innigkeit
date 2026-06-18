@@ -40,7 +40,7 @@ fn buildQemuCommand(
     else
         .bios;
 
-    const run = b.addSystemCommand(&.{qemuBinary(arch)});
+    const run = b.addSystemCommand(&.{qemuBinary(b, arch)});
     run.has_side_effects = true;
     run.stdio = .inherit;
 
@@ -213,12 +213,24 @@ fn requiresUefi(arch: Bundle.Architecture) bool {
     };
 }
 
-fn qemuBinary(arch: Bundle.Architecture) []const u8 {
-    return switch (arch) {
+fn qemuBinary(b: *std.Build, arch: Bundle.Architecture) []const u8 {
+    const name = switch (arch) {
         .arm => "qemu-system-aarch64",
         .riscv => "qemu-system-riscv64",
         .x64 => "qemu-system-x86_64",
     };
+
+    // Prefer a locally-built QEMU in .tools/qemu/bin when present.
+    const local = b.pathFromRoot(b.fmt(".tools/qemu/bin/{s}", .{name}));
+    var exists = false;
+
+    std.Io.Dir.accessAbsolute(b.graph.io, local, .{}) catch |e| switch (e) {
+        error.FileNotFound => exists = false,
+        else => return e,
+    };
+
+    if (exists) return local;
+    return name;
 }
 
 fn firmwareCodePath(arch: Bundle.Architecture) []const u8 {

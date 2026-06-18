@@ -28,6 +28,12 @@ pub const functions: architecture.Functions = .{
             fn sendPanicIPI() void {}
         }.sendPanicIPI,
 
+        // PCI INTx routing for virtio (M2 storage): allocate a generic handler
+        // and bind it to a GIC SPI. See `arm/interrupts.zig`.
+        .allocateInterrupt = arm.interrupts.allocate,
+        .deallocateInterrupt = arm.interrupts.deallocate,
+        .routeInterruptPci = arm.interrupts.routeInterruptPci,
+
         .init = .{
             // The exception vector table is installed in `initExecutor`
             // (VBAR_EL1) and its handlers dump faults via semihosting and then
@@ -102,7 +108,43 @@ pub const functions: architecture.Functions = .{
         .callNoSave = arm.scheduling.callNoSave,
     },
 
-    .io = .{},
+    .io = .{
+        // PCI ECAM config-space access: plain MMIO at the ECAM kernel virtual
+        // address (mapped Device-nGnRE by `pci/init.zig`). There is no port I/O
+        // on the QEMU virt machine, so the `readPort*`/`writePort*` slots stay
+        // null (`Port` is `enum(u0)`); the virtio legacy transport reaches its
+        // memory BAR through `PortIo`'s MMIO path instead.
+        .readPciU8 = struct {
+            fn readPciU8(address: innigkeit.KernelVirtualAddress) u8 {
+                return arm.instructions.readPciU8(address);
+            }
+        }.readPciU8,
+        .readPciU16 = struct {
+            fn readPciU16(address: innigkeit.KernelVirtualAddress) u16 {
+                return arm.instructions.readPciU16(address);
+            }
+        }.readPciU16,
+        .readPciU32 = struct {
+            fn readPciU32(address: innigkeit.KernelVirtualAddress) u32 {
+                return arm.instructions.readPciU32(address);
+            }
+        }.readPciU32,
+        .writePciU8 = struct {
+            fn writePciU8(address: innigkeit.KernelVirtualAddress, value: u8) void {
+                arm.instructions.writePciU8(address, value);
+            }
+        }.writePciU8,
+        .writePciU16 = struct {
+            fn writePciU16(address: innigkeit.KernelVirtualAddress, value: u16) void {
+                arm.instructions.writePciU16(address, value);
+            }
+        }.writePciU16,
+        .writePciU32 = struct {
+            fn writePciU32(address: innigkeit.KernelVirtualAddress, value: u32) void {
+                arm.instructions.writePciU32(address, value);
+            }
+        }.writePciU32,
+    },
 
     .init = .{
         .getStandardWallclockStartTime = struct {

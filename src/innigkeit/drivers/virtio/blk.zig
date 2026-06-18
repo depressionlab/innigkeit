@@ -9,6 +9,7 @@
 //! driver falls back to the original bounded-spin poll mode.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const innigkeit = @import("innigkeit");
 const architecture = @import("architecture");
 const core = @import("core");
@@ -129,26 +130,78 @@ fn onInterrupt(
     }
 }
 
+/// Resolve the legacy register window base for `func` into a `PortIo.base`.
+///
+/// x86-64: BAR0 is an I/O-space BAR; the base is the 16-bit port number.
+/// aarch64 (QEMU virt): there is no usable PCI I/O space, so EDK2 leaves the I/O
+/// BAR (BAR0) unprogrammed (reads back 0x1: I/O indicator, zero address). QEMU's
+/// legacy virtio-pci aliases the SAME legacy register block behind a 32-bit
+/// MEMORY BAR at BAR1 (observed phys 0x10000000, in the virt PCIe MMIO window).
+/// We use BAR1, map it Device-nGnRE, and return the kernel virtual base address.
+///
+/// Returns null (the device is skipped) on an unexpected BAR layout.
+fn resolveBar0(func: *innigkeit.pci.Function) ?u64 {
+    if (builtin.cpu.arch == .x86_64) {
+        const bar0 = func.read(u32, 0x10);
+        if (bar0 & 1 == 0) {
+            log.warn("virtio-blk BAR0 is not an I/O BAR ({x}), skipping", .{bar0});
+            return null;
+        }
+        return @as(u64, bar0 & 0xFFFC);
+    }
+
+    // BAR1: a memory BAR aliasing the legacy register block. Memory BAR:
+    // bit 0 = 0 (memory), bits [2:1] = type (00 = 32-bit, 10 = 64-bit).
+    const bar1 = func.read(u32, 0x14);
+    if (bar1 & 1 != 0) {
+        log.warn("virtio-blk BAR1 is not a memory BAR ({x}), skipping", .{bar1});
+        return null;
+    }
+    const bar_type: u32 = (bar1 >> 1) & 0x3;
+    const phys_base: u64 = switch (bar_type) {
+        0 => @as(u64, bar1 & 0xFFFF_FFF0),
+        2 => @as(u64, bar1 & 0xFFFF_FFF0) | (@as(u64, func.read(u32, 0x18)) << 32),
+        else => {
+            log.warn("virtio-blk BAR1 has reserved memory type {}, skipping", .{bar_type});
+            return null;
+        },
+    };
+    if (phys_base == 0) {
+        log.warn("virtio-blk BAR1 not assigned (firmware did not program it), skipping", .{});
+        return null;
+    }
+
+    // Map one page Device-nGnRE (`.uncached` -> Device-nGnRE on aarch64). The
+    // legacy register block (offsets 0x00..0x14) plus block config fits well
+    // within a page.
+    const mapping = innigkeit.mem.heap.allocateSpecial(.{
+        .physical_range = .from(.from(phys_base), .from(4096, .byte)),
+        .protection = .{ .read = true, .write = true },
+        .cache = .uncached,
+    }) catch |err| {
+        log.err("virtio-blk: failed to map BAR1 phys=0x{x}: {t}", .{ phys_base, err });
+        return null;
+    };
+    log.debug("virtio-blk: BAR1 phys=0x{x} mapped at 0x{x}", .{ phys_base, mapping.address.value });
+    return mapping.address.value;
+}
+
 fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
-    _ = addr;
     if (device_count >= MAX_DEVICES) return;
 
     const vendor = func.read(u16, 0x00);
     const device = func.read(u16, 0x02);
     if (vendor != VIRTIO_VENDOR_ID or device != VIRTIO_BLK_DEVICE_ID) return;
 
-    // Enable I/O space and bus-mastering.
+    // Enable I/O space, memory space, and bus-mastering. Bit 0 (I/O space) and
+    // bit 1 (memory space) are both set so the same path works whether BAR0 is
+    // an I/O BAR (x86-64) or a memory BAR (aarch64 / QEMU virt); bit 2 is
+    // bus-mastering (the device DMAs the vring/buffers).
     const cmd = func.read(u16, 0x04);
-    func.write(u16, 0x04, cmd | 0x05);
+    func.write(u16, 0x04, cmd | 0x07);
 
-    // BAR0: I/O space BAR.
-    const bar0 = func.read(u32, 0x10);
-    if (bar0 & 1 == 0) {
-        log.warn("virtio-blk BAR0 is not an I/O BAR ({x}), skipping", .{bar0});
-        return;
-    }
-    const io_base: u16 = @truncate(bar0 & 0xFFFC);
-    log.debug("virtio-blk[{}] found: I/O base=0x{x}", .{ device_count, io_base });
+    const io_base: u64 = resolveBar0(func) orelse return;
+    log.debug("virtio-blk[{}] found: register base=0x{x}", .{ device_count, io_base });
 
     var dev: Device = .{
         .io = .{ .base = io_base },
@@ -212,7 +265,7 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
         .eoi = .level,
         .call = .prepare(onInterrupt, .{idx}),
     };
-    devices[idx].?.irq_enabled = legacy.setupIrq(func, handler, "virtio-blk");
+    devices[idx].?.irq_enabled = legacy.setupIrq(addr, func, handler, "virtio-blk");
 
     log.info("virtio-blk[{}] ready ({s} mode)", .{
         idx,

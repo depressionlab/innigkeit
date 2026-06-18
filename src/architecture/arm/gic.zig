@@ -8,6 +8,7 @@
 //! IRQ 27 = virtual timer (PPI, per-CPU).
 
 const arm = @import("arm.zig");
+const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 
 const GICD_BASE: u64 = 0x0800_0000;
@@ -122,6 +123,24 @@ pub fn setTarget(irq: u32) void {
     reg.* = (reg.* & ~(@as(u32, 0xFF) << shift)) | (@as(u32, 0x01) << shift);
 }
 
+/// Configure the trigger mode of `irq` via GICD_ICFGR (2 bits per interrupt;
+/// the low bit is RES0/model-defined, the high bit selects edge (1) vs
+/// level (0)). PCI INTx lines are level-sensitive, so pass `level = true`.
+///
+/// SGIs (0-15) are always edge and PPIs (16-31) are implementation-defined;
+/// this is intended for SPIs (>= 32).
+pub fn setTrigger(irq: u32, level: bool) void {
+    const word: u32 = irq / 16;
+    const shift: u5 = @intCast((irq % 16) * 2);
+    const reg = gicdReg(0xC00 + word * 4);
+    const high_bit: u32 = @as(u32, 0b10) << shift;
+    if (level) {
+        reg.* = reg.* & ~high_bit; // level-sensitive
+    } else {
+        reg.* = reg.* | high_bit; // edge-triggered
+    }
+}
+
 /// Read the interrupt acknowledge register. Returns the pending IRQ id.
 /// Call at the START of an IRQ handler (before any other GIC interaction).
 pub inline fn ack() u32 {
@@ -140,20 +159,63 @@ pub const SPURIOUS_ID: u32 = 0x3FF;
 /// Maximum number of IRQs tracked by the dispatch table.
 pub const MAX_IRQS: usize = 64;
 
-/// Simple flat dispatch table: one handler per IRQ id (0..MAX_IRQS-1).
-/// Handlers are called with IRQs disabled.
+/// Simple flat dispatch table: one no-arg handler per IRQ id (0..MAX_IRQS-1).
+/// Used by the generic timer (PPI 27). Handlers are called with IRQs disabled.
 pub var handlers: [MAX_IRQS]?*const fn () void = .{null} ** MAX_IRQS;
 
-/// Register a handler for `irq`.
+/// Generic-model dispatch table, parallel to `handlers`: holds the
+/// `architecture.interrupts.Interrupt.Handler` for IRQs routed through the
+/// generic allocate/route abstraction (e.g. PCI INTx for virtio). A given IRQ
+/// id uses at most one of `handlers` / `generic_handlers`.
+pub var generic_handlers: [MAX_IRQS]?architecture.interrupts.Interrupt.Handler =
+    .{null} ** MAX_IRQS;
+
+/// Register a no-arg handler for `irq` (used by the timer PPI).
 pub fn registerHandler(irq: u32, handler: *const fn () void) void {
     if (irq < MAX_IRQS) handlers[irq] = handler;
 }
 
-/// Called from the exception vector IRQ entry. Acks the GIC, dispatches,
-/// then signals EOI.
-pub fn handleIrq() void {
+/// Register a generic interrupt handler for `irq` (used by PCI INTx routing).
+pub fn registerGenericHandler(
+    irq: u32,
+    handler: architecture.interrupts.Interrupt.Handler,
+) void {
+    if (irq < MAX_IRQS) generic_handlers[irq] = handler;
+}
+
+/// Called from the exception vector IRQ entry. Acks the GIC, dispatches the
+/// no-arg or generic handler registered for the IRQ id, then signals EOI.
+///
+/// `frame` and `state_before_interrupt` are forwarded to generic handlers
+/// (the no-arg `handlers` table ignores them). EOI ordering for generic
+/// handlers honours `Handler.eoi`: PCI INTx is level-sensitive and uses
+/// `.eoi = .level` (== `.after`), so the device's ISR-clearing handler runs
+/// before EOI de-asserts the line at the CPU interface.
+pub fn handleIrq(
+    frame: *arm.InterruptFrame,
+    state_before_interrupt: innigkeit.Task.Current.StateBeforeInterrupt,
+) void {
     const id = ack();
     if (id != SPURIOUS_ID and id < MAX_IRQS) {
+        if (generic_handlers[id]) |*generic| {
+            var handler = generic.*;
+            handler.call.setTemplatedArgs(.{
+                .{ .arch_specific = frame },
+                state_before_interrupt,
+            });
+            switch (handler.eoi) {
+                .none => handler.call.call(),
+                .after => {
+                    handler.call.call();
+                    eoi(id);
+                },
+                .before => {
+                    eoi(id);
+                    handler.call.call();
+                },
+            }
+            return;
+        }
         if (handlers[id]) |h| h();
     }
     eoi(id);

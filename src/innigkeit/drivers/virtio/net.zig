@@ -159,7 +159,6 @@ pub fn init() void {
 }
 
 fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
-    _ = addr;
     if (g_dev != null) return; // only one device
 
     const vendor = func.read(u16, 0x00);
@@ -258,7 +257,7 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
         .eoi = .level,
         .call = .prepare(onInterrupt, .{}),
     };
-    g_dev.?.irq_enabled = legacy.setupIrq(func, handler, "virtio-net");
+    g_dev.?.irq_enabled = legacy.setupIrq(addr, func, handler, "virtio-net");
 
     log.info("virtio-net ready (io_base=0x{x}, rx N={}, tx N={}, {} bufs/dir, {s} mode)", .{
         io.base,

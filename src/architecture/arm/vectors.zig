@@ -44,7 +44,7 @@ export fn arm_handle_exception(frame: *arm.InterruptFrame, vector_idx: u8) callc
             // the task stack, after this exception returns.
             const state_before_interrupt = innigkeit.Task.Current.onInterruptEntry();
             defer state_before_interrupt.onInterruptExit();
-            gic.handleIrq();
+            gic.handleIrq(frame, state_before_interrupt);
         },
         else => {
             // Dump fault state via semihosting first: during early init no
