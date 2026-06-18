@@ -43,6 +43,25 @@ fn panicDispatch(
 
     architecture.interrupts.disable();
 
+    // Emergency trace via the architecture early-debug channel (semihosting on
+    // aarch64; a no-op on architectures that do not provide one). This is the
+    // only output that works before a serial/graphical device is registered,
+    // so without it an early-boot panic is completely silent. Bounded by the
+    // nested-panic count below to avoid recursion through this same path.
+    if (static.nested_panic_count == 0) {
+        architecture.earlyDebugWrite("\nPANIC: ");
+        architecture.earlyDebugWrite(msg);
+        const return_address: ?usize = switch (panic_type) {
+            .normal => |normal| normal.return_address,
+            .interrupt => null,
+        };
+        if (return_address) |addr| {
+            architecture.earlyDebugWrite(" @ ");
+            earlyDebugWriteHex(addr);
+        }
+        architecture.earlyDebugWrite("\n");
+    }
+
     no_op_panic: {
         switch (globals.panic_mode) {
             .no_op => break :no_op_panic,
@@ -73,6 +92,21 @@ fn panicDispatch(
     }
 
     architecture.interrupts.disableAndHalt();
+}
+
+/// Emit a 16-digit hex value through the architecture early-debug channel.
+/// Used by the emergency early-boot panic trace; no allocation/formatting.
+fn earlyDebugWriteHex(value: usize) void {
+    const digits = "0123456789abcdef";
+    var buf: [18]u8 = undefined;
+    buf[0] = '0';
+    buf[1] = 'x';
+    var i: usize = 0;
+    while (i < 16) : (i += 1) {
+        const shift: u6 = @intCast((15 - i) * 4);
+        buf[2 + i] = digits[(value >> shift) & 0xf];
+    }
+    architecture.earlyDebugWrite(&buf);
 }
 
 fn printPanic(

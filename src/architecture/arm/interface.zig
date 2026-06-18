@@ -21,17 +21,49 @@ pub const functions: architecture.Functions = .{
             }
         }.instructionPointer,
 
-        .init = .{},
+        // Single-executor M1: no IPIs are required (a panic on the sole
+        // executor simply halts it). Provide a no-op panic IPI so the panic
+        // path does not itself panic on a null slot.
+        .sendPanicIPI = struct {
+            fn sendPanicIPI() void {}
+        }.sendPanicIPI,
+
+        .init = .{
+            // The exception vector table is installed in `initExecutor`
+            // (VBAR_EL1) and its handlers dump faults via semihosting and then
+            // panic.
+            .initializeEarlyInterrupts = struct {
+                fn initializeEarlyInterrupts() void {}
+            }.initializeEarlyInterrupts,
+
+            // GIC-based routing is brought up in `configurePerExecutorSystemFeatures`
+            // / the timer path; there is no separate routing table to build for
+            // the single-executor M1 bring-up.
+            .initializeInterruptRouting = struct {
+                fn initializeInterruptRouting() void {}
+            }.initializeInterruptRouting,
+
+            .loadStandardInterruptHandlers = struct {
+                fn loadStandardInterruptHandlers() void {}
+            }.loadStandardInterruptHandlers,
+        },
     },
 
     .paging = .{
         .createPageTable = arm.PageTable.create,
+        .loadPageTable = arm.PageTable.loadPageTable,
         .copyTopLevelIntoPageTable = arm.PageTable.copyTopLevelIntoPageTable,
+        .mapSinglePage = arm.PageTable.mapSinglePage,
+        .unmap = arm.PageTable.unmap,
+        .changeProtection = arm.PageTable.changeProtection,
+        .flushCache = arm.PageTable.flushCache,
         .enableAccessToUserMemory = arm.pan.enableAccessToUserMemory,
         .disableAccessToUserMemory = arm.pan.disableAccessToUserMemory,
 
         .init = .{
             .sizeOfTopLevelEntry = arm.PageTable.sizeOfTopLevelEntry,
+            .fillTopLevel = arm.PageTable.init.fillTopLevel,
+            .mapToPhysicalRangeAllPageSizes = arm.PageTable.init.mapToPhysicalRangeAllPageSizes,
         },
     },
 
@@ -75,9 +107,19 @@ pub const functions: architecture.Functions = .{
 
         .tryGetSerialOutput = struct {
             fn tryGetSerialOutput(memory_system_available: bool) ?architecture.init.InitOutput {
-                _ = memory_system_available;
-                // Return the PL011 UART at the QEMU virt base address.
-                return arm.pl011.getInitOutput(arm.pl011.UART_BASE);
+                // Before the memory system is up the device-MMIO hole is not
+                // mapped (Limine's HHDM does not cover it), so any PL011 access
+                // would translation-fault. Early tracing relies on semihosting
+                // (`earlyDebugWrite`) instead; the PL011 is registered at the
+                // `.full` stage once `initializeMemorySystem` has mapped its
+                // MMIO Device-nGnRE into the direct map.
+                if (!memory_system_available) return null;
+
+                // Reach the PL011 through the direct map (its MMIO is mapped by
+                // `arm.PageTable.mapDeviceMmio`).
+                const phys: innigkeit.PhysicalAddress = .from(arm.pl011.UART_BASE);
+                const virtual_base = phys.toDirectMap().toVirtualAddress().value;
+                return arm.pl011.getInitOutput(virtual_base);
             }
         }.tryGetSerialOutput,
 
@@ -91,6 +133,13 @@ pub const functions: architecture.Functions = .{
                 };
             }
         }.prepareBootstrapExecutor,
+
+        .prepareExecutor = arm.init.prepareExecutor,
+        .captureSystemInformation = arm.init.captureSystemInformation,
+        .configureGlobalSystemFeatures = arm.init.configureGlobalSystemFeatures,
+        .configurePerExecutorSystemFeatures = arm.init.configurePerExecutorSystemFeatures,
+        .registerArchitecturalTimeSources = arm.init.registerArchitecturalTimeSources,
+        .initLocalInterruptController = arm.init.initLocalInterruptController,
 
         .initExecutor = struct {
             fn initExecutor(executor: *innigkeit.Executor) void {

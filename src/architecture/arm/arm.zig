@@ -7,6 +7,7 @@ pub const gic = @import("gic.zig");
 pub const timer = @import("timer.zig");
 pub const scheduling = @import("scheduling.zig");
 pub const pan = @import("pan.zig");
+pub const init = @import("init.zig");
 
 pub const InterruptFrame = @import("InterruptFrame.zig").InterruptFrame;
 pub const Interrupt = @import("Interrupt.zig").Interrupt;

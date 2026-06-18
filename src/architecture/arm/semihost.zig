@@ -1,7 +1,7 @@
 //! AArch64 semihosting console output (QEMU `-semihosting`).
 //!
 //! Semihosting calls trap to the host via `HLT #0xF000` (A64 encoding) with
-//! the operation number in W0 and the parameter in X1 — they work regardless
+//! the operation number in W0 and the parameter in X1. They work regardless
 //! of MMU/translation state, which makes them the only reliable output
 //! channel before the kernel's own UART mapping exists. On real hardware
 //! (no semihosting agent) `HLT` is an illegal instruction, so every call is
