@@ -1,6 +1,7 @@
-//! This module contains the definitions of the Limine protocol as of 5b9d13e557590d8eab93fa7449bdd1d7ed72ba8c.
+//! This module contains the definitions of the Limine protocol as of commit hash
+//! `630686a3dd3ce40f9e510a7dd9fea6b4c60d952e`.
 //!
-//! [PROTOCOL DOC](https://github.com/Limine-Bootloader/limine-protocol/blob/5b9d13e557590d8eab93fa7449bdd1d7ed72ba8c/PROTOCOL.md)
+//! https://github.com/Limine-Bootloader/limine-protocol/blob/630686a3dd3ce40f9e510a7dd9fea6b4c60d952e/PROTOCOL.md
 
 const std = @import("std");
 

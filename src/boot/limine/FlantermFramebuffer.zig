@@ -57,9 +57,9 @@ pub const Response = extern struct {
         /// Default bright foreground colour.
         default_fg_bright: u32,
 
-        /// Pointer to font bitmap data, or `null` if the default built-in font is used.
-        ///
-        /// The font is a VGA-style bitmap font with 256 glyphs; its size in bytes is `font_width * font_height * 256 / 8`.
+        /// Pointer to VGA-style font bitmap data, with 256 glyphs. This points to
+        /// the actual font data, including the built-in default font if no custom
+        /// font is configured. Its size in bytes is `font_width * font_height * 256 / 8`.
         font: ?*const anyopaque,
 
         /// Font character width in pixels (always 8 for VGA fonts).

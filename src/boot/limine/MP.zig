@@ -1,7 +1,12 @@
 //! MP (Multiprocessor) Feature
 //!
-//! Notes: The presence of this request will prompt the bootloader to bootstrap the secondary processors.
-//! This will not be done if this request is not present.
+//! Notes:
+//! - The presence of this request will prompt the bootloader to bootstrap
+//!   the secondary processors. This will not be done if this request is not present.
+//! - On x86-64, if firmware has already enabled x2APIC and bit 0 is clear, the
+//!   bootloader will try to disable x2APIC before handoff. If the MP request is
+//!   present and x2APIC cannot be disabled, the bootloader will fail to boot the
+//!   executable.
 
 const root = @import("root.zig");
 const std = @import("std");
@@ -344,6 +349,7 @@ pub const x86_64 = extern struct {
         /// Local APIC ID of the processor as specified by the MADT
         lapic_id: u32,
 
+        /// Reserved for bootloader use.
         _reserved: u64,
 
         /// An atomic write to this field causes the parked CPU to jump to the written address, on a 64KiB (or Stack Size Request size)

@@ -15,18 +15,19 @@ pub const File = extern struct {
     /// themselves exclusively.
     size: core.Size,
 
-    /// The path of the file within the volume, with a leading slash
+    /// The 0-terminated ASCII path of the file within the volume, with a leading slash.
     _path: [*:0]const u8,
 
-    /// A string associated with the file
+    /// A 0-terminated ASCII string associated with the file.
     _string: ?[*:0]const u8,
 
     media_type: File.MediaType,
 
     unused: u32,
 
-    /// If non-0, this is the IP of the TFTP server the file was loaded from.
-    tftp_ip: u32,
+    /// If not all zero bytes, this is the IPv4 address of the TFTP server the
+    /// file was loaded from, in dotted-decimal octet order.
+    tftp_ipv4: [4]u8,
     /// Likewise, but port.
     tftp_port: u32,
 
@@ -38,21 +39,24 @@ pub const File = extern struct {
     /// If non-0, this is the ID of the disk the file was loaded from as reported in its MBR.
     mbr_disk_id: u32,
 
-    /// If non-0, this is the UUID of the disk the file was loaded from as reported in its GPT.
+    /// If not all zero bytes, this is the UUID of the disk the file was loaded from as
+    /// reported in its GPT.
     gpt_disk_uuid: UUID,
 
-    /// If non-0, this is the UUID of the partition the file was loaded from as reported in the GPT.
+    /// If not all zero bytes, this is the UUID of the partition the file was loaded from as
+    /// reported in the GPT.
     gpt_part_uuid: UUID,
 
-    /// If non-0, this is the UUID of the filesystem of the partition the file was loaded from.
+    /// If not all zero bytes, this is the UUID of the filesystem of the partition the
+    /// file was loaded from. A UUID with all bytes zero indicates the field is unset.
     part_uuid: UUID,
 
-    /// The path of the file within the volume, with a leading slash
+    /// A 0-terminated ASCII string associated with the file.
     pub fn path(self: *const File) [:0]const u8 {
         return std.mem.sliceTo(self._path, 0);
     }
 
-    /// A string associated with the file
+    /// A 0-terminated ASCII string associated with the file.
     pub fn string(self: *const File) ?[:0]const u8 {
         const str = std.mem.sliceTo(
             self._string orelse return null,
@@ -87,10 +91,10 @@ pub const File = extern struct {
         try writer.splatByteAll(' ', new_indent);
         try writer.print("media_type: {t}\n", .{self.media_type});
 
-        if (self.tftp_ip != 0) {
+        if (self.tftp_ipv4 != 0) {
             try writer.splatByteAll(' ', new_indent);
             try writer.writeAll("tftp: ");
-            try formatIP(self.tftp_ip, self.tftp_port, writer);
+            try formatIP(self.tftp_ipv4, self.tftp_port, writer);
             try writer.writeByte('\n');
         }
 
@@ -123,15 +127,8 @@ pub const File = extern struct {
         try writer.writeByte('}');
     }
 
-    fn formatIP(ip: u32, port: u32, writer: *std.Io.Writer) !void {
-        const bytes: *const [4]u8 = @ptrCast(&ip);
-        try writer.print("{}.{}.{}.{}:{}", .{
-            bytes[0],
-            bytes[1],
-            bytes[2],
-            bytes[3],
-            port,
-        });
+    fn formatIP(ip: [4]u8, port: u32, writer: *std.Io.Writer) !void {
+        try writer.print("{}.{}.{}.{}:{}", .{ ip[0], ip[1], ip[2], ip[3], port });
     }
 
     pub inline fn format(self: *const File, writer: *std.Io.Writer) !void {
