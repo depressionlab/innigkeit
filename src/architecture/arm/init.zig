@@ -44,17 +44,28 @@ pub fn configurePerExecutorSystemFeatures() void {
     arm.semihost.write("[arm] configurePerExecutorSystemFeatures\n");
     if (!innigkeit.mem.globals.memory_system_initialized) return;
 
-    if (gic_initialized) return;
-    gic_initialized = true;
+    // The GIC distributor and the shared IRQ-handler table are GLOBAL: bring
+    // them up exactly once (on the bootstrap executor). The GIC CPU interface
+    // and the generic timer are PER-EXECUTOR (banked PPI/SGI state and per-CPU
+    // timer registers), so every executor initialises its own below. This is
+    // what M3 SMP needs; on the single-core path the per-executor calls are an
+    // idempotent re-write, matching how x64 re-applies its per-executor
+    // registers on each invocation.
+    if (!gic_distributor_initialized) {
+        gic_distributor_initialized = true;
+        arm.semihost.write("[arm] configurePerExecutor: bringing up GIC distributor\n");
+        log.debug("initializing GICv2 distributor and registering timer handler", .{});
+        arm.gic.initDistributor();
+        arm.gic.registerHandler(arm.timer.IRQ, perExecutorPeriodicTick);
+    }
 
-    arm.semihost.write("[arm] configurePerExecutor: bringing up GIC+timer\n");
-    log.debug("initializing GICv2 and generic timer", .{});
-    arm.gic.init();
+    arm.gic.initCpuInterface();
     arm.timer.init();
-    arm.gic.registerHandler(arm.timer.IRQ, perExecutorPeriodicTick);
 }
 
-var gic_initialized: bool = false;
+/// Tracks the one-time GIC distributor bring-up. The CPU interface and timer
+/// are per-executor and deliberately NOT guarded by this flag.
+var gic_distributor_initialized: bool = false;
 
 /// Register the ARM Generic Timer as the reference counter, wallclock and
 /// per-executor periodic source.

@@ -65,6 +65,7 @@ pub fn build(b: *std.Build) !void {
         const test_image = try ImageStep.buildTestImageStep(b, test_kernel, tools, entry.arch, options);
         const test_qemu = try QEMU.buildTestQemuStep(b, entry.arch, test_image.image_file, options);
         b.step(entry.name, entry.desc).dependOn(&test_qemu.step);
+        b.step("image_" ++ entry.name, "Build the " ++ @tagName(entry.arch) ++ " test image (no QEMU run)").dependOn(&test_image.install_image.step);
     }
 }
 

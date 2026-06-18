@@ -49,11 +49,13 @@ inline fn giccReg(offset: u64) *volatile u32 {
     return phys.toDirectMap().toPtr(*volatile u32);
 }
 
-/// Initialise the GICv2 distributor and this CPU's interface.
+/// Initialise the GICv2 distributor. GLOBAL state (one distributor for the
+/// whole system): call exactly once, on the bootstrap executor, after the MMU
+/// is on and the GIC physical range is direct-mapped.
 ///
-/// Must be called once per CPU after MMU is on and memory is mapped 1:1 (or
-/// direct-mapped) at the GIC physical address range.
-pub fn init() void {
+/// The CPU interface is a separate, per-executor concern — see
+/// `initCpuInterface`.
+pub fn initDistributor() void {
     // Disable distributor while we configure it.
     gicdReg(0x000).* = 0;
 
@@ -75,7 +77,8 @@ pub fn init() void {
         gicdReg(0x400 + i * 4).* = 0xA0A0_A0A0;
     }
 
-    // Target all SPIs to CPU0.
+    // Target all SPIs to CPU0 (SPI affinity becomes a routing decision
+    // once secondary executors run; for now, every SPI lands on the bootstrap).
     i = 8; // ITARGETSR0..7 are read-only (SGIs/PPIs target themselves)
     while (i < num_irqs / 4) : (i += 1) {
         gicdReg(0x800 + i * 4).* = 0x0101_0101;
@@ -83,8 +86,13 @@ pub fn init() void {
 
     // Re-enable distributor.
     gicdReg(0x000).* = 1;
+}
 
-    // CPU interface: enable, allow all priority levels.
+/// Initialise THIS executor's GICv2 CPU interface. PER-EXECUTOR state (the
+/// GICC registers are banked per CPU): every executor must call this for itself
+/// after `initDistributor` has run. Idempotent (a plain re-write of the same
+/// values), so re-invocation on the single-core path is harmless.
+pub fn initCpuInterface() void {
     giccReg(0x000).* = 1; // GICC_CTLR: enable
     giccReg(0x004).* = 0xFF; // GICC_PMR: lowest priority threshold (allow all)
     giccReg(0x008).* = 0; // GICC_BPR: no pre-emption splitting

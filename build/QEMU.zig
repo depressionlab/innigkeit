@@ -226,7 +226,6 @@ fn qemuBinary(b: *std.Build, arch: Bundle.Architecture) []const u8 {
 
     std.Io.Dir.accessAbsolute(b.graph.io, local, .{}) catch |e| switch (e) {
         error.FileNotFound => exists = false,
-        else => return e,
     };
 
     if (exists) return local;

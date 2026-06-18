@@ -84,12 +84,13 @@ timeout 900 "$ZIG" build test_x64 >/dev/null 2>&1
 run_x64_suite 4
 [ "$SMP1" -eq 1 ] && run_x64_suite 1
 
-# 4. Optional ARM suite.
+# 4. Optional ARM suite. Delegated to scripts/test_arm.sh, which boots QEMU 11
+#    itself and greps the serial verdict: `zig build test_arm`'s own exit code
+#    is unreliable on arm. The helper prints its own PASS/FAIL line.
 if [ "$ARM" -eq 1 ]; then
-    if timeout 900 "$ZIG" build test_arm >/dev/null 2>&1; then
-        note PASS "zig build test_arm"
+    if timeout 600 scripts/test_arm.sh; then
+        :
     else
-        note FAIL "zig build test_arm (see CLAUDE.md for arm port status)"
         FAILED=1
     fi
 fi

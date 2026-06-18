@@ -207,16 +207,11 @@ pub const functions: architecture.Functions = .{
                 // this executor if FEAT_PAN is implemented.
                 arm.pan.init();
 
-                // GIC + generic timer init touch MMIO and must run after the
-                // kernel page tables map device memory (Limine's HHDM does not
-                // cover the low device-MIMO hole on aarch64, and this runs
-                // prior to `initializeMemorySystem` and we take over).
-                // Deferred: see `docs/aarch64-port.md` "## Progress log."
-                // Unitl then, the bootstrap executor has no GIC/timer (no
-                // preemption tick yet).
-                // arm.gic.init();
-                // arm.timer.init();
-                // arm.gic.registerHandler(arm.timer.IRQ, arm.timer.irqHandler);
+                // GIC + generic timer bring-up is deliberately NOT here: it
+                // touches device MMIO that is only mapped after
+                // initializeMemorySystem, so it lives in
+                // `arm.init.configurePerExecutorSystemFeatures` (distributor
+                // once, CPU interface + timer per-executor).
             }
         }.initExecutor,
     },
