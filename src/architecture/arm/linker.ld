@@ -22,6 +22,11 @@ SECTIONS
     __text_start = .;
 
     .text : {
+        /* The AArch64 exception vector table must be 2 KiB-aligned: VBAR_EL1
+           ignores (RES0) the low 11 bits, so an unaligned table base makes the
+           CPU vector into garbage. Place it first, explicitly aligned. */
+        . = ALIGN(2048);
+        KEEP(*(.text.vectors))
         *(.text .text.*)
     } :text
 

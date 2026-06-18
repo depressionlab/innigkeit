@@ -156,6 +156,18 @@ fn buildQemuCommand(
     return run;
 }
 
+/// TODO: adjustable test options (set to 1 to verify single core)
+/// aarch64 runs single-core for now: we only have the
+/// bootstrap executor for now (AP startup needs PSCI CPU_ON, TODO), so booting
+/// extra vCPUs would create executor structs for CPUs that never run and make
+/// cross-executor operations (e.g. TLB-flush IPIs) target offline executors
+fn testCpus(arch: Bundle.Architecture) u8 {
+    return switch (arch) {
+        .arm => 1,
+        .riscv, .x64 => 4,
+    };
+}
+
 /// Build a QEMU run step for `test_{arch}`.
 ///
 /// Pass/fail convention:
@@ -170,8 +182,7 @@ pub fn buildTestQemuStep(
     options: Options,
 ) !*std.Build.Step.Run {
     var test_opts = options;
-    // TODO: adjustable test options (set to 1 to verify single core)
-    test_opts.emulator.cpus = 4;
+    test_opts.emulator.cpus = testCpus(arch);
     test_opts.emulator.memory = 256;
 
     const run = try buildQemuCommand(b, arch, image, test_opts);
