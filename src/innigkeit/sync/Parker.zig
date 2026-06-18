@@ -52,23 +52,21 @@ pub fn park(self: *Parker) void {
         return;
     }
 
-    scheduler_handle = scheduler_handle.block(
-        .{
-            .action = struct {
-                fn action(old_task: *innigkeit.Task, arg: usize) void {
-                    const inner_parker: *Parker = @ptrFromInt(arg);
+    scheduler_handle.block(.{
+        .action = struct {
+            fn action(old_task: *innigkeit.Task, arg: usize) void {
+                const inner_parker: *Parker = @ptrFromInt(arg);
 
-                    old_task.state = .blocked;
-                    old_task.spinlocks_held -= 1;
-                    _ = old_task.interrupt_disable_count.fetchSub(1, .acq_rel);
+                old_task.state = .blocked;
+                old_task.spinlocks_held -= 1;
+                _ = old_task.interrupt_disable_count.fetchSub(1, .acq_rel);
 
-                    inner_parker.parked_task = old_task;
-                    inner_parker.lock.unsafeUnlock();
-                }
-            }.action,
-            .arg = @intFromPtr(self),
-        },
-    );
+                inner_parker.parked_task = old_task;
+                inner_parker.lock.unsafeUnlock();
+            }
+        }.action,
+        .arg = @intFromPtr(self),
+    });
 
     // `unpark_attempts` is reset by the unparker that woke us (while it held
     // the parker lock), so any unpark attempts that raced in *after* the wake

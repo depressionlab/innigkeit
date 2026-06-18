@@ -50,6 +50,15 @@ pub const SyscallFrame = extern struct {
         };
     }
 
+    /// Write the syscall return value into the architecture's return register.
+    ///
+    /// On x86-64 the syscall return value is delivered in `rax`. The generic
+    /// dispatcher must never name `rax` directly; it returns the result and
+    /// this function places it in the correct register.
+    pub inline fn setReturnValue(self: *SyscallFrame, value: usize) void {
+        self.rax = value;
+    }
+
     pub fn print(self: *const SyscallFrame, writer: *std.Io.Writer, indent: usize) !void {
         const new_indent = indent + 2;
 

@@ -90,6 +90,18 @@ pub const SyscallFrame = struct {
         )(self.arch_specific, argument);
     }
 
+    /// Write the syscall return value into the architecture's return register.
+    ///
+    /// The generic syscall dispatcher returns its result and calls this; the
+    /// arch layer places it in the correct register (rax on x86-64, x0 on
+    /// AArch64) so generic code never names a physical register.
+    pub fn setReturnValue(self: SyscallFrame, value: usize) callconv(core.inline_in_non_debug) void {
+        return architecture.getFunction(
+            architecture.current_functions.user,
+            "setReturnValueOnSyscallFrame",
+        )(self.arch_specific, value);
+    }
+
     pub inline fn format(self: SyscallFrame, writer: *std.Io.Writer) !void {
         return self.arch_specific.format(writer);
     }

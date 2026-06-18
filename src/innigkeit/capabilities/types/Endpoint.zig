@@ -182,7 +182,7 @@ pub fn call(self: *Endpoint, msg: Message) Message {
 fn parkAndUnlock(spinlock: *innigkeit.sync.TicketSpinLock) void {
     var scheduler_handle = innigkeit.Task.Scheduler.Handle.get();
     defer scheduler_handle.unlock();
-    scheduler_handle = scheduler_handle.block(.{
+    scheduler_handle.block(.{
         .action = struct {
             fn action(old_task: *innigkeit.Task, arg: usize) void {
                 const lock: *innigkeit.sync.TicketSpinLock = @ptrFromInt(arg);

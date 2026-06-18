@@ -257,6 +257,15 @@ user: struct {
         comptime argument: architecture.user.SyscallFrame.Arg,
     ) callconv(.@"inline") usize = null,
 
+    /// Write the syscall return value into this frame's return register.
+    ///
+    /// The arch knows its own ABI (rax on x86-64, x0 on AArch64); the generic
+    /// dispatcher must never name a physical register.
+    setReturnValueOnSyscallFrame: ?fn (
+        syscall_frame: *architecture.current_decls.user.SyscallFrame,
+        value: usize,
+    ) callconv(.@"inline") void = null,
+
     init: struct {
         /// Perform any per-achitecture initialization needed for userspace processes/threads.
         initialize: ?fn () anyerror!void = null,

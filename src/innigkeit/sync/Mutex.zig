@@ -9,7 +9,12 @@ const std = @import("std");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
 
-locked_by: std.atomic.Value(?*innigkeit.Task) align(std.atomic.cache_line) = .init(null),
+// Lead with a cache-line-aligned zero-size marker so the lock's atomics never
+// share a cache line with a preceding field when this struct is embedded in a
+// larger one (avoids false sharing).
+_: void align(std.atomic.cache_line) = {},
+
+locked_by: std.atomic.Value(?*innigkeit.Task) = .init(null),
 unlock_type: UnlockType = .unlocked,
 spinlock: innigkeit.sync.TicketSpinLock = .{},
 wait_queue: innigkeit.sync.WaitQueue = .{},

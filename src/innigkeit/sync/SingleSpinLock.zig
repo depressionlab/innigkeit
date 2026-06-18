@@ -10,6 +10,10 @@ const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
 
+// Cache-line-aligned marker first so embedding this lock can't false-share its
+// atomic with a preceding field.
+_: void align(std.atomic.cache_line) = {},
+
 holding_executor: std.atomic.Value(?*const innigkeit.Executor) align(std.atomic.cache_line) = .init(null),
 
 pub fn lock(self: *SingleSpinLock) void {

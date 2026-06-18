@@ -29,18 +29,27 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
 
     architecture.interrupts.enable();
 
+    // The dispatcher computes the result; the arch layer writes it into the
+    // correct return register (rax on x86-64, x0 on AArch64). Generic code
+    // never names a physical register.
+    syscall_frame.setReturnValue(dispatch(syscall_frame));
+}
+
+/// Decode and service a syscall, returning the raw value to deliver in the
+/// architecture's return register (a successful value, or a negated errno bit
+/// pattern via `errCode`). Arms that terminate the thread diverge and never
+/// return.
+fn dispatch(syscall_frame: architecture.user.SyscallFrame) usize {
     const syscall = syscall_frame.syscall() orelse {
         log.warn("invalid syscall from usersapce\n{f}", .{syscall_frame});
-        syscall_frame.arch_specific.rax = errCode(e.ENOSYS);
-        return;
+        return errCode(e.ENOSYS);
     };
 
     log.verbose("received syscall: {t}", .{syscall});
 
-    const arch_frame = syscall_frame.arch_specific;
+    var syscall_result: usize = 0;
 
     switch (syscall) {
-
         // ------------------------------------------------------------------ //
         // exit_thread: terminate the calling thread.                         //
         // ------------------------------------------------------------------ //
@@ -66,13 +75,13 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const process = Process.from(current_task.task);
 
             const resolved = process.fd_table.resolve(fd) orelse {
-                arch_frame.rax = errCode(e.EBADF);
-                return;
+                syscall_result = errCode(e.EBADF);
+                return syscall_result;
             };
 
             if (buf_len == 0) {
-                arch_frame.rax = 0;
-                return;
+                syscall_result = 0;
+                return syscall_result;
             }
 
             switch (resolved.desc) {
@@ -81,27 +90,27 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                     // keep a single explicit access window around the streaming
                     // write.
                     const buffer = validate.userSliceConst(buf_ptr, buf_len) catch {
-                        arch_frame.rax = errCode(e.EFAULT);
-                        return;
+                        syscall_result = errCode(e.EFAULT);
+                        return syscall_result;
                     };
                     const access: validate.UserAccess = .acquire();
                     defer access.release();
                     const output = innigkeit.init.Output.terminal;
                     output.writer.writeAll(buffer) catch |err| {
                         log.err("write: {t}", .{err});
-                        arch_frame.rax = errCode(e.EIO);
-                        return;
+                        syscall_result = errCode(e.EIO);
+                        return syscall_result;
                     };
                     output.writer.flush() catch |err| {
                         log.err("write flush: {t}", .{err});
-                        arch_frame.rax = errCode(e.EIO);
-                        return;
+                        syscall_result = errCode(e.EIO);
+                        return syscall_result;
                     };
 
-                    arch_frame.rax = @intCast(buf_len);
+                    syscall_result = @intCast(buf_len);
                 },
                 .file => {
-                    arch_frame.rax = handlers.file.syscallWriteFile(
+                    syscall_result = handlers.file.syscallWriteFile(
                         &process.fd_table,
                         fd,
                         buf_ptr,
@@ -109,7 +118,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                     );
                 },
                 // keyboard_in is not writable; .closed never escapes resolve.
-                else => arch_frame.rax = errCode(e.EBADF),
+                else => syscall_result = errCode(e.EBADF),
             }
         },
 
@@ -129,13 +138,13 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const process = Process.from(current_task.task);
 
             const resolved = process.fd_table.resolve(fd) orelse {
-                arch_frame.rax = errCode(e.EBADF);
-                return;
+                syscall_result = errCode(e.EBADF);
+                return syscall_result;
             };
 
             if (buf_len == 0) {
-                arch_frame.rax = 0;
-                return;
+                syscall_result = 0;
+                return syscall_result;
             }
 
             switch (resolved.desc) {
@@ -144,17 +153,17 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                     // keep a single explicit access window around the streaming
                     // read.
                     const buffer = validate.userSlice(buf_ptr, buf_len) catch {
-                        arch_frame.rax = errCode(e.EFAULT);
-                        return;
+                        syscall_result = errCode(e.EFAULT);
+                        return syscall_result;
                     };
                     const access: validate.UserAccess = .acquire();
                     defer access.release();
 
                     const bytes_read = innigkeit.drivers.input.ps2.keyboard_buffer.readLine(buffer);
-                    arch_frame.rax = @intCast(bytes_read);
+                    syscall_result = @intCast(bytes_read);
                 },
                 .file => {
-                    arch_frame.rax = handlers.file.syscallReadFile(
+                    syscall_result = handlers.file.syscallReadFile(
                         &process.fd_table,
                         fd,
                         buf_ptr,
@@ -162,7 +171,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                     );
                 },
                 // terminal_out is not readable; .closed never escapes resolve.
-                else => arch_frame.rax = errCode(e.EBADF),
+                else => syscall_result = errCode(e.EBADF),
             }
         },
 
@@ -205,14 +214,14 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const user_arg = syscall_frame.arg(.two);
 
             if (entry_ptr == 0) {
-                arch_frame.rax = errCode(e.EINVAL);
-                return;
+                syscall_result = errCode(e.EINVAL);
+                return syscall_result;
             }
 
             const vaddr: innigkeit.VirtualAddress = .from(entry_ptr);
             if (vaddr.getType() != .user) {
-                arch_frame.rax = errCode(e.EFAULT);
-                return;
+                syscall_result = errCode(e.EFAULT);
+                return syscall_result;
             }
             const entry_point = vaddr.toUser();
 
@@ -222,15 +231,15 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const new_thread = process.createThread(.{
                 .entry = .prepare(spawnThreadEntry, .{ entry_point, user_arg }),
             }) catch {
-                arch_frame.rax = errCode(e.ENOMEM);
-                return;
+                syscall_result = errCode(e.ENOMEM);
+                return syscall_result;
             };
 
             const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
             defer scheduler_handle.unlock();
             scheduler_handle.queueTask(&new_thread.task, .{ .initial = true });
 
-            arch_frame.rax = 0;
+            syscall_result = 0;
         },
 
         // ------------------------------------------------------------------ //
@@ -249,8 +258,8 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             cap_table.lock.lock();
             const slot_info = cap_table.getAndRefLocked(handle) orelse {
                 cap_table.lock.unlock();
-                arch_frame.rax = errCode(e.EBADF);
-                return;
+                syscall_result = errCode(e.EBADF);
+                return syscall_result;
             };
             cap_table.lock.unlock();
             defer innigkeit.capabilities.CapabilityTable.unrefObject(slot_info.cap_type, slot_info.ptr);
@@ -261,31 +270,31 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 .notify => {
                     const notify: *innigkeit.capabilities.Notify = @ptrCast(@alignCast(slot_info.ptr));
                     const notify_op = std.enums.fromInt(innigkeit.capabilities.Notify.Op, op) orelse {
-                        arch_frame.rax = errCode(e.EINVAL);
-                        return;
+                        syscall_result = errCode(e.EINVAL);
+                        return syscall_result;
                     };
                     switch (notify_op) {
                         .signal => {
                             if (!slot_info.rights.write) {
-                                arch_frame.rax = errCode(e.EPERM);
-                                return;
+                                syscall_result = errCode(e.EPERM);
+                                return syscall_result;
                             }
                             notify.signal(arg3);
-                            arch_frame.rax = 0;
+                            syscall_result = 0;
                         },
                         .wait => {
                             if (!slot_info.rights.read) {
-                                arch_frame.rax = errCode(e.EPERM);
-                                return;
+                                syscall_result = errCode(e.EPERM);
+                                return syscall_result;
                             }
-                            arch_frame.rax = notify.wait(arg3);
+                            syscall_result = notify.wait(arg3);
                         },
                         .poll => {
                             if (!slot_info.rights.read) {
-                                arch_frame.rax = errCode(e.EPERM);
-                                return;
+                                syscall_result = errCode(e.EPERM);
+                                return syscall_result;
                             }
-                            arch_frame.rax = notify.poll(arg3);
+                            syscall_result = notify.poll(arg3);
                         },
                     }
                 },
@@ -293,24 +302,24 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 .reply => {
                     const reply_cap: *innigkeit.capabilities.Reply = @ptrCast(@alignCast(slot_info.ptr));
                     const reply_op = std.enums.fromInt(innigkeit.capabilities.Reply.Op, op) orelse {
-                        arch_frame.rax = errCode(e.EINVAL);
-                        return;
+                        syscall_result = errCode(e.EINVAL);
+                        return syscall_result;
                     };
                     switch (reply_op) {
                         .send => {
                             if (!slot_info.rights.write) {
-                                arch_frame.rax = errCode(e.EPERM);
-                                return;
+                                syscall_result = errCode(e.EPERM);
+                                return syscall_result;
                             }
                             const msg = validate.readUser(innigkeit.capabilities.Message, arg3) catch {
-                                arch_frame.rax = errCode(e.EFAULT);
-                                return;
+                                syscall_result = errCode(e.EFAULT);
+                                return syscall_result;
                             };
                             reply_cap.send(msg) catch {
-                                arch_frame.rax = errCode(e.EINVAL); // already replied
-                                return;
+                                syscall_result = errCode(e.EINVAL); // already replied
+                                return syscall_result;
                             };
-                            arch_frame.rax = 0;
+                            syscall_result = 0;
                         },
                     }
                 },
@@ -318,118 +327,118 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 .endpoint => {
                     const endpoint: *innigkeit.capabilities.Endpoint = @ptrCast(@alignCast(slot_info.ptr));
                     const ep_op = std.enums.fromInt(innigkeit.capabilities.Endpoint.Op, op) orelse {
-                        arch_frame.rax = errCode(e.EINVAL);
-                        return;
+                        syscall_result = errCode(e.EINVAL);
+                        return syscall_result;
                     };
                     switch (ep_op) {
                         .send => {
                             if (!slot_info.rights.write) {
-                                arch_frame.rax = errCode(e.EPERM);
-                                return;
+                                syscall_result = errCode(e.EPERM);
+                                return syscall_result;
                             }
                             // Copy message out of user memory before blocking.
                             const msg = validate.readUser(innigkeit.capabilities.Message, arg3) catch {
-                                arch_frame.rax = errCode(e.EFAULT);
-                                return;
+                                syscall_result = errCode(e.EFAULT);
+                                return syscall_result;
                             };
                             endpoint.send(msg);
-                            arch_frame.rax = 0;
+                            syscall_result = 0;
                         },
                         .recv => {
                             if (!slot_info.rights.read) {
-                                arch_frame.rax = errCode(e.EPERM);
-                                return;
+                                syscall_result = errCode(e.EPERM);
+                                return syscall_result;
                             }
                             // Validate before blocking so a bad buffer faults without consuming a message.
                             if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
-                                arch_frame.rax = errCode(e.EFAULT);
-                                return;
+                                syscall_result = errCode(e.EFAULT);
+                                return syscall_result;
                             }
                             // Block first, then copy into user memory.
                             const msg = endpoint.recv();
                             validate.writeUser(arg3, msg) catch {
-                                arch_frame.rax = errCode(e.EFAULT);
-                                return;
+                                syscall_result = errCode(e.EFAULT);
+                                return syscall_result;
                             };
-                            arch_frame.rax = 0;
+                            syscall_result = 0;
                         },
                         .call => {
                             if (!slot_info.rights.write) {
-                                arch_frame.rax = errCode(e.EPERM);
-                                return;
+                                syscall_result = errCode(e.EPERM);
+                                return syscall_result;
                             }
                             // arg3 = pointer to Message (in: request, out: reply).
                             // Copy the request out before blocking; copy the
                             // reply back after unblocking.
                             const request = validate.readUser(innigkeit.capabilities.Message, arg3) catch {
-                                arch_frame.rax = errCode(e.EFAULT);
-                                return;
+                                syscall_result = errCode(e.EFAULT);
+                                return syscall_result;
                             };
                             const reply = endpoint.call(request);
                             validate.writeUser(arg3, reply) catch {
-                                arch_frame.rax = errCode(e.EFAULT);
-                                return;
+                                syscall_result = errCode(e.EFAULT);
+                                return syscall_result;
                             };
-                            arch_frame.rax = 0;
+                            syscall_result = 0;
                         },
                         .reply => {
                             if (!slot_info.rights.write) {
-                                arch_frame.rax = errCode(e.EPERM);
-                                return;
+                                syscall_result = errCode(e.EPERM);
+                                return syscall_result;
                             }
                             const msg = validate.readUser(innigkeit.capabilities.Message, arg3) catch {
-                                arch_frame.rax = errCode(e.EFAULT);
-                                return;
+                                syscall_result = errCode(e.EFAULT);
+                                return syscall_result;
                             };
                             endpoint.reply(msg) catch {
-                                arch_frame.rax = errCode(e.EINVAL); // no pending sender
-                                return;
+                                syscall_result = errCode(e.EINVAL); // no pending sender
+                                return syscall_result;
                             };
-                            arch_frame.rax = 0;
+                            syscall_result = 0;
                         },
                         .reply_recv => {
                             if (!slot_info.rights.read or !slot_info.rights.write) {
-                                arch_frame.rax = errCode(e.EPERM);
-                                return;
+                                syscall_result = errCode(e.EPERM);
+                                return syscall_result;
                             }
                             // arg3 = pointer to Message (in: reply to send, out: next request).
                             // Copy the reply out before blocking; copy the
                             // next request back after unblocking.
                             const reply_msg = validate.readUser(innigkeit.capabilities.Message, arg3) catch {
-                                arch_frame.rax = errCode(e.EFAULT);
-                                return;
+                                syscall_result = errCode(e.EFAULT);
+                                return syscall_result;
                             };
                             const next_request = endpoint.replyRecv(reply_msg);
                             validate.writeUser(arg3, next_request) catch {
-                                arch_frame.rax = errCode(e.EFAULT);
-                                return;
+                                syscall_result = errCode(e.EFAULT);
+                                return syscall_result;
                             };
-                            arch_frame.rax = 0;
+                            syscall_result = 0;
                         },
                         .recv_call => {
                             if (!slot_info.rights.read) {
-                                arch_frame.rax = errCode(e.EPERM);
-                                return;
+                                syscall_result = errCode(e.EPERM);
+                                return syscall_result;
                             }
                             // Validate before blocking so a bad buffer faults without consuming a message.
                             if (!validateUserBuffer(arg3, @sizeOf(innigkeit.capabilities.Message))) {
-                                arch_frame.rax = errCode(e.EFAULT);
-                                return;
+                                syscall_result = errCode(e.EFAULT);
+                                return syscall_result;
                             }
                             // Block until a message arrives.
                             const result = endpoint.recvCall();
                             // Copy message to user memory.
                             validate.writeUser(arg3, result.msg) catch {
-                                arch_frame.rax = errCode(e.EFAULT);
-                                return;
+                                syscall_result = errCode(e.EFAULT);
+                                return syscall_result;
                             };
                             // If the sender used call(), create a Reply cap for them.
                             if (result.sender) |sender_task| {
                                 const reply_cap = innigkeit.capabilities.Reply.create(sender_task) catch {
                                     sender_task.ipc_message = .{};
                                     sender_task.wakeFromBlocked();
-                                    arch_frame.rax = errCode(e.ENOMEM);
-                                    return;
+                                    syscall_result = errCode(e.ENOMEM);
+                                    return syscall_result;
                                 };
                                 const idx = blk: {
                                     const tbl = Process.from(current_task.task).cap_table;
@@ -437,15 +446,15 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                                     const i = tbl.insertLocked(.reply, reply_cap, .{ .write = true }) catch {
                                         tbl.lock.unlock();
                                         reply_cap.unref(); // wakes sender with empty reply
-                                        arch_frame.rax = errCode(e.ENOMEM);
-                                        return;
+                                        syscall_result = errCode(e.ENOMEM);
+                                        return syscall_result;
                                     };
                                     tbl.lock.unlock();
                                     break :blk i;
                                 };
-                                arch_frame.rax = @intCast(idx);
+                                syscall_result = @intCast(idx);
                             } else {
-                                arch_frame.rax = @intCast(innigkeit.config.capabilities.null_slot);
+                                syscall_result = @intCast(innigkeit.config.capabilities.null_slot);
                             }
                         },
                     }
@@ -454,12 +463,12 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 .secure_vault => {
                     const vault: *innigkeit.capabilities.SecureVault = @ptrCast(@alignCast(slot_info.ptr));
                     const vault_op = std.enums.fromInt(innigkeit.capabilities.SecureVault.Op, op) orelse {
-                        arch_frame.rax = errCode(e.EINVAL);
-                        return;
+                        syscall_result = errCode(e.EINVAL);
+                        return syscall_result;
                     };
                     switch (vault_op) {
                         .status => {
-                            arch_frame.rax = if (vault.tpm_backed) 1 else 0;
+                            syscall_result = if (vault.tpm_backed) 1 else 0;
                         },
                         .seal => {
                             // arg.one=handle, arg.two=op, arg.three=src_ptr,
@@ -470,23 +479,23 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                             const dst_len: usize = syscall_frame.arg(.six);
                             // The vault streams directly from/to the user buffers, so keep one explicit access window.
                             const plaintext = validate.userSliceConst(src_ptr, src_len) catch {
-                                arch_frame.rax = errCode(e.EFAULT);
-                                return;
+                                syscall_result = errCode(e.EFAULT);
+                                return syscall_result;
                             };
                             const out = validate.userSlice(dst_ptr, dst_len) catch {
-                                arch_frame.rax = errCode(e.EFAULT);
-                                return;
+                                syscall_result = errCode(e.EFAULT);
+                                return syscall_result;
                             };
                             const access: validate.UserAccess = .acquire();
                             defer access.release();
                             const written = vault.seal(plaintext, out) catch |err| {
-                                arch_frame.rax = switch (err) {
+                                syscall_result = switch (err) {
                                     error.TooBig => errCode(e.EINVAL),
                                     error.BufferTooSmall => errCode(e.EINVAL),
                                 };
-                                return;
+                                return syscall_result;
                             };
-                            arch_frame.rax = @intCast(written);
+                            syscall_result = @intCast(written);
                         },
                         .unseal => {
                             // arg.one=handle, arg.two=op, arg.three=src_ptr,
@@ -498,24 +507,24 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                             // The vault streams directly from/to the user
                             // buffers, so keep one explicit access window.
                             const blob = validate.userSliceConst(src_ptr, src_len) catch {
-                                arch_frame.rax = errCode(e.EFAULT);
-                                return;
+                                syscall_result = errCode(e.EFAULT);
+                                return syscall_result;
                             };
                             const out = validate.userSlice(dst_ptr, dst_len) catch {
-                                arch_frame.rax = errCode(e.EFAULT);
-                                return;
+                                syscall_result = errCode(e.EFAULT);
+                                return syscall_result;
                             };
                             const access: validate.UserAccess = .acquire();
                             defer access.release();
                             const written = vault.unseal(blob, out) catch |err| {
-                                arch_frame.rax = switch (err) {
+                                syscall_result = switch (err) {
                                     error.TooSmall => errCode(e.EINVAL),
                                     error.BufferTooSmall => errCode(e.EINVAL),
                                     error.AuthFailed => errCode(e.EPERM),
                                 };
-                                return;
+                                return syscall_result;
                             };
-                            arch_frame.rax = @intCast(written);
+                            syscall_result = @intCast(written);
                         },
                     }
                 },
@@ -523,27 +532,27 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 .gpu_buffer => {
                     const gpu: *innigkeit.capabilities.GpuBuffer = @ptrCast(@alignCast(slot_info.ptr));
                     const gpu_op = std.enums.fromInt(innigkeit.capabilities.GpuBuffer.Op, op) orelse {
-                        arch_frame.rax = errCode(e.EINVAL);
-                        return;
+                        syscall_result = errCode(e.EINVAL);
+                        return syscall_result;
                     };
                     switch (gpu_op) {
-                        .phys_addr => arch_frame.rax = gpu.phys_base.value,
-                        .size => arch_frame.rax = gpu.size_bytes,
-                        .usage => arch_frame.rax = @as(u32, @bitCast(gpu.usage)),
+                        .phys_addr => syscall_result = gpu.phys_base.value,
+                        .size => syscall_result = gpu.size_bytes,
+                        .usage => syscall_result = @as(u32, @bitCast(gpu.usage)),
                     }
                 },
 
                 .frame => {
                     const frame: *innigkeit.capabilities.Frame = @ptrCast(@alignCast(slot_info.ptr));
                     const frame_op = std.enums.fromInt(innigkeit.capabilities.Frame.Op, op) orelse {
-                        arch_frame.rax = errCode(e.EINVAL);
-                        return;
+                        syscall_result = errCode(e.EINVAL);
+                        return syscall_result;
                     };
                     switch (frame_op) {
                         .clone => {
                             if (!slot_info.rights.grant) {
-                                arch_frame.rax = errCode(e.EPERM);
-                                return;
+                                syscall_result = errCode(e.EPERM);
+                                return syscall_result;
                             }
                             // Bump refcount before inserting the new slot.
                             frame.ref();
@@ -555,17 +564,17 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                                 slot_info.rights,
                             ) catch {
                                 frame.unref();
-                                arch_frame.rax = errCode(e.ENOMEM); // table full
-                                return;
+                                syscall_result = errCode(e.ENOMEM); // table full
+                                return syscall_result;
                             };
-                            arch_frame.rax = @intCast(new_idx);
+                            syscall_result = @intCast(new_idx);
                         },
                         .phys_addr => {
                             if (!slot_info.rights.read) {
-                                arch_frame.rax = errCode(e.EPERM);
-                                return;
+                                syscall_result = errCode(e.EPERM);
+                                return syscall_result;
                             }
-                            arch_frame.rax = frame.physicalAddress().value;
+                            syscall_result = frame.physicalAddress().value;
                         },
                     }
                 },
@@ -586,14 +595,14 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             cap_table.lock.lock();
             defer cap_table.lock.unlock();
             const new_idx = cap_table.copyLocked(handle, new_rights) catch |err| {
-                arch_frame.rax = switch (err) {
+                syscall_result = switch (err) {
                     error.NotFound => errCode(e.EBADF),
                     error.Full => errCode(e.ENOMEM),
                     error.RightsEscalation => errCode(e.EPERM),
                 };
-                return;
+                return syscall_result;
             };
-            arch_frame.rax = @intCast(new_idx);
+            syscall_result = @intCast(new_idx);
         },
 
         // ------------------------------------------------------------------ //
@@ -610,26 +619,26 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             defer cap_table.lock.unlock();
 
             const slot = cap_table.getLocked(handle) orelse {
-                arch_frame.rax = errCode(e.EBADF);
-                return;
+                syscall_result = errCode(e.EBADF);
+                return syscall_result;
             };
             const current_rights = slot.rights;
 
             // Copy to a new slot (bumps refcount to 2).
             // Note: the defer above handles unlock on all exit paths; do NOT unlock explicitly here.
             const new_idx = cap_table.copyLocked(handle, current_rights) catch |err| {
-                arch_frame.rax = switch (err) {
+                syscall_result = switch (err) {
                     error.NotFound => errCode(e.EBADF),
                     error.Full => errCode(e.ENOMEM),
                     error.RightsEscalation => unreachable, // same rights
                 };
-                return;
+                return syscall_result;
             };
 
             // Remove the original slot (decrements refcount back to 1).
             cap_table.removeLocked(handle) catch unreachable;
 
-            arch_frame.rax = @intCast(new_idx);
+            syscall_result = @intCast(new_idx);
         },
 
         // ------------------------------------------------------------------ //
@@ -644,10 +653,10 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             cap_table.lock.lock();
             defer cap_table.lock.unlock();
             cap_table.removeLocked(handle) catch {
-                arch_frame.rax = errCode(e.EBADF);
-                return;
+                syscall_result = errCode(e.EBADF);
+                return syscall_result;
             };
-            arch_frame.rax = 0;
+            syscall_result = 0;
         },
 
         // ------------------------------------------------------------------ //
@@ -657,8 +666,8 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .cap_create => {
             const type_raw: u8 = @truncate(syscall_frame.arg(.one));
             const cap_type = std.enums.fromInt(innigkeit.capabilities.ObjectType, type_raw) orelse {
-                arch_frame.rax = errCode(e.EINVAL);
-                return;
+                syscall_result = errCode(e.EINVAL);
+                return syscall_result;
             };
 
             const current_task: innigkeit.Task.Current = .get();
@@ -667,104 +676,104 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
 
             switch (cap_type) {
                 .null => {
-                    arch_frame.rax = errCode(e.EINVAL);
+                    syscall_result = errCode(e.EINVAL);
                 },
                 .notify => {
                     const notify = innigkeit.capabilities.Notify.create() catch {
-                        arch_frame.rax = errCode(e.ENOMEM);
-                        return;
+                        syscall_result = errCode(e.ENOMEM);
+                        return syscall_result;
                     };
                     cap_table.lock.lock();
                     defer cap_table.lock.unlock();
                     const idx = cap_table.insertLocked(.notify, notify, .all) catch {
                         notify.unref();
-                        arch_frame.rax = errCode(e.ENOMEM);
-                        return;
+                        syscall_result = errCode(e.ENOMEM);
+                        return syscall_result;
                     };
-                    arch_frame.rax = @intCast(idx);
+                    syscall_result = @intCast(idx);
                 },
                 .endpoint => {
                     const endpoint = innigkeit.capabilities.Endpoint.create() catch {
-                        arch_frame.rax = errCode(e.ENOMEM);
-                        return;
+                        syscall_result = errCode(e.ENOMEM);
+                        return syscall_result;
                     };
                     cap_table.lock.lock();
                     defer cap_table.lock.unlock();
                     const idx = cap_table.insertLocked(.endpoint, endpoint, .all) catch {
                         endpoint.unref();
-                        arch_frame.rax = errCode(e.ENOMEM);
-                        return;
+                        syscall_result = errCode(e.ENOMEM);
+                        return syscall_result;
                     };
-                    arch_frame.rax = @intCast(idx);
+                    syscall_result = @intCast(idx);
                 },
                 .frame => {
                     // Physical frame allocation requires a size; use cap_invoke on a Vmem capability.
                     const frame = innigkeit.capabilities.Frame.create() catch {
-                        arch_frame.rax = errCode(e.ENOMEM);
-                        return;
+                        syscall_result = errCode(e.ENOMEM);
+                        return syscall_result;
                     };
                     cap_table.lock.lock();
                     defer cap_table.lock.unlock();
                     const idx = cap_table.insertLocked(.frame, frame, .all) catch {
                         frame.unref();
-                        arch_frame.rax = errCode(e.ENOMEM);
-                        return;
+                        syscall_result = errCode(e.ENOMEM);
+                        return syscall_result;
                     };
-                    arch_frame.rax = @intCast(idx);
+                    syscall_result = @intCast(idx);
                 },
                 // Reply capabilities are created by the kernel (recv_call), not by userspace.
-                .reply => arch_frame.rax = errCode(e.EINVAL),
+                .reply => syscall_result = errCode(e.EINVAL),
                 .secure_vault => {
                     if (!checkEntitlement(current_task, "secure_vault")) {
-                        arch_frame.rax = errCode(e.EPERM);
-                        return;
+                        syscall_result = errCode(e.EPERM);
+                        return syscall_result;
                     }
                     // arg2: 0 = software-only, 1 = prefer TPM-backed.
                     // TPM-backed mode will be wired up once the TPM 2.0 CRB driver
                     // lands; for now always software-only.
                     _ = syscall_frame.arg(.two);
                     const vault = innigkeit.capabilities.SecureVault.create(null) catch {
-                        arch_frame.rax = errCode(e.ENOMEM);
-                        return;
+                        syscall_result = errCode(e.ENOMEM);
+                        return syscall_result;
                     };
                     cap_table.lock.lock();
                     defer cap_table.lock.unlock();
                     const idx = cap_table.insertLocked(.secure_vault, vault, .all) catch {
                         vault.unref();
-                        arch_frame.rax = errCode(e.ENOMEM);
-                        return;
+                        syscall_result = errCode(e.ENOMEM);
+                        return syscall_result;
                     };
-                    arch_frame.rax = @intCast(idx);
+                    syscall_result = @intCast(idx);
                 },
 
                 .gpu_buffer => {
                     if (!checkEntitlement(current_task, "gpu")) {
-                        arch_frame.rax = errCode(e.EPERM);
-                        return;
+                        syscall_result = errCode(e.EPERM);
+                        return syscall_result;
                     }
                     // arg2: page_count (must be >= 1)
                     // arg3: usage bitmask (GpuBuffer.Usage packed struct as u32)
                     const page_count: usize = syscall_frame.arg(.two);
                     const usage_raw: u32 = @truncate(syscall_frame.arg(.three));
                     if (page_count == 0) {
-                        arch_frame.rax = errCode(e.EINVAL);
-                        return;
+                        syscall_result = errCode(e.EINVAL);
+                        return syscall_result;
                     }
                     const gpu = innigkeit.capabilities.GpuBuffer.create(
                         page_count,
                         @bitCast(usage_raw),
                     ) catch {
-                        arch_frame.rax = errCode(e.ENOMEM);
-                        return;
+                        syscall_result = errCode(e.ENOMEM);
+                        return syscall_result;
                     };
                     cap_table.lock.lock();
                     defer cap_table.lock.unlock();
                     const idx = cap_table.insertLocked(.gpu_buffer, gpu, .all) catch {
                         gpu.unref();
-                        arch_frame.rax = errCode(e.ENOMEM);
-                        return;
+                        syscall_result = errCode(e.ENOMEM);
+                        return syscall_result;
                     };
-                    arch_frame.rax = @intCast(idx);
+                    syscall_result = @intCast(idx);
                 },
             }
         },
@@ -781,16 +790,16 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const prot_raw: u32 = @truncate(syscall_frame.arg(.two));
 
             if (size_bytes == 0) {
-                arch_frame.rax = errCode(e.EINVAL);
-                return;
+                syscall_result = errCode(e.EINVAL);
+                return syscall_result;
             }
 
             const page_align = architecture.paging.standard_page_size_alignment;
             const page_size = page_align.toByteUnits();
             // Guard against integer overflow in alignment rounding.
             if (size_bytes > std.math.maxInt(usize) - (page_size - 1)) {
-                arch_frame.rax = errCode(e.EINVAL);
-                return;
+                syscall_result = errCode(e.EINVAL);
+                return syscall_result;
             }
             const aligned_size = core.Size.from(size_bytes, .byte).alignForward(page_align);
 
@@ -801,13 +810,13 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             };
 
             if (protection.equal(.none)) {
-                arch_frame.rax = errCode(e.EINVAL); // must have at least one permission
-                return;
+                syscall_result = errCode(e.EINVAL); // must have at least one permission
+                return syscall_result;
             }
 
             if (protection.write and protection.execute) {
-                arch_frame.rax = errCode(e.EINVAL); // W^X: writable+executable disallowed
-                return;
+                syscall_result = errCode(e.EINVAL); // W^X: writable+executable disallowed
+                return syscall_result;
             }
 
             const current_task: innigkeit.Task.Current = .get();
@@ -818,14 +827,14 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 .protection = protection,
                 .type = .zero_fill,
             }) catch |err| {
-                arch_frame.rax = switch (err) {
+                syscall_result = switch (err) {
                     error.OutOfMemory, error.RequestedRangeUnavailable => errCode(e.ENOMEM),
                     else => errCode(e.EINVAL),
                 };
-                return;
+                return syscall_result;
             };
 
-            arch_frame.rax = range.address.value;
+            syscall_result = range.address.value;
         },
 
         // ------------------------------------------------------------------ //
@@ -838,20 +847,20 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const size_bytes = syscall_frame.arg(.two);
 
             if (size_bytes == 0 or addr_raw == 0) {
-                arch_frame.rax = errCode(e.EINVAL);
-                return;
+                syscall_result = errCode(e.EINVAL);
+                return syscall_result;
             }
 
             const page_align = architecture.paging.standard_page_size_alignment;
             if (!page_align.check(addr_raw) or !page_align.check(size_bytes)) {
-                arch_frame.rax = errCode(e.EINVAL);
-                return;
+                syscall_result = errCode(e.EINVAL);
+                return syscall_result;
             }
 
             const vaddr: innigkeit.VirtualAddress = .from(addr_raw);
             if (vaddr.getType() != .user) {
-                arch_frame.rax = errCode(e.EFAULT);
-                return;
+                syscall_result = errCode(e.EFAULT);
+                return syscall_result;
             }
 
             const range: innigkeit.VirtualRange = .{
@@ -863,14 +872,14 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const process = Process.from(current_task.task);
 
             process.address_space.unmap(range) catch |err| {
-                arch_frame.rax = switch (err) {
+                syscall_result = switch (err) {
                     error.OutOfMemory => errCode(e.ENOMEM),
                     error.RangeNotPageAligned => errCode(e.EINVAL),
                 };
-                return;
+                return syscall_result;
             };
 
-            arch_frame.rax = 0;
+            syscall_result = 0;
         },
 
         // ------------------------------------------------------------------ //
@@ -883,12 +892,12 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const expected: u32 = @truncate(syscall_frame.arg(.two));
 
             if (!validateUserBuffer(addr, @sizeOf(u32))) {
-                arch_frame.rax = errCode(e.EFAULT);
-                return;
+                syscall_result = errCode(e.EFAULT);
+                return syscall_result;
             }
 
             innigkeit.sync.futex.wait(addr, expected);
-            arch_frame.rax = 0;
+            syscall_result = 0;
         },
 
         // ------------------------------------------------------------------ //
@@ -902,11 +911,11 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const expected: u32 = @truncate(syscall_frame.arg(.two));
             const deadline_ms: u64 = syscall_frame.arg(.three);
             if (!validateUserBuffer(addr, @sizeOf(u32))) {
-                arch_frame.rax = errCode(e.EFAULT);
-                return;
+                syscall_result = errCode(e.EFAULT);
+                return syscall_result;
             }
             innigkeit.sync.futex.waitTimeout(addr, expected, deadline_ms);
-            arch_frame.rax = 0;
+            syscall_result = 0;
         },
 
         // ------------------------------------------------------------------ //
@@ -919,12 +928,12 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const max_wake: u32 = @truncate(syscall_frame.arg(.two));
 
             if (!validateUserBuffer(addr, @sizeOf(u32))) {
-                arch_frame.rax = errCode(e.EFAULT);
-                return;
+                syscall_result = errCode(e.EFAULT);
+                return syscall_result;
             }
 
             const woken = innigkeit.sync.futex.wake(addr, max_wake);
-            arch_frame.rax = @intCast(woken);
+            syscall_result = @intCast(woken);
         },
 
         // ------------------------------------------------------------------ //
@@ -936,11 +945,11 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .spawn => {
             const current_task: innigkeit.Task.Current = .get();
             if (!checkEntitlement(current_task, "spawn")) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
             const spec_ptr = syscall_frame.arg(.one);
-            arch_frame.rax = handlers.spawn.syscallSpawn(spec_ptr, current_task);
+            syscall_result = handlers.spawn.syscallSpawn(spec_ptr, current_task);
         },
 
         // ------------------------------------------------------------------ //
@@ -957,25 +966,25 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             cap_table.lock.lock();
             const slot_info = cap_table.getAndRefLocked(handle) orelse {
                 cap_table.lock.unlock();
-                arch_frame.rax = errCode(e.EBADF);
-                return;
+                syscall_result = errCode(e.EBADF);
+                return syscall_result;
             };
             cap_table.lock.unlock();
             defer innigkeit.capabilities.CapabilityTable.unrefObject(slot_info.cap_type, slot_info.ptr);
 
             if (slot_info.cap_type != .notify) {
-                arch_frame.rax = errCode(e.EINVAL);
-                return;
+                syscall_result = errCode(e.EINVAL);
+                return syscall_result;
             }
             if (!slot_info.rights.read) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
 
             const notify: *innigkeit.capabilities.Notify = @ptrCast(@alignCast(slot_info.ptr));
             const bits = notify.wait(0xFF_01); // wait for bit 0 (exit), read bits 8..15 (status)
             const exit_status: u8 = @truncate(bits >> 8);
-            arch_frame.rax = exit_status;
+            syscall_result = exit_status;
         },
 
         // -------------------------------------------------------------------- //
@@ -993,13 +1002,13 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             defer cap_table.lock.unlock();
 
             cap_table.revokeLocked(handle) catch |err| {
-                arch_frame.rax = switch (err) {
+                syscall_result = switch (err) {
                     error.NotFound => errCode(e.EBADF),
                     error.NoRevokeRight => errCode(e.EPERM),
                 };
-                return;
+                return syscall_result;
             };
-            arch_frame.rax = 0;
+            syscall_result = 0;
         },
 
         // ------------------------------------------------------------------ //
@@ -1010,7 +1019,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .vmem_map => {
             const handle: u32 = @truncate(syscall_frame.arg(.one));
             const current_task: innigkeit.Task.Current = .get();
-            arch_frame.rax = handlers.vmem.syscallVmemMap(handle, current_task);
+            syscall_result = handlers.vmem.syscallVmemMap(handle, current_task);
         },
 
         // ------------------------------------------------------------------ //
@@ -1022,7 +1031,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const addr_raw = syscall_frame.arg(.one);
             const size_bytes = syscall_frame.arg(.two);
             const current_task: innigkeit.Task.Current = .get();
-            arch_frame.rax = handlers.vmem.syscallVmemUnmap(addr_raw, size_bytes, current_task);
+            syscall_result = handlers.vmem.syscallVmemUnmap(addr_raw, size_bytes, current_task);
         },
 
         // ------------------------------------------------------------------ //
@@ -1034,11 +1043,11 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .framebuffer_map => {
             const current_task: innigkeit.Task.Current = .get();
             if (!checkEntitlement(current_task, "framebuffer")) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
             const info_ptr = syscall_frame.arg(.one);
-            arch_frame.rax = handlers.framebuffer.syscallFramebufferMap(info_ptr, current_task);
+            syscall_result = handlers.framebuffer.syscallFramebufferMap(info_ptr, current_task);
         },
 
         // ------------------------------------------------------------------ //
@@ -1050,7 +1059,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .initfs_read => {
             const spec_ptr = syscall_frame.arg(.one);
             const current_task: innigkeit.Task.Current = .get();
-            arch_frame.rax = handlers.framebuffer.syscallInitfsRead(spec_ptr, current_task);
+            syscall_result = handlers.framebuffer.syscallInitfsRead(spec_ptr, current_task);
         },
 
         // ------------------------------------------------------------------ //
@@ -1058,7 +1067,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         //   Returns milliseconds elapsed since kernel boot.                  //
         // ------------------------------------------------------------------ //
         .uptime_ms => {
-            arch_frame.rax = handlers.framebuffer.syscallUptimeMs();
+            syscall_result = handlers.framebuffer.syscallUptimeMs();
         },
 
         // ------------------------------------------------------------------------ //
@@ -1069,7 +1078,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .blk_read => {
             const spec_ptr = syscall_frame.arg(.one);
             const current_task: innigkeit.Task.Current = .get();
-            arch_frame.rax = handlers.framebuffer.syscallBlkRead(spec_ptr, current_task);
+            syscall_result = handlers.framebuffer.syscallBlkRead(spec_ptr, current_task);
         },
 
         // ------------------------------------------------------------------ //
@@ -1080,12 +1089,12 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .kbd_read => {
             const current_task: innigkeit.Task.Current = .get();
             if (!checkEntitlement(current_task, "keyboard")) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
             const buf_ptr = syscall_frame.arg(.one);
             const buf_len = syscall_frame.arg(.two);
-            arch_frame.rax = handlers.framebuffer.syscallKbdRead(buf_ptr, buf_len, current_task);
+            syscall_result = handlers.framebuffer.syscallKbdRead(buf_ptr, buf_len, current_task);
         },
 
         // ------------------------------------------------------------------ //
@@ -1096,7 +1105,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .nanosleep_ms => {
             const deadline_ms: u64 = syscall_frame.arg(.one);
             innigkeit.sync.nanosleep.wait(deadline_ms);
-            arch_frame.rax = 0;
+            syscall_result = 0;
         },
 
         // ------------------------------------------------------------------ //
@@ -1107,7 +1116,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .getpid => {
             const current_task: innigkeit.Task.Current = .get();
             const thread: *innigkeit.user.Thread = innigkeit.user.Thread.from(current_task.task);
-            arch_frame.rax = thread.process.pid;
+            syscall_result = thread.process.pid;
         },
 
         // ------------------------------------------------------------------ //
@@ -1124,30 +1133,30 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             cap_table.lock.lock();
             const slot_info = cap_table.getAndRefLocked(handle) orelse {
                 cap_table.lock.unlock();
-                arch_frame.rax = errCode(e.EBADF);
-                return;
+                syscall_result = errCode(e.EBADF);
+                return syscall_result;
             };
             cap_table.lock.unlock();
             defer innigkeit.capabilities.CapabilityTable.unrefObject(slot_info.cap_type, slot_info.ptr);
 
             if (slot_info.cap_type != .notify) {
-                arch_frame.rax = errCode(e.EINVAL);
-                return;
+                syscall_result = errCode(e.EINVAL);
+                return syscall_result;
             }
             if (!slot_info.rights.read) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
 
             const notify: *innigkeit.capabilities.Notify = @ptrCast(@alignCast(slot_info.ptr));
             const bits = notify.poll(0xFF_01); // non-blocking: check bits 0 (exit) and 8..15 (status)
             if (bits == 0) {
                 // Nothing pending: process still running.
-                arch_frame.rax = errCode(e.EAGAIN);
-                return;
+                syscall_result = errCode(e.EAGAIN);
+                return syscall_result;
             }
             const exit_status: u8 = @truncate(bits >> 8);
-            arch_frame.rax = exit_status;
+            syscall_result = exit_status;
         },
 
         // ------------------------------------------------------------------- //
@@ -1165,22 +1174,22 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             cap_table.lock.lock();
             const slot_info = cap_table.getAndRefLocked(handle) orelse {
                 cap_table.lock.unlock();
-                arch_frame.rax = errCode(e.EBADF);
-                return;
+                syscall_result = errCode(e.EBADF);
+                return syscall_result;
             };
             cap_table.lock.unlock();
             defer innigkeit.capabilities.CapabilityTable.unrefObject(slot_info.cap_type, slot_info.ptr);
 
             if (slot_info.cap_type != .notify) {
-                arch_frame.rax = errCode(e.EINVAL);
-                return;
+                syscall_result = errCode(e.EINVAL);
+                return syscall_result;
             }
 
             const notify: *innigkeit.capabilities.Notify = @ptrCast(@alignCast(slot_info.ptr));
             // Signal exit with status 130 (killed by Ctrl+C / SIGINT convention).
             // Bit 0 = exited, bits 8..15 = exit status.
             notify.signal(@as(u64, 1) | (@as(u64, 130) << 8));
-            arch_frame.rax = 0;
+            syscall_result = 0;
         },
 
         // ------------------------------------------------------------------------ //
@@ -1192,11 +1201,11 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .blk_write => {
             const current_task: innigkeit.Task.Current = .get();
             if (!checkEntitlement(current_task, "storage")) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
             const spec_ptr = syscall_frame.arg(.one);
-            arch_frame.rax = handlers.framebuffer.syscallBlkWrite(spec_ptr, current_task);
+            syscall_result = handlers.framebuffer.syscallBlkWrite(spec_ptr, current_task);
         },
 
         // ------------------------------------------------------------------ //
@@ -1208,7 +1217,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const name_len = syscall_frame.arg(.two);
             const flags_raw = syscall_frame.arg(.three);
             const current_task: innigkeit.Task.Current = .get();
-            arch_frame.rax = handlers.fs_handler.syscallFsOpen(name_ptr, name_len, flags_raw, current_task);
+            syscall_result = handlers.fs_handler.syscallFsOpen(name_ptr, name_len, flags_raw, current_task);
         },
 
         // ------------------------------------------------------------------ //
@@ -1219,7 +1228,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const buf_ptr = syscall_frame.arg(.two);
             const buf_len = syscall_frame.arg(.three);
             const current_task: innigkeit.Task.Current = .get();
-            arch_frame.rax = handlers.fs_handler.syscallFsRead(fd, buf_ptr, buf_len, current_task);
+            syscall_result = handlers.fs_handler.syscallFsRead(fd, buf_ptr, buf_len, current_task);
         },
 
         // ------------------------------------------------------------------ //
@@ -1230,7 +1239,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const buf_ptr = syscall_frame.arg(.two);
             const buf_len = syscall_frame.arg(.three);
             const current_task: innigkeit.Task.Current = .get();
-            arch_frame.rax = handlers.fs_handler.syscallFsWrite(fd, buf_ptr, buf_len, current_task);
+            syscall_result = handlers.fs_handler.syscallFsWrite(fd, buf_ptr, buf_len, current_task);
         },
 
         // ------------------------------------------------------------------ //
@@ -1239,7 +1248,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .fs_close => {
             const fd = syscall_frame.arg(.one);
             const current_task: innigkeit.Task.Current = .get();
-            arch_frame.rax = handlers.fs_handler.syscallFsClose(fd, current_task);
+            syscall_result = handlers.fs_handler.syscallFsClose(fd, current_task);
         },
 
         // ------------------------------------------------------------------ //
@@ -1255,14 +1264,14 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
                 2 => innigkeit.Executor.CoreType.e_core,
                 else => innigkeit.Executor.CoreType.unknown,
             };
-            arch_frame.rax = 0;
+            syscall_result = 0;
         },
 
         // ------------------------------------------------------------------ //
         // efi_var_get / efi_var_set: stubs, not yet implemented.             //
         // ------------------------------------------------------------------ //
         .efi_var_get, .efi_var_set => {
-            arch_frame.rax = errCode(e.ENOSYS);
+            syscall_result = errCode(e.ENOSYS);
         },
 
         // ------------------------------------------------------------------ //
@@ -1273,9 +1282,9 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .blk_disk_size => {
             const dev_idx: usize = syscall_frame.arg(.one);
             if (innigkeit.drivers.virtio.blk.diskSectorCount(dev_idx)) |sectors| {
-                arch_frame.rax = @intCast(sectors);
+                syscall_result = @intCast(sectors);
             } else {
-                arch_frame.rax = errCode(e.ENODEV);
+                syscall_result = errCode(e.ENODEV);
             }
         },
 
@@ -1287,12 +1296,12 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .mouse_read => {
             const current_task: innigkeit.Task.Current = .get();
             if (!checkEntitlement(current_task, "mouse")) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
             const buf_ptr = syscall_frame.arg(.one);
             const buf_len = syscall_frame.arg(.two);
-            arch_frame.rax = handlers.framebuffer.syscallMouseRead(buf_ptr, buf_len, current_task);
+            syscall_result = handlers.framebuffer.syscallMouseRead(buf_ptr, buf_len, current_task);
         },
 
         // ------------------------------------------------------------------ //
@@ -1304,7 +1313,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const w: u32 = @truncate(syscall_frame.arg(.one));
             const h: u32 = @truncate(syscall_frame.arg(.two));
             innigkeit.drivers.virtio.gpu.flush(w, h) catch {};
-            arch_frame.rax = 0;
+            syscall_result = 0;
         },
 
         // ------------------------------------------------------------------ //
@@ -1314,10 +1323,10 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .net_set_ip => {
             const current_task: innigkeit.Task.Current = .get();
             if (!checkEntitlement(current_task, "network")) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
-            arch_frame.rax = handlers.net.syscallNetSetIp(syscall_frame.arg(.one));
+            syscall_result = handlers.net.syscallNetSetIp(syscall_frame.arg(.one));
         },
 
         // ------------------------------------------------------------------ //
@@ -1326,10 +1335,10 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .net_get_mac => {
             const current_task: innigkeit.Task.Current = .get();
             if (!checkEntitlement(current_task, "network")) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
-            arch_frame.rax = handlers.net.syscallNetGetMac(syscall_frame.arg(.one), current_task);
+            syscall_result = handlers.net.syscallNetGetMac(syscall_frame.arg(.one), current_task);
         },
 
         // ------------------------------------------------------------------ //
@@ -1338,10 +1347,10 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .net_udp_open => {
             const current_task: innigkeit.Task.Current = .get();
             if (!checkEntitlement(current_task, "network")) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
-            arch_frame.rax = handlers.net.syscallNetUdpOpen(syscall_frame.arg(.one));
+            syscall_result = handlers.net.syscallNetUdpOpen(syscall_frame.arg(.one));
         },
 
         // ------------------------------------------------------------------ //
@@ -1350,10 +1359,10 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .net_udp_send => {
             const current_task_net_send: innigkeit.Task.Current = .get();
             if (!checkEntitlement(current_task_net_send, "network")) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
-            arch_frame.rax = handlers.net.syscallNetUdpSend(
+            syscall_result = handlers.net.syscallNetUdpSend(
                 syscall_frame.arg(.one),
                 syscall_frame.arg(.two),
                 syscall_frame.arg(.three),
@@ -1369,10 +1378,10 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .net_udp_recv => {
             const current_task_net_recv: innigkeit.Task.Current = .get();
             if (!checkEntitlement(current_task_net_recv, "network")) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
-            arch_frame.rax = handlers.net.syscallNetUdpRecv(
+            syscall_result = handlers.net.syscallNetUdpRecv(
                 syscall_frame.arg(.one),
                 syscall_frame.arg(.two),
                 syscall_frame.arg(.three),
@@ -1388,10 +1397,10 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .net_udp_recv_nb => {
             const current_task_net_recv_nb: innigkeit.Task.Current = .get();
             if (!checkEntitlement(current_task_net_recv_nb, "network")) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
-            arch_frame.rax = handlers.net.syscallNetUdpRecvNb(
+            syscall_result = handlers.net.syscallNetUdpRecvNb(
                 syscall_frame.arg(.one),
                 syscall_frame.arg(.two),
                 syscall_frame.arg(.three),
@@ -1405,10 +1414,10 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .net_udp_close => {
             const current_task_net_close: innigkeit.Task.Current = .get();
             if (!checkEntitlement(current_task_net_close, "network")) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
-            arch_frame.rax = handlers.net.syscallNetUdpClose(syscall_frame.arg(.one));
+            syscall_result = handlers.net.syscallNetUdpClose(syscall_frame.arg(.one));
         },
 
         // ------------------------------------------------------------------ //
@@ -1417,10 +1426,10 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .net_ping => {
             const current_task_net_ping: innigkeit.Task.Current = .get();
             if (!checkEntitlement(current_task_net_ping, "network")) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
-            arch_frame.rax = handlers.net.syscallNetPing(
+            syscall_result = handlers.net.syscallNetPing(
                 syscall_frame.arg(.one),
                 syscall_frame.arg(.two),
             );
@@ -1432,15 +1441,15 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .net_tcp_listen => {
             const task_tcp_listen: innigkeit.Task.Current = .get();
             if (!checkEntitlement(task_tcp_listen, "network")) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
             const port: u16 = @truncate(syscall_frame.arg(.one));
             const id = innigkeit.net.socket.openTcpListener(port) orelse {
-                arch_frame.rax = errCode(e.ENOMEM);
-                return;
+                syscall_result = errCode(e.ENOMEM);
+                return syscall_result;
             };
-            arch_frame.rax = id;
+            syscall_result = id;
         },
 
         // ------------------------------------------------------------------ //
@@ -1449,15 +1458,15 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .net_tcp_accept => {
             const task_tcp_accept: innigkeit.Task.Current = .get();
             if (!checkEntitlement(task_tcp_accept, "network")) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
             const lid: u8 = @truncate(syscall_frame.arg(.one));
             const id = innigkeit.net.socket.tcpAccept(lid) orelse {
-                arch_frame.rax = errCode(e.EAGAIN);
-                return;
+                syscall_result = errCode(e.EAGAIN);
+                return syscall_result;
             };
-            arch_frame.rax = id;
+            syscall_result = id;
         },
 
         // ------------------------------------------------------------------ //
@@ -1467,24 +1476,24 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .net_tcp_connect => {
             const task_tcp_connect: innigkeit.Task.Current = .get();
             if (!checkEntitlement(task_tcp_connect, "network")) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
             const dst_ip_raw: u32 = @truncate(syscall_frame.arg(.one));
             const dst_port: u16 = @truncate(syscall_frame.arg(.two));
             const src_port: u16 = @truncate(syscall_frame.arg(.three));
             const dst_ip: [4]u8 = @bitCast(std.mem.nativeToBig(u32, dst_ip_raw));
             const id = innigkeit.net.socket.openTcpConnect(src_port, dst_ip, dst_port) orelse {
-                arch_frame.rax = errCode(e.ENOMEM);
-                return;
+                syscall_result = errCode(e.ENOMEM);
+                return syscall_result;
             };
             // Block until ESTABLISHED (or fail).
             if (!innigkeit.net.socket.tcpWaitConnected(id)) {
                 innigkeit.net.socket.closeTcp(id);
-                arch_frame.rax = errCode(e.ENODEV);
-                return;
+                syscall_result = errCode(e.ENODEV);
+                return syscall_result;
             }
-            arch_frame.rax = id;
+            syscall_result = id;
         },
 
         // ------------------------------------------------------------------ //
@@ -1493,8 +1502,8 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .net_tcp_send => {
             const task_tcp_send: innigkeit.Task.Current = .get();
             if (!checkEntitlement(task_tcp_send, "network")) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
             const sock_id_s: u8 = @truncate(syscall_frame.arg(.one));
             const buf_ptr = syscall_frame.arg(.two);
@@ -1502,13 +1511,13 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             // tcpSend consumes the user buffer directly; keep one explicit
             // access window around the streaming send.
             const buf_send = validate.userSliceConst(buf_ptr, buf_len) catch {
-                arch_frame.rax = errCode(e.EFAULT);
-                return;
+                syscall_result = errCode(e.EFAULT);
+                return syscall_result;
             };
             const access: validate.UserAccess = .acquire();
             defer access.release();
             const sent = innigkeit.net.socket.tcpSend(sock_id_s, buf_send);
-            arch_frame.rax = sent;
+            syscall_result = sent;
         },
 
         // ------------------------------------------------------------------ //
@@ -1517,8 +1526,8 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .net_tcp_recv => {
             const task_tcp_recv: innigkeit.Task.Current = .get();
             if (!checkEntitlement(task_tcp_recv, "network")) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
             const sock_id_r: u8 = @truncate(syscall_frame.arg(.one));
             const buf_ptr = syscall_frame.arg(.two);
@@ -1526,16 +1535,16 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             // tcpRecv fills the user buffer directly; keep one explicit
             // access window around the streaming receive.
             const buf_recv = validate.userSlice(buf_ptr, buf_len) catch {
-                arch_frame.rax = errCode(e.EFAULT);
-                return;
+                syscall_result = errCode(e.EFAULT);
+                return syscall_result;
             };
             const access: validate.UserAccess = .acquire();
             defer access.release();
             const n = innigkeit.net.socket.tcpRecv(sock_id_r, buf_recv);
             if (n == 0) {
-                arch_frame.rax = errCode(e.EAGAIN);
+                syscall_result = errCode(e.EAGAIN);
             } else {
-                arch_frame.rax = n;
+                syscall_result = n;
             }
         },
 
@@ -1545,7 +1554,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         .net_tcp_close => {
             const sock_id_c: u8 = @truncate(syscall_frame.arg(.one));
             innigkeit.net.socket.closeTcp(sock_id_c);
-            arch_frame.rax = 0;
+            syscall_result = 0;
         },
 
         // ------------------------------------------------------------------ //
@@ -1558,10 +1567,10 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
             const current_task: innigkeit.Task.Current = .get();
             const flags: u32 = @truncate(syscall_frame.arg(.three));
             if (flags & 1 != 0 and !checkEntitlement(current_task, "storage")) {
-                arch_frame.rax = errCode(e.EPERM);
-                return;
+                syscall_result = errCode(e.EPERM);
+                return syscall_result;
             }
-            arch_frame.rax = handlers.file.syscallOpen(
+            syscall_result = handlers.file.syscallOpen(
                 syscall_frame.arg(.one),
                 syscall_frame.arg(.two),
                 syscall_frame.arg(.three),
@@ -1574,7 +1583,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         // ------------------------------------------------------------------ //
         .close => {
             const current_task: innigkeit.Task.Current = .get();
-            arch_frame.rax = handlers.file.syscallClose(syscall_frame.arg(.one), current_task);
+            syscall_result = handlers.file.syscallClose(syscall_frame.arg(.one), current_task);
         },
 
         // ------------------------------------------------------------------ //
@@ -1583,7 +1592,7 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         // ------------------------------------------------------------------ //
         .lseek => {
             const current_task: innigkeit.Task.Current = .get();
-            arch_frame.rax = handlers.file.syscallLseek(
+            syscall_result = handlers.file.syscallLseek(
                 syscall_frame.arg(.one),
                 syscall_frame.arg(.two),
                 syscall_frame.arg(.three),
@@ -1598,13 +1607,15 @@ pub fn onSyscall(syscall_frame: architecture.user.SyscallFrame) void {
         // ------------------------------------------------------------------ //
         .fstat => {
             const current_task: innigkeit.Task.Current = .get();
-            arch_frame.rax = handlers.file.syscallFstat(
+            syscall_result = handlers.file.syscallFstat(
                 syscall_frame.arg(.one),
                 syscall_frame.arg(.two),
                 current_task,
             );
         },
     }
+
+    return syscall_result;
 }
 
 /// Kernel-side entry for threads spawned via the spawn_thread syscall.

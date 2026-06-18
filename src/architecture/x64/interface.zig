@@ -67,6 +67,7 @@ pub const functions: architecture.Functions = .{
         .enterUserspace = x64.user.enterUserspace,
         .syscallFromSyscallFrame = x64.user.SyscallFrame.syscall,
         .argFromSyscallFrame = x64.user.SyscallFrame.arg,
+        .setReturnValueOnSyscallFrame = x64.user.SyscallFrame.setReturnValue,
 
         .init = .{
             .initialize = x64.user.init.initialize,

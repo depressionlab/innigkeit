@@ -80,6 +80,7 @@ pub const functions: architecture.Functions = .{
         .enterUserspace = arm.user.enterUserspace,
         .syscallFromSyscallFrame = arm.SyscallFrame.syscall,
         .argFromSyscallFrame = arm.SyscallFrame.arg,
+        .setReturnValueOnSyscallFrame = arm.SyscallFrame.setReturnValue,
 
         .init = .{
             .initialize = arm.user.init.initialize,

@@ -37,7 +37,12 @@ pub const SyscallFrame = extern struct {
         });
     }
 
-    pub inline fn setReturn(self: *SyscallFrame, value: usize) void {
+    /// Write the syscall return value into the architecture's return register.
+    ///
+    /// On AArch64 the syscall return value is delivered in `x0`. The generic
+    /// dispatcher must never name `x0` directly; it returns the result and
+    /// this function places it in the correct register.
+    pub inline fn setReturnValue(self: *SyscallFrame, value: usize) void {
         self.x0 = value;
     }
 

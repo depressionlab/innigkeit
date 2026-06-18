@@ -175,11 +175,14 @@ pub const DeferredAction = struct {
 /// It is the callers responsibility to ensure the task can be unblocked when necessary and to set the task's state to `.blocked` in the
 /// provided `DeferredAction`.
 ///
-/// A new scheduler handle will be returned, this must be unlocked by the caller instead of the scheduler handle that was passed in.
-pub fn block(self: Handle, deferred_action: DeferredAction) Handle {
+/// The scheduler handle is mutated in place on return: the task may resume on a
+/// different executor than it blocked on, so `self` is re-derived to that
+/// executor's scheduler. Callers keep using the same handle and cannot
+/// accidentally hold a stale handle to the old executor's scheduler.
+pub fn block(self: *Handle, deferred_action: DeferredAction) void {
     self.dropWithDeferredAction(deferred_action, .yes);
-    // we return a new scheduler handle here as the task may be on a different executor now
-    return .{ .scheduler = &innigkeit.Task.Current.get().knownExecutor().scheduler };
+    // the task may be on a different executor now
+    self.* = .{ .scheduler = &innigkeit.Task.Current.get().knownExecutor().scheduler };
 }
 
 const TaskResume = enum { yes, no };

@@ -109,11 +109,17 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
 
                     var caches_created: usize = 0;
 
+                    // Size by the per-page array, not a single RawCache: each
+                    // page holds `QUANTUM_CACHES_PER_PAGE` caches, and that is
+                    // `floor(page_size / sizeof(RawCache))`. Sizing by a single
+                    // RawCache under-counts pages whenever RawCache does not
+                    // divide the page evenly, silently creating fewer quantum
+                    // caches than requested.
                     const pages_to_allocate = architecture.paging.standard_page_size.amountToCover(
-                        core.Size.of(RawCache).multiplyScalar(count),
+                        core.Size.of([globals.QUANTUM_CACHES_PER_PAGE]RawCache).multiplyScalar(count),
                     );
 
-                    for (0..pages_to_allocate) |_| {
+                    outer: for (0..pages_to_allocate) |_| {
                         const page = innigkeit.mem.PhysicalPage.allocator.allocate() catch
                             @panic("heap quantum cache allocation failed!");
                         pages.prepend(page);
@@ -135,9 +141,14 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
 
                             self.quantum_caches.caches.append(cache) catch unreachable;
 
-                            if (caches_created == count) break;
+                            // Break the OUTER loop: a bare `break` would leave
+                            // the page loop running, over-creating caches past
+                            // `count` into the next page.
+                            if (caches_created == count) break :outer;
                         }
                     }
+
+                    std.debug.assert(caches_created == count);
 
                     self.quantum_caches.allocation = pages;
                     self.quantum_caches.max_cached_size = count * options.quantum;

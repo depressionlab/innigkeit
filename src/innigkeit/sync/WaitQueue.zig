@@ -57,20 +57,18 @@ pub fn wait(self: *WaitQueue, spinlock: *innigkeit.sync.TicketSpinLock) void {
     var scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
     defer scheduler_handle.unlock();
 
-    scheduler_handle = scheduler_handle.block(
-        .{
-            .action = struct {
-                fn action(old_task: *innigkeit.Task, arg: usize) void {
-                    const inner_spinlock: *innigkeit.sync.TicketSpinLock = @ptrFromInt(arg);
+    scheduler_handle.block(.{
+        .action = struct {
+            fn action(old_task: *innigkeit.Task, arg: usize) void {
+                const inner_spinlock: *innigkeit.sync.TicketSpinLock = @ptrFromInt(arg);
 
-                    old_task.state = .blocked;
-                    old_task.spinlocks_held -= 1;
-                    _ = old_task.interrupt_disable_count.fetchSub(1, .acq_rel);
+                old_task.state = .blocked;
+                old_task.spinlocks_held -= 1;
+                _ = old_task.interrupt_disable_count.fetchSub(1, .acq_rel);
 
-                    inner_spinlock.unsafeUnlock();
-                }
-            }.action,
-            .arg = @intFromPtr(spinlock),
-        },
-    );
+                inner_spinlock.unsafeUnlock();
+            }
+        }.action,
+        .arg = @intFromPtr(spinlock),
+    });
 }
