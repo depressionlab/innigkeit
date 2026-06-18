@@ -5,20 +5,16 @@
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .limine_bin = .{
-            .url = "https://github.com/Limine-Bootloader/Limine/releases/download/v12.3.2/limine-binary.tar.xz",
-            .hash = "N-V-__8AAD2-UwDdEuTWV8TVUAMAfVbMLoEPH904Lh_LJ1SO",
-        },
-        .zuacpi = .{
-            .url = "git+https://github.com/uACPI/zuacpi?ref=main#6f88614bc41ed88a57d3653356ba49d3d67cf230",
-            .hash = "zuacpi-0.0.0--wIHKOX0AACbkHtvOdsN2pbw4SW62_40EhLGqRjX0msj",
+            .url = "https://github.com/Limine-Bootloader/Limine/releases/download/v12.3.3/limine-binary.tar.xz",
+            .hash = "N-V-__8AAIP9UwApsZhdYC0jFNncD8o9TNmj9mBlLF89WRue",
         },
         .edk2 = .{
-            .url = "https://github.com/rust-osdev/ovmf-prebuilt/releases/download/edk2-stable202602-r1/edk2-stable202602-r1-bin.tar.xz",
-            .hash = "N-V-__8AAMDxxwxp8UiIRV4nhhm0cc_J35Cw5TxKQye7IKNQ",
+            .url = "https://github.com/rust-osdev/ovmf-prebuilt/releases/download/edk2-stable202605-r1/edk2-stable202605-r1-bin.tar.xz",
+            .hash = "N-V-__8AAAA7yAyUqa50PddDh8dD3fVJb8Q8W9ZuaSgDBlJn",
         },
         .flanterm = .{
-            .url = "git+https://github.com/Mintsuki/Flanterm#dfa1922c0749faf64c4423a81b233a20c08a7db7",
-            .hash = "N-V-__8AAFzMAgDhyvYa59SK9LFVE_zEawBdmp0lEe171fcp",
+            .url = "git+https://github.com/Mintsuki/Flanterm#e231edd0e508022521c8233392aabc8ce5c9b242",
+            .hash = "N-V-__8AAO3JAgDxsQ54myF0biQHILa5EbAr8LC7iEzSAioX",
         },
         .uacpi = .{
             .url = "git+https://github.com/uACPI/uACPI?ref=4.0.0#e05715b2e6a3ae913aecdb86f4fd2dba30304e45",
