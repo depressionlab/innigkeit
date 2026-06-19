@@ -17,8 +17,8 @@
             .hash = "N-V-__8AAO3JAgDxsQ54myF0biQHILa5EbAr8LC7iEzSAioX",
         },
         .uacpi = .{
-            .url = "git+https://github.com/uACPI/uACPI?ref=4.0.0#e05715b2e6a3ae913aecdb86f4fd2dba30304e45",
-            .hash = "N-V-__8AACf_EwAqU0c833d6mIfScf7rsW0lDps-JYnPWiqY",
+            .url = "git+https://github.com/uACPI/uACPI?ref=5.0.0#bff774beb90980bea18c5f297c7e3135bcd685b8",
+            .hash = "N-V-__8AAPJOKQCmvBm20OcVV9z7cnNcWOy4bfb9d-p-iJr9",
         },
         .devicetree = .{
             .url = "git+https://github.com/CascadeOS/zig-devicetree#53ec12cb0e724c16ee9cebb04ed3e97ff93ef82c",

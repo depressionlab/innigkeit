@@ -59,6 +59,7 @@ pub fn custom(
 
         const uacpi_dep = b.dependency("uacpi", .{});
 
+        module.addIncludePath(uacpi_dep.path("include"));
         module.addCSourceFiles(.{
             .root = uacpi_dep.path("source"),
             .files = &.{
@@ -87,7 +88,6 @@ pub fn custom(
                 "-DUACPI_SIZED_FREES=1",
             },
         });
-        module.addIncludePath(uacpi_dep.path("include"));
 
         const translator = b.addTranslateC(.{
             .root_source_file = b.addWriteFiles().add("uacpi_api.h",
