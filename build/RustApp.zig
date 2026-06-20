@@ -15,7 +15,7 @@ pub const RustApp = struct {
 /// `crate_dir` is accepted for compatibility but unused (workspace controls the build).
 pub fn build(b: *std.Build, name: []const u8, crate_dir: []const u8) RustApp {
     _ = crate_dir;
-    const workspace_manifest = b.path("Cargo.toml").getPath(b);
+    const workspace_manifest = b.path("Cargo.toml").getPath2(b, b.default_step);
 
     const cargo = b.addSystemCommand(&.{
         "cargo",           "build",            "--release",

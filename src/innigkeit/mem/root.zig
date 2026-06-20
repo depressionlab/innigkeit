@@ -294,12 +294,138 @@ pub fn changeProtection(
     }
 }
 
+/// Fault-tolerant memory access.
+///
+/// `safe.memcpy` performs a copy that, if it hits an unhandleable page fault
+/// (e.g. a bad user pointer passed to a syscall), returns `error.BadAddress`
+/// instead of panicking the kernel.
+///
+/// Fault recovery currently takes effect on x64 (whose page-fault path routes
+/// here); on arm the copy works but an unhandleable fault still panics until the
+/// arm data-abort path is routed to `onPageFault`.
+pub const safe = struct {
+    pub const MemcpyError = error{BadAddress};
+
+    pub const ResultSlot = struct {
+        /// Set to `false` by the page-fault handler if the access faulted.
+        successful: bool,
+        /// Address the page-fault handler resumes at on a fault.
+        target: innigkeit.KernelVirtualAddress,
+        /// When `true`, the page-fault handler fixes up **immediately** on any
+        /// fault (before demand-paging or re-enabling interrupts) so the
+        /// access is safe even with a spinlock held (used by `atomicLoadU32`).
+        /// When `false`, normal demand paging is attempted first and the fixup
+        /// runs only for an otherwise-unhandleable fault (used by `memcpy`).
+        immediate: bool,
+    };
+
+    pub const Args = struct {
+        destination: innigkeit.VirtualRange,
+        source: innigkeit.VirtualRange,
+    };
+
+    /// Copy `args.source` to `args.destination`, returning `error.BadAddress` if
+    /// an unhandleable page fault occurs.
+    ///
+    /// Caller must ensure `args.destination.size >= args.source.size`. Copy
+    /// direction is unspecified, so overlapping ranges are UB.
+    pub fn memcpy(args: Args) MemcpyError!void {
+        std.debug.assert(args.destination.size.greaterThanOrEqual(args.source.size));
+
+        const current_task: innigkeit.Task.Current = .get();
+
+        const user_involved = isUserRange(args.destination) or isUserRange(args.source);
+        if (user_involved) current_task.incrementEnableAccessToUserMemory();
+        defer if (user_involved) current_task.decrementEnableAccessToUserMemory();
+
+        var slot: ResultSlot = .{ .successful = true, .target = undefined, .immediate = false };
+
+        const previous = current_task.task.safe_result_slot.swap(&slot, .monotonic);
+        std.debug.assert(previous == null); // safe copies do not nest
+        defer std.debug.assert(current_task.task.safe_result_slot.swap(null, .monotonic) == &slot);
+
+        architecture.paging.safeMemcpy(args.destination, args.source, &slot.target);
+
+        if (!slot.successful) {
+            @branchHint(.cold);
+            return error.BadAddress;
+        }
+    }
+
+    /// Atomically load a `u32` from `address` (acquire ordering), returning
+    /// `error.BadAddress` if the access faults or `address` is misaligned.
+    ///
+    /// Unlike `memcpy` this is **safe to call with a spinlock held**: a fault is
+    /// fixed up immediately, without demand-paging or re-enabling interrupts.
+    /// Used by the futex word check, where the load must be atomic (for
+    /// lost-wakeup correctness) and happens under the futex bucket lock.
+    /// (Fault recovery is active on x64; see the arm note above.)
+    pub fn atomicLoadU32(address: innigkeit.VirtualAddress) MemcpyError!u32 {
+        if (address.value % @alignOf(u32) != 0) return error.BadAddress;
+
+        const current_task: innigkeit.Task.Current = .get();
+
+        const user_involved = switch (address.tagged()) {
+            .user => true,
+            .kernel, .invalid => false,
+        };
+        if (user_involved) current_task.incrementEnableAccessToUserMemory();
+        defer if (user_involved) current_task.decrementEnableAccessToUserMemory();
+
+        var value: u32 = undefined;
+        var slot: ResultSlot = .{ .successful = true, .target = undefined, .immediate = true };
+
+        const previous = current_task.task.safe_result_slot.swap(&slot, .monotonic);
+        std.debug.assert(previous == null);
+        defer std.debug.assert(current_task.task.safe_result_slot.swap(null, .monotonic) == &slot);
+
+        architecture.paging.safeAtomicLoad32(address, &value, &slot.target);
+
+        if (!slot.successful) {
+            @branchHint(.cold);
+            return error.BadAddress;
+        }
+        return value;
+    }
+
+    fn isUserRange(range: innigkeit.VirtualRange) bool {
+        return switch (range.tagged()) {
+            .user => true,
+            .kernel, .invalid => false,
+        };
+    }
+};
+
+/// If a `safe.memcpy` is in progress, point the faulting instruction at its
+/// recovery target and mark the copy failed; returns true if it did so.
+fn tryFixupSafeCopy(interrupt_frame: architecture.interrupts.InterruptFrame) bool {
+    const slot = innigkeit.Task.Current.get().task.safe_result_slot.load(.monotonic) orelse return false;
+    slot.successful = false;
+    interrupt_frame.setInstructionPointer(slot.target.toVirtualAddress());
+    return true;
+}
+
 /// Executed upon page fault.
 pub fn onPageFault(
     page_fault_details: PageFaultDetails,
     interrupt_frame: architecture.interrupts.InterruptFrame,
 ) void {
     const current_task: innigkeit.Task.Current = .get();
+
+    // Immediate fixup for a fault-safe atomic load (which may run under a
+    // spinlock): redirect to the recovery point WITHOUT decrementing the
+    // interrupt-disable count (re-enabling interrupts) or attempting demand
+    // paging, so it is safe in any context. `onInterruptExit` restores the
+    // interrupt-disable count saved on entry.
+    if (current_task.task.safe_result_slot.load(.monotonic)) |slot| {
+        if (slot.immediate) {
+            @branchHint(.cold);
+            slot.successful = false;
+            interrupt_frame.setInstructionPointer(slot.target.toVirtualAddress());
+            return;
+        }
+    }
+
     current_task.decrementInterruptDisable();
 
     switch (page_fault_details.faulting_context) {
@@ -318,7 +444,7 @@ fn onKernelPageFault(
     page_fault_details: PageFaultDetails,
     interrupt_frame: architecture.interrupts.InterruptFrame,
 ) void {
-    switch (page_fault_details.faulting_address.getType()) {
+    switch (page_fault_details.faulting_address.tagged()) {
         .user => {
             const process: *innigkeit.user.Process = blk: {
                 const current_task: innigkeit.Task.Current = .get();
@@ -340,6 +466,8 @@ fn onKernelPageFault(
             if (!page_fault_details.faulting_context.kernel.access_to_user_memory_enabled) {
                 @branchHint(.cold);
 
+                if (tryFixupSafeCopy(interrupt_frame)) return;
+
                 innigkeit.debug.interruptSourcePanic(
                     interrupt_frame,
                     "kernel accessed user memory\n{f}",
@@ -347,16 +475,21 @@ fn onKernelPageFault(
                 );
             }
 
-            process.address_space.handlePageFault(page_fault_details) catch |err|
+            process.address_space.handlePageFault(page_fault_details) catch |err| {
+                if (tryFixupSafeCopy(interrupt_frame)) return;
+
                 innigkeit.debug.interruptSourcePanic(
                     interrupt_frame,
                     "kernel page fault in user memory failed: {t}\n{f}",
                     .{ err, page_fault_details },
                 );
+            };
         },
-        .kernel => {
-            const region_type = globals.regions.containingAddress(page_fault_details.faulting_address.toKernel()) orelse {
+        .kernel => |address| {
+            const region_type = globals.regions.containingAddress(address) orelse {
                 @branchHint(.cold);
+
+                if (tryFixupSafeCopy(interrupt_frame)) return;
 
                 innigkeit.debug.interruptSourcePanic(
                     interrupt_frame,
@@ -373,15 +506,22 @@ fn onKernelPageFault(
                             "no memory available to handle page fault in kernel address space!\n{f}",
                             .{page_fault_details},
                         ),
-                        error.Protection, error.NotMapped => |e| innigkeit.debug.interruptSourcePanic(
-                            interrupt_frame,
-                            "failed to handle page fault in kernel address space: {t}!\n{f}",
-                            .{ e, page_fault_details },
-                        ),
+                        error.Protection, error.NotMapped => |e| {
+                            if (tryFixupSafeCopy(interrupt_frame)) return;
+
+                            innigkeit.debug.interruptSourcePanic(
+                                interrupt_frame,
+                                "failed to handle page fault in kernel address space: {t}!\n{f}",
+                                .{ e, page_fault_details },
+                            );
+                        },
                     };
                 },
                 else => |t| {
                     @branchHint(.cold);
+
+                    if (tryFixupSafeCopy(interrupt_frame)) return;
+
                     innigkeit.debug.interruptSourcePanic(
                         interrupt_frame,
                         "kernel page fault in '{t}'\n{f}",
@@ -393,6 +533,8 @@ fn onKernelPageFault(
         .invalid => {
             @branchHint(.cold);
 
+            if (tryFixupSafeCopy(interrupt_frame)) return;
+
             innigkeit.debug.interruptSourcePanic(
                 interrupt_frame,
                 "kernel page fault with invalid address\n{f}",
@@ -400,4 +542,46 @@ fn onKernelPageFault(
             );
         },
     }
+}
+
+test "safe.memcpy: unmapped source returns BadAddress instead of panicking" {
+    // The fault-recovery fixup is only wired on x64 today (arm data aborts are
+    // not yet routed to onPageFault), so on arm this deliberate fault would hit
+    // the diagnostic panic.
+    if (comptime @import("builtin").cpu.arch != .x86_64) return error.SkipZigTest;
+
+    const address_space = kernelAddressSpace();
+
+    // Map a page then unmap it: the address stays inside the kernel region but is
+    // no longer backed, so any access faults unhandleably.
+    const range = try address_space.map(.{
+        .size = architecture.paging.standard_page_size,
+        .protection = .{ .read = true, .write = true },
+        .type = .zero_fill,
+    });
+    try address_space.unmap(range);
+
+    var destination: [8]u8 = undefined;
+    try std.testing.expectError(error.BadAddress, safe.memcpy(.{
+        .destination = .from(.from(@intFromPtr(&destination)), .from(destination.len, .byte)),
+        .source = .{ .address = range.address, .size = .from(destination.len, .byte) },
+    }));
+}
+
+test "safe.atomicLoadU32: unmapped address returns BadAddress instead of panicking" {
+    // Immediate-fixup fault recovery is wired on x64 only (arm data aborts are
+    // not routed to onPageFault yet); skip there.
+    if (comptime @import("builtin").cpu.arch != .x86_64) return error.SkipZigTest;
+
+    const address_space = kernelAddressSpace();
+    const range = try address_space.map(.{
+        .size = architecture.paging.standard_page_size,
+        .protection = .{ .read = true, .write = true },
+        .type = .zero_fill,
+    });
+    try address_space.unmap(range);
+
+    // A fault-safe atomic load from the now-unmapped page must fail cleanly,
+    // not panic (this is the futex word-check DoS guard).
+    try std.testing.expectError(error.BadAddress, safe.atomicLoadU32(range.address));
 }

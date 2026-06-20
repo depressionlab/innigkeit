@@ -55,7 +55,7 @@ pub fn getMac() ?[6]u8 {
 
 /// Send one ICMP echo request and return the RTT in ms.
 /// Returns `error.NoDevice` on timeout or if no NIC is present.
-pub fn ping(dst_ip: Ip4, timeout_ms: u32) Syscall.Error!u64 {
+pub fn ping(dst_ip: Ip4, timeout_ms: u32) innigkeit.Error.Syscall!u64 {
     const ip_u32: u32 = std.mem.readInt(u32, &dst_ip, .big);
     const r = Syscall.invoke(.net_ping, .{ @as(usize, ip_u32), @as(usize, timeout_ms) });
     return Syscall.decode(r);
@@ -66,14 +66,14 @@ pub const UdpSocket = struct {
     id: u32,
 
     /// Open a UDP socket bound to `port`.
-    pub fn open(port: u16) Syscall.Error!UdpSocket {
+    pub fn open(port: u16) innigkeit.Error.Syscall!UdpSocket {
         const r = Syscall.invoke(.net_udp_open, .{@as(usize, port)});
         const id = try Syscall.decode(r);
         return .{ .id = @intCast(id) };
     }
 
     /// Send `data` to `dst_ip:dst_port`.
-    pub fn send(self: UdpSocket, dst_ip: Ip4, dst_port: u16, data: []const u8) Syscall.Error!void {
+    pub fn send(self: UdpSocket, dst_ip: Ip4, dst_port: u16, data: []const u8) innigkeit.Error.Syscall!void {
         const ip_u32: u32 = std.mem.readInt(u32, &dst_ip, .big);
         const r = Syscall.invoke(.net_udp_send, .{
             @as(usize, self.id),
@@ -88,7 +88,7 @@ pub const UdpSocket = struct {
     /// Blocking receive. Fills `from` and `buf[0..n]`; blocks until a
     /// datagram arrives. Returns `error.WouldBlock` only if the socket is
     /// invalid or closed.
-    pub fn recv(self: UdpSocket, from: *From, buf: []u8) Syscall.Error!usize {
+    pub fn recv(self: UdpSocket, from: *From, buf: []u8) innigkeit.Error.Syscall!usize {
         const r = Syscall.invoke(.net_udp_recv, .{
             @as(usize, self.id),
             @intFromPtr(from),
@@ -100,7 +100,7 @@ pub const UdpSocket = struct {
 
     /// Non-blocking receive. Fills `from` and `buf[0..n]`.
     /// Returns `error.WouldBlock` immediately if no data is available.
-    pub fn recvNonblocking(self: UdpSocket, from: *From, buf: []u8) Syscall.Error!usize {
+    pub fn recvNonblocking(self: UdpSocket, from: *From, buf: []u8) innigkeit.Error.Syscall!usize {
         const r = Syscall.invoke(.net_udp_recv_nb, .{
             @as(usize, self.id),
             @intFromPtr(from),
@@ -113,7 +113,7 @@ pub const UdpSocket = struct {
     /// Receive with nanosecond timeout.
     /// Polls non-blocking and sleeps 5 ms between polls; returns
     /// `error.WouldBlock` on timeout.
-    pub fn recvTimeout(self: UdpSocket, from: *From, buf: []u8, timeout_ns: u64) Syscall.Error!usize {
+    pub fn recvTimeout(self: UdpSocket, from: *From, buf: []u8, timeout_ns: u64) innigkeit.Error.Syscall!usize {
         const deadline = innigkeit.Syscall.decode(
             innigkeit.Syscall.invoke(.uptime_ms, .{}),
         ) catch 0;
@@ -140,7 +140,7 @@ pub const TcpSocket = struct {
     id: u32,
 
     /// Open a TCP listening socket on `port`.
-    pub fn listen(port: u16) Syscall.Error!TcpSocket {
+    pub fn listen(port: u16) innigkeit.Error.Syscall!TcpSocket {
         const r = Syscall.invoke(.net_tcp_listen, .{@as(usize, port)});
         const id = try Syscall.decode(r);
         return .{ .id = @intCast(id) };
@@ -148,7 +148,7 @@ pub const TcpSocket = struct {
 
     /// Block until an inbound connection arrives on this listener.
     /// Returns `error.WouldBlock` if the kernel-side wait period expires.
-    pub fn accept(self: TcpSocket) Syscall.Error!TcpSocket {
+    pub fn accept(self: TcpSocket) innigkeit.Error.Syscall!TcpSocket {
         const r = Syscall.invoke(.net_tcp_accept, .{@as(usize, self.id)});
         const id = try Syscall.decode(r);
         return .{ .id = @intCast(id) };
@@ -156,7 +156,7 @@ pub const TcpSocket = struct {
 
     /// Initiate an outbound TCP connection to `dst_ip:dst_port` from `src_port`.
     /// Blocks until the three-way handshake completes.
-    pub fn connect(src_port: u16, dst_ip: Ip4, dst_port: u16) Syscall.Error!TcpSocket {
+    pub fn connect(src_port: u16, dst_ip: Ip4, dst_port: u16) innigkeit.Error.Syscall!TcpSocket {
         const ip_u32: u32 = std.mem.readInt(u32, &dst_ip, .big);
         const r = Syscall.invoke(.net_tcp_connect, .{
             @as(usize, ip_u32),
@@ -169,7 +169,7 @@ pub const TcpSocket = struct {
 
     /// Send `data`. Returns bytes sent (may be less than `data.len` if data
     /// exceeds the MSS; caller should loop until all data is sent).
-    pub fn send(self: TcpSocket, data: []const u8) Syscall.Error!usize {
+    pub fn send(self: TcpSocket, data: []const u8) innigkeit.Error.Syscall!usize {
         const r = Syscall.invoke(.net_tcp_send, .{
             @as(usize, self.id),
             @intFromPtr(data.ptr),
@@ -179,7 +179,7 @@ pub const TcpSocket = struct {
     }
 
     /// Send all of `data`, looping until complete.
-    pub fn sendAll(self: TcpSocket, data: []const u8) Syscall.Error!void {
+    pub fn sendAll(self: TcpSocket, data: []const u8) innigkeit.Error.Syscall!void {
         var sent: usize = 0;
         while (sent < data.len) {
             sent += try self.send(data[sent..]);
@@ -187,7 +187,7 @@ pub const TcpSocket = struct {
     }
 
     /// Non-blocking receive. Returns `error.WouldBlock` if no data is available.
-    pub fn recv(self: TcpSocket, buf: []u8) Syscall.Error!usize {
+    pub fn recv(self: TcpSocket, buf: []u8) innigkeit.Error.Syscall!usize {
         const r = Syscall.invoke(.net_tcp_recv, .{
             @as(usize, self.id),
             @intFromPtr(buf.ptr),
@@ -198,7 +198,7 @@ pub const TcpSocket = struct {
 
     /// Blocking receive with nanosecond timeout.
     /// Returns `error.WouldBlock` on timeout.
-    pub fn recvTimeout(self: TcpSocket, buf: []u8, timeout_ns: u64) Syscall.Error!usize {
+    pub fn recvTimeout(self: TcpSocket, buf: []u8, timeout_ns: u64) innigkeit.Error.Syscall!usize {
         const deadline = innigkeit.Syscall.decode(
             innigkeit.Syscall.invoke(.uptime_ms, .{}),
         ) catch 0;

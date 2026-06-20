@@ -15,12 +15,10 @@ pub fn registerQemuSteps(
 ) !void {
     for (architectures) |arch| {
         const qemu = try buildQemuCommand(b, arch, image_steps.get(arch).?.image_file, options);
-        if (options.emulator.wad_path) |wad| {
-            qemu.addArgs(&.{
-                "-device", "virtio-blk-pci,drive=drive1,disable-modern=on,disable-legacy=off",
-                "-drive",  b.fmt("file={s},format=raw,if=none,id=drive1,readonly=on", .{wad}),
-            });
-        }
+        qemu.addArgs(&.{
+            "-device", "virtio-blk-pci,drive=drive1,disable-modern=on,disable-legacy=off",
+            "-drive",  b.fmt("file={s},format=raw,if=none,id=drive1,readonly=on", .{options.emulator.wad_path}),
+        });
         b.step(
             b.fmt("run_{s}", .{@tagName(arch)}),
             b.fmt("Run the {s} image in QEMU", .{@tagName(arch)}),
@@ -225,7 +223,7 @@ fn qemuBinary(b: *std.Build, arch: Bundle.Architecture) []const u8 {
     var exists = false;
 
     std.Io.Dir.accessAbsolute(b.graph.io, local, .{}) catch |e| switch (e) {
-        error.FileNotFound => exists = false,
+        std.Io.Dir.AccessError.FileNotFound => exists = false,
         else => return name,
     };
 

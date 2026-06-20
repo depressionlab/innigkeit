@@ -13,11 +13,12 @@
 const std = @import("std");
 const innigkeit = @import("innigkeit");
 const core = @import("core");
-const validate = @import("../validate.zig");
-const validateUserBuffer = validate.validateUserBuffer;
 const codesign = innigkeit.user.codesign;
-
 const log = innigkeit.debug.log.scoped(.spawn);
+
+const Error = @import("libinnigkeit").Error;
+const Context = @import("../Context.zig");
+const validate = @import("../validate.zig");
 
 /// The layout of the SpawnSpec struct as seen in user memory.
 pub const SpawnSpec = extern struct {
@@ -90,34 +91,33 @@ const fallback_process_name = "?";
 ///
 /// Returns the raw usize to store in rax (Notify handle on success, negated
 /// errno on error).
-pub fn syscallSpawn(
-    spec_ptr_raw: usize,
-    current_task: innigkeit.Task.Current,
-) usize {
-    const parent_process = innigkeit.user.Process.from(current_task.task);
+pub fn spawn(context: Context) Error.Syscall!usize {
+    const spec_ptr_raw = context.arg(.one);
+    const parent_process = context.process();
 
     // -- 1. Validate and read SpawnSpec
-    const spec = validate.readUser(SpawnSpec, spec_ptr_raw) catch return errCode(e.EFAULT);
-    if (spec._pad != 0 or spec._pad2 != 0) return errCode(e.EINVAL);
+    const spec = validate.readUser(SpawnSpec, spec_ptr_raw) catch
+        return Error.Syscall.BadAddress;
+    if (spec._pad != 0 or spec._pad2 != 0) return Error.Syscall.InvalidArgument;
 
     // -- 2. Validate and copy path
-    if (spec.path_len == 0 or spec.path_len > max_path_len) return errCode(e.EINVAL);
+    if (spec.path_len == 0 or spec.path_len > max_path_len) return Error.Syscall.InvalidArgument;
     // +1 for null terminator
-    if (!validateUserBuffer(spec.path, spec.path_len + 1)) return errCode(e.EFAULT);
+    if (!validate.validateUserBuffer(spec.path, spec.path_len + 1)) return Error.Syscall.BadAddress;
 
     const path_buf = innigkeit.mem.heap.allocator.alloc(u8, spec.path_len + 1) catch
-        return errCode(e.ENOMEM);
+        return Error.Syscall.OutOfMemory;
     // Free path_buf on any early return. loadAndStart takes ownership on the
     // happy path (it frees after use), so we track ownership with a sentinel.
     var path_buf_owned = true;
     defer if (path_buf_owned) innigkeit.mem.heap.allocator.free(path_buf);
 
-    validate.copyFromUser(path_buf[0..spec.path_len], spec.path) catch return errCode(e.EFAULT);
+    validate.copyFromUser(path_buf[0..spec.path_len], spec.path) catch return Error.Syscall.BadAddress;
     path_buf[spec.path_len] = 0;
 
     // Reject embedded nulls, they would silently truncate the path passed to the ELF loader.
     if (std.mem.indexOfScalar(u8, path_buf[0..spec.path_len], 0) != null)
-        return errCode(e.EINVAL);
+        return Error.Syscall.InvalidArgument;
 
     const path: [:0]const u8 = path_buf[0..spec.path_len :0];
 
@@ -136,39 +136,39 @@ pub fn syscallSpawn(
     defer if (proc_init_owned) innigkeit.mem.heap.allocator.free(proc_init);
 
     // Validate argc/argv
-    if (spec.argc > max_argc) return errCode(e.EINVAL);
+    if (spec.argc > max_argc) return Error.Syscall.InvalidArgument;
     var user_args: [max_argc]Arg = undefined;
     var total_arg_str_len: usize = 0;
     if (spec.argc > 0) {
         validate.copyFromUser(
             std.mem.sliceAsBytes(user_args[0..spec.argc]),
             spec.argv,
-        ) catch return errCode(e.EFAULT);
+        ) catch return Error.Syscall.BadAddress;
 
         for (user_args[0..spec.argc]) |ua| {
-            if (ua._pad != 0 or ua.len > max_single_arg_len) return errCode(e.EINVAL);
-            if (!validateUserBuffer(ua.ptr, ua.len)) return errCode(e.EFAULT);
+            if (ua._pad != 0 or ua.len > max_single_arg_len) return Error.Syscall.InvalidArgument;
+            if (!validate.validateUserBuffer(ua.ptr, ua.len)) return Error.Syscall.BadAddress;
             total_arg_str_len += ua.len;
         }
-        if (total_arg_str_len > max_total_arg_len) return errCode(e.EINVAL);
+        if (total_arg_str_len > max_total_arg_len) return Error.Syscall.InvalidArgument;
     }
 
     // Validate envc/envp
-    if (spec.envc > max_envc) return errCode(e.EINVAL);
+    if (spec.envc > max_envc) return Error.Syscall.InvalidArgument;
     var user_envs: [max_envc]Arg = undefined;
     var total_env_str_len: usize = 0;
     if (spec.envc > 0) {
         validate.copyFromUser(
             std.mem.sliceAsBytes(user_envs[0..spec.envc]),
             spec.envp,
-        ) catch return errCode(e.EFAULT);
+        ) catch return Error.Syscall.BadAddress;
 
         for (user_envs[0..spec.envc]) |ue| {
-            if (ue._pad != 0 or ue.len > max_single_env_len) return errCode(e.EINVAL);
-            if (!validateUserBuffer(ue.ptr, ue.len)) return errCode(e.EFAULT);
+            if (ue._pad != 0 or ue.len > max_single_env_len) return Error.Syscall.InvalidArgument;
+            if (!validate.validateUserBuffer(ue.ptr, ue.len)) return Error.Syscall.BadAddress;
             total_env_str_len += ue.len;
         }
-        if (total_env_str_len > max_total_env_len) return errCode(e.EINVAL);
+        if (total_env_str_len > max_total_env_len) return Error.Syscall.InvalidArgument;
     }
 
     // Build combined proc_init buffer if either argv or envp is non-empty.
@@ -177,7 +177,7 @@ pub fn syscallSpawn(
         const total_size = header_size + total_arg_str_len + total_env_str_len;
 
         const buf = innigkeit.mem.heap.allocator.alloc(u8, total_size) catch
-            return errCode(e.ENOMEM);
+            return Error.Syscall.OutOfMemory;
         proc_init = buf;
         proc_init_owned = true;
 
@@ -194,41 +194,39 @@ pub fn syscallSpawn(
             std.mem.writeInt(usize, buf[(2 + spec.argc + i) * S ..][0..S], ue.len, .little);
         }
 
-        // Copy argv and envp string bytes inside a single access window
-        // (every ua.ptr/ue.ptr range was validated above).
+        // Copy argv/envp string bytes via the fault-safe `copyFromUser`, so a
+        // concurrently-unmapped argv/envp page (a sibling thread racing the
+        // spawn) returns EFAULT instead of panicking the kernel, and no UserAccess
+        // window is held. Every range was validated above.
         var str_off: usize = header_size;
-        const access: validate.UserAccess = .acquire();
-        defer access.release();
         for (user_args[0..spec.argc]) |ua| {
             if (ua.len > 0) {
-                const src = validate.userSliceConst(ua.ptr, ua.len) catch
-                    return errCode(e.EFAULT); // unreachable: validated above
-                @memcpy(buf[str_off..][0..ua.len], src);
+                validate.copyFromUser(buf[str_off..][0..ua.len], ua.ptr) catch
+                    return Error.Syscall.BadAddress;
             }
             str_off += ua.len;
         }
         for (user_envs[0..spec.envc]) |ue| {
             if (ue.len > 0) {
-                const src = validate.userSliceConst(ue.ptr, ue.len) catch
-                    return errCode(e.EFAULT); // unreachable: validated above
-                @memcpy(buf[str_off..][0..ue.len], src);
+                validate.copyFromUser(buf[str_off..][0..ue.len], ue.ptr) catch
+                    return Error.Syscall.BadAddress;
             }
             str_off += ue.len;
         }
     }
 
     // -- 4. Validate and copy capability grants
-    if (spec.cap_grant_count > max_cap_grants) return errCode(e.EINVAL);
+    if (spec.cap_grant_count > max_cap_grants) return Error.Syscall.InvalidArgument;
     var grants_buf: [max_cap_grants]CapGrant = undefined;
 
     if (spec.cap_grant_count > 0) validate.copyFromUser(
         std.mem.sliceAsBytes(grants_buf[0..spec.cap_grant_count]),
         spec.cap_grants,
-    ) catch return errCode(e.EFAULT);
+    ) catch return Error.Syscall.BadAddress;
     const grants = grants_buf[0..spec.cap_grant_count];
 
     // -- 5. Create the exit Notify
-    const exit_notify = innigkeit.capabilities.Notify.create() catch return errCode(e.ENOMEM);
+    const exit_notify = innigkeit.capabilities.Notify.create() catch return Error.Syscall.OutOfMemory;
     // Give an extra ref to the process (so it can signal on exit).
     exit_notify.ref();
     // If we return early the caller ref is freed by the defer below; the process
@@ -240,7 +238,7 @@ pub fn syscallSpawn(
     const child_process = innigkeit.user.Process.create(.{
         .name = innigkeit.user.Process.Name.fromSlice(path) catch
             innigkeit.user.Process.Name.fromSlice(fallback_process_name) catch unreachable,
-    }) catch return errCode(e.ENOMEM);
+    }) catch return Error.Syscall.OutOfMemory;
     // Process.create adds 1 reference; we hold it until we spawn the thread.
     defer child_process.decrementReferenceCount();
 
@@ -271,7 +269,7 @@ pub fn syscallSpawn(
             _ = child_process.cap_table.insertLocked(info.cap_type, info.ptr, requested_rights) catch {
                 innigkeit.capabilities.CapabilityTable.unrefObject(info.cap_type, info.ptr);
                 log.warn("cap grant: child table full for slot {}", .{grant.src_slot});
-                return errCode(e.ENOMEM);
+                return Error.Syscall.OutOfMemory;
             };
         }
     }
@@ -286,7 +284,7 @@ pub fn syscallSpawn(
             @as(usize, if (proc_init.len > 0) @intFromPtr(proc_init.ptr) else 0),
             proc_init.len,
         }),
-    }) catch return errCode(e.ENOMEM);
+    }) catch return Error.Syscall.OutOfMemory;
 
     // Transfer buffer ownership to loadAndStart; disable the defers.
     path_buf_owned = false;
@@ -306,7 +304,7 @@ pub fn syscallSpawn(
         .{ .read = true, .write = false }, // read-only: can wait but not re-signal
     ) catch {
         // Undo: the process already holds its ref and will signal on exit.
-        return errCode(e.ENOMEM);
+        return Error.Syscall.OutOfMemory;
     };
     // Caller's ref is now in the table; don't free it via the defer.
     exit_notify_caller_owned = false;
@@ -398,18 +396,17 @@ fn loadAndStart(
         return;
     };
 
-    const entry_point = blk: {
-        const va: innigkeit.VirtualAddress = .from(header.entry);
-        if (va.getType() != .user) {
+    const entry_point = switch (header.entry.tagged()) {
+        .user => |user| user,
+        else => {
             log.err("spawn: ELF entry point is not in user range", .{});
             return;
-        }
-        break :blk va.toUser();
+        },
     };
 
     const program_header_table: []const u8 = phdr: {
         const loc = header.programHeaderTableLocation();
-        break :phdr elf_data[loc.base..][0..loc.length];
+        break :phdr elf_data[loc.offset.value..][0..loc.size.value];
     };
 
     // Map all loadable segments rw for initial population.
@@ -479,11 +476,11 @@ fn loadAndStart(
         var iter = header.iterateProgramHeaders(program_header_table);
         while (iter.next()) |phdr| {
             if (phdr.type != .load) continue;
-            if (phdr.offset <= header.program_header_offset and
-                header.program_header_offset < phdr.offset + phdr.file_size)
+            if (phdr.offset.value <= header.program_header_offset.value and
+                header.program_header_offset.value < phdr.offset.value + phdr.file_size.value)
             {
-                break :blk @intCast(phdr.virtual_address +
-                    (header.program_header_offset - phdr.offset));
+                break :blk @intCast(phdr.virtual_address.value +
+                    (header.program_header_offset.value - phdr.offset.value));
             }
         }
         break :blk 0; // phdrs not covered by any PT_LOAD; PIE relocation unavailable
@@ -498,7 +495,7 @@ fn loadAndStart(
     thread.startProcess(entry_point, .{
         .phdr_vaddr = phdr_vaddr,
         .phnum = header.program_header_entry_count,
-        .entry = header.entry,
+        .entry = header.entry.value,
         .proc_init = proc_init,
     }) catch |err| {
         log.err("spawn: thread.startProcess failed: {t}", .{err});
@@ -507,33 +504,22 @@ fn loadAndStart(
     unreachable;
 }
 
-/// Negated POSIX errno values used as syscall return codes.
-const e = struct {
-    const ENOMEM: i64 = -12;
-    const EFAULT: i64 = -14;
-    const EINVAL: i64 = -22;
-};
-
-inline fn errCode(code: i64) usize {
-    return @bitCast(code);
-}
-
 // Tests
 test "spawn: validateUserBuffer accepts empty range regardless of pointer" {
-    try std.testing.expect(validateUserBuffer(0, 0));
+    try std.testing.expect(validate.validateUserBuffer(0, 0));
 }
 
 test "spawn: validateUserBuffer rejects null pointer" {
-    try std.testing.expect(!validateUserBuffer(0, 1));
+    try std.testing.expect(!validate.validateUserBuffer(0, 1));
 }
 
 test "spawn: validateUserBuffer rejects pointer+len wrap-around" {
-    try std.testing.expect(!validateUserBuffer(std.math.maxInt(usize), 2));
+    try std.testing.expect(!validate.validateUserBuffer(std.math.maxInt(usize), 2));
 }
 
 test "spawn: validateUserBuffer rejects kernel addresses" {
     var x: u8 = 0;
-    try std.testing.expect(!validateUserBuffer(@intFromPtr(&x), 1));
+    try std.testing.expect(!validate.validateUserBuffer(@intFromPtr(&x), 1));
 }
 
 test "spawn: SpawnSpec _pad field must be zero (field exists in struct)" {

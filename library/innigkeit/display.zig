@@ -59,10 +59,18 @@ pub fn mouseRead(events: []MouseEvent) usize {
     return @intCast(result);
 }
 
-/// Flush the virtio-gpu backing store (w×h pixels) to the host display.
+/// Flush the virtio-gpu backing store (w*h pixels) to the host display.
 /// No-op if virtio-gpu is not present.
 pub fn gpuFlush(w: u32, h: u32) void {
     _ = innigkeit.Syscall.invoke(.gpu_flush, .{ w, h });
+}
+
+/// Present just a damage rectangle (x,y,w,h) of the scanout.
+///
+/// No-op on a plain framebuffer (writes are laready visible) and when
+/// `virtio-gpu` is absent.
+pub fn present(x: u32, y: u32, w: u32, h: u32) void {
+    _ = innigkeit.Syscall.invoke(.present, .{ x, y, w, h });
 }
 
 /// Map the bootloader framebuffer into the calling process's address space.
@@ -70,7 +78,7 @@ pub fn gpuFlush(w: u32, h: u32) void {
 /// Returns a pointer to the pixel buffer and metadata.
 /// The pointer remains valid for the lifetime of the process.
 /// Each pixel is 32-bit BGRX (blue in bits [7:0]).
-pub fn framebufferMap() innigkeit.Syscall.Error!struct { pixels: [*]volatile u32, info: FramebufferInfo } {
+pub fn framebufferMap() innigkeit.Error.Syscall!struct { pixels: [*]volatile u32, info: FramebufferInfo } {
     var info: FramebufferInfo = undefined;
     const result = innigkeit.Syscall.invoke(.framebuffer_map, .{@intFromPtr(&info)});
     const va = try innigkeit.Syscall.decode(result);

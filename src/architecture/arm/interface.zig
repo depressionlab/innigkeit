@@ -20,6 +20,12 @@ pub const functions: architecture.Functions = .{
                 return interrupt_frame.instructionPointer();
             }
         }.instructionPointer,
+        .setInstructionPointer = struct {
+            fn setInstructionPointer(interrupt_frame: *arm.InterruptFrame, instruction_pointer: innigkeit.VirtualAddress) void {
+                // ELR_EL1 is restored into the PC by `eret`, so writing it redirects where the exception returns to.
+                interrupt_frame.elr = instruction_pointer.value;
+            }
+        }.setInstructionPointer,
 
         // Single-executor M1: no IPIs are required (a panic on the sole
         // executor simply halts it). Provide a no-op panic IPI so the panic
@@ -65,6 +71,8 @@ pub const functions: architecture.Functions = .{
         .flushCache = arm.PageTable.flushCache,
         .enableAccessToUserMemory = arm.pan.enableAccessToUserMemory,
         .disableAccessToUserMemory = arm.pan.disableAccessToUserMemory,
+        .safeMemcpy = arm.PageTable.safeMemcpy,
+        .safeAtomicLoad32 = arm.PageTable.safeAtomicLoad32,
 
         .init = .{
             .sizeOfTopLevelEntry = arm.PageTable.sizeOfTopLevelEntry,

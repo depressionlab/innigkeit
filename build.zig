@@ -17,11 +17,11 @@ pub fn build(b: *std.Build) !void {
     b.enable_qemu = true;
 
     const architectures: []const Bundle.Architecture = std.meta.tags(Bundle.Architecture);
-    const wrapper = try Wrapper.create(b, architectures);
-    const options = try Options.get(b, innigkeit_version, architectures);
-    const libraries = try Library.getLibraries(b, wrapper, options, architectures);
-    const tools = try Tool.getTools(b, wrapper, libraries, options.optimize);
-    const apps = try App.getApps(b, wrapper, libraries, options, architectures);
+    const wrapper: Wrapper = try .create(b, architectures);
+    const options: Options = try .get(b, innigkeit_version, architectures);
+    const libraries: Library.Collection = try Library.getLibraries(b, wrapper, options, architectures);
+    const tools: Tool.Collection = try Tool.getTools(b, wrapper, libraries, options.optimize);
+    const apps: App.Collection = try App.getApps(b, wrapper, libraries, options, architectures);
 
     // Build Rust no_std apps and embed them in the initfs.
     const rust_hello = RustApp.build(b, "rust_hello", "apps/rust_hello");
@@ -33,8 +33,8 @@ pub fn build(b: *std.Build) !void {
         .{ .name = rust_echo.name, .binary_path = rust_echo.binary_path, .step = rust_echo.step },
     };
 
-    const kernels = try Kernel.getKernels(b, wrapper, libraries, options, architectures, apps, tools, &extra_binaries);
-    const image_steps = try ImageStep.registerImageSteps(b, kernels, tools, wrapper, options, architectures);
+    const kernels: Kernel.Collection = try Kernel.getKernels(b, wrapper, libraries, options, architectures, apps, tools, &extra_binaries);
+    const image_steps: ImageStep.Collection = try ImageStep.registerImageSteps(b, kernels, tools, wrapper, options, architectures);
 
     try QEMU.registerQemuSteps(b, image_steps, options, architectures);
 
@@ -42,6 +42,8 @@ pub fn build(b: *std.Build) !void {
         const native_test_step = b.step("test_native", "Run native (host) unit tests without QEMU");
         for (&[_]struct { name: []const u8, path: []const u8 }{
             .{ .name = "tcp_segment", .path = "src/innigkeit/net/tcp/Segment.zig" },
+            .{ .name = "abi_error", .path = "library/innigkeit/Error.zig" },
+            .{ .name = "wm_core", .path = "library/innigkeit/wm.test.zig" },
         }) |entry| {
             const mod = b.createModule(.{ .root_source_file = b.path(entry.path) });
             mod.resolved_target = b.resolveTargetQuery(.{});
@@ -98,7 +100,7 @@ fn disableUnsupportedSteps(b: *std.Build) !void {
     }.defaultMakeFn;
 
     b.default_step = try b.allocator.create(std.Build.Step);
-    b.default_step.* = std.Build.Step.init(.{
+    b.default_step.* = .init(.{
         .id = .custom,
         .makeFn = &defaultMakeFn,
         .name = "default step",

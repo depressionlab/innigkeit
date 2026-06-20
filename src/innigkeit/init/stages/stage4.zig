@@ -153,15 +153,14 @@ fn loadElfFromInitfs(name: []const u8) !noreturn {
 
     const header = try innigkeit.user.elf.Header.parse(elf_data);
 
-    const entry_point = blk: {
-        const possible_entry_point: innigkeit.VirtualAddress = .from(header.entry);
-        if (possible_entry_point.getType() != .user) return error.InvalidEntryPoint;
-        break :blk possible_entry_point.toUser();
+    const entry_point = switch (header.entry.tagged()) {
+        .user => |user| user,
+        else => return error.InvalidEntryPoint,
     };
 
     const program_header_table: []const u8 = blk: {
         const loc = header.programHeaderTableLocation();
-        break :blk elf_data[loc.base..][0..loc.length];
+        break :blk elf_data[loc.offset.value..][0..loc.size.value];
     };
 
     // Map all loadable segments read-write so the address space can merge entries.
@@ -219,11 +218,11 @@ fn loadElfFromInitfs(name: []const u8) !noreturn {
         var iter = header.iterateProgramHeaders(program_header_table);
         while (iter.next()) |phdr| {
             if (phdr.type != .load) continue;
-            if (phdr.offset <= header.program_header_offset and
-                header.program_header_offset < phdr.offset + phdr.file_size)
+            if (phdr.offset.value <= header.program_header_offset.value and
+                header.program_header_offset.value < phdr.offset.value + phdr.file_size.value)
             {
-                break :blk @intCast(phdr.virtual_address +
-                    (header.program_header_offset - phdr.offset));
+                break :blk @intCast(phdr.virtual_address.value +
+                    (header.program_header_offset.value - phdr.offset.value));
             }
         }
         break :blk 0;
@@ -232,7 +231,7 @@ fn loadElfFromInitfs(name: []const u8) !noreturn {
     try thread.startProcess(entry_point, .{
         .phdr_vaddr = phdr_vaddr,
         .phnum = header.program_header_entry_count,
-        .entry = header.entry,
+        .entry = header.entry.value,
     });
     unreachable;
 }

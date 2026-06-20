@@ -1,6 +1,12 @@
 pub const framebuffer = @import("framebuffer.zig");
+pub const capabilities = @import("capabilities.zig");
 pub const spawn = @import("spawn.zig");
+pub const io = @import("io.zig");
+pub const futex = @import("futex.zig");
+pub const misc = @import("misc.zig");
+pub const memory = @import("memory.zig");
 pub const vmem = @import("vmem.zig");
-pub const fs_handler = @import("fs_handler.zig");
-pub const net = @import("net.zig");
+pub const filesystem = @import("filesystem.zig");
+pub const network = @import("network.zig");
 pub const file = @import("file.zig");
+pub const process = @import("process.zig");

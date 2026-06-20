@@ -76,7 +76,7 @@ This caused the envp pointer table to overlap the string data region, corrupting
   - [x] io terminal support + colors
   - [ ] better display support
   - [x] some sort of graphics library (basicgl)
-  - [x] window manager and maybe some cool tuis as well
+  - [x] basic window manager and maybe some cool tuis as well
   - [ ] physics engine???
   - [x] make it run DOOM
 - userspace support
@@ -92,7 +92,7 @@ This caused the envp pointer table to overlap the string data region, corrupting
 ## q & a
 
 - q: why in Zig?
-  - a: mostly a mix of masochism because I love having to reimplement everything every version bump and i wanted to learn the language.
+  - a: i wanted to learn the language
 - q: why create a new OS isnt that like reinventing the wheel?
   - a: sort of, it's more like reinventing the wheel but there's thousands of pages of PDF documentation on the exact specifications of the wheel and it has been worked on and iterated upon for decades so if you mess up one tiny measurement for some 25 year old chip that was created in a basement in New Mexico everything falls apart and no one really knows what they're doing or why they're doing it
 - q: that... sounds terrible

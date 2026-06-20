@@ -163,6 +163,14 @@ pub const InterruptFrame = struct {
         )(self.arch_specific);
     }
 
+    /// Sets the instruction pointer used when returning from the interrupt.
+    pub fn setInstructionPointer(self: InterruptFrame, instruction_pointer: innigkeit.VirtualAddress) void {
+        return architecture.getFunction(
+            architecture.current_functions.interrupts,
+            "setInstructionPointer",
+        )(self.arch_specific, instruction_pointer);
+    }
+
     pub inline fn format(self: InterruptFrame, writer: *std.Io.Writer) !void {
         return self.arch_specific.format(writer);
     }

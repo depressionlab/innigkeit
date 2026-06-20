@@ -13,7 +13,7 @@ pub const Prot = packed struct(u32) {
 ///
 /// Size is rounded up to the next page boundary by the kernel.
 /// Returns a slice pointing to the mapped region.
-pub fn mmap(size: usize, prot: Prot) innigkeit.Syscall.Error![]u8 {
+pub fn mmap(size: usize, prot: Prot) innigkeit.Error.Syscall![]u8 {
     const result = innigkeit.Syscall.invoke(
         .mmap,
         .{ size, @as(u32, @bitCast(prot)) },
@@ -25,7 +25,7 @@ pub fn mmap(size: usize, prot: Prot) innigkeit.Syscall.Error![]u8 {
 /// Unmap a region previously returned by `mmap`.
 ///
 /// The slice must match the address and length of an active mapping.
-pub fn munmap(region: []u8) innigkeit.Syscall.Error!void {
+pub fn munmap(region: []u8) innigkeit.Error.Syscall!void {
     const result = innigkeit.Syscall.invoke(
         .munmap,
         .{ @intFromPtr(region.ptr), region.len },

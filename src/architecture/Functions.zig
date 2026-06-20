@@ -81,6 +81,12 @@ interrupts: struct {
     /// Returns the instruction pointer of the context this interrupt was triggered from.
     instructionPointer: ?fn (interrupt_frame: *const architecture.current_decls.interrupts.InterruptFrame) innigkeit.VirtualAddress = null,
 
+    /// Sets the instruction pointer used when returning from the interrupt.
+    setInstructionPointer: ?fn (
+        interrupt_frame: *architecture.current_decls.interrupts.InterruptFrame,
+        instruction_pointer: innigkeit.VirtualAddress,
+    ) void = null,
+
     init: struct {
         /// Ensure that any exceptions/faults that occur during early initialization are handled.
         ///
@@ -178,6 +184,26 @@ paging: struct {
     /// This is allowed to be a no-op if the architecture does not support stopping the kernel from accessing user
     /// memory.
     disableAccessToUserMemory: ?fn () void = null,
+
+    /// Copy `source.size` bytes from `source` to `destination`.
+    ///
+    /// Before copying, stores into `target.*` the address the page-fault handler
+    /// should resume at if an unhandleable fault occurs mid-copy; the handler
+    /// also flips the active `mem.safe.ResultSlot` to unsuccessful.
+    safeMemcpy: ?fn (
+        destination: innigkeit.VirtualRange,
+        source: innigkeit.VirtualRange,
+        target: *innigkeit.KernelVirtualAddress,
+    ) void = null,
+
+    /// Atomically load a `u32` from `address` (acquire) into `out`, recording in
+    /// `target.*` the resume address if the load faults. The engine behind
+    /// `mem.safe.atomicLoadU32`; the load must be a single atomic access.
+    safeAtomicLoad32: ?fn (
+        address: innigkeit.VirtualAddress,
+        out: *u32,
+        target: *innigkeit.KernelVirtualAddress,
+    ) void = null,
 
     init: struct {
         /// The total size of the virtual address space that one entry in the top level of the page table covers.

@@ -5,12 +5,14 @@
 //!
 //! Dependency graph wired at construction:
 //!
-//!   test ──► kernel
-//!        ──► library ──► library_host ──► library_host_{arch}...
-//!        ──► app     ──► app_host     ──► app_host_{arch}...
-//!        ──► internal_app             ──► internal_app_{arch}...
-//!        ──► tools   ──► tools_build
-//!                    ──► tools_test
+//! ```
+//!   test --> kernel
+//!        --> library --> library_host --> library_host_{arch}...
+//!        --> app     --> app_host     --> app_host_{arch}...
+//!        --> internal_app             --> internal_app_{arch}...
+//!        --> tools   --> tools_build
+//!                    --> tools_test
+//! ```
 //!
 //! Note: `image` is intentionally excluded from `test`. Building disk images
 //! in CI is expensive and does not affect correctness checks.

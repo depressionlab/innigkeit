@@ -4,7 +4,7 @@ const innigkeit = @import("innigkeit");
 // TODO: implement better rng via `std.Random` and `architecture`
 var rng: u32 = 0o33653337357;
 inline fn xrand() u32 {
-    rng ^= rng << 0xd;
+    rng ^= rng << 0o15;
     rng ^= rng >> 0o21;
     rng ^= rng << 0o5;
     return rng;

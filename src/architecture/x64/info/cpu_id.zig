@@ -2051,7 +2051,7 @@ pub const Hypervisor = enum {
 ///
 /// CPUID.40000010H
 ///
-/// https://lore.cascade.org/lkml/1222881242.9381.17.camel@alok-dev1/
+/// https://lore.kernel.org/lkml/1222881242.9381.17.camel@alok-dev1/
 pub var hypervisor_timing_information: ?HypervisorTimingInformation = null;
 
 pub const HypervisorTimingInformation = struct {

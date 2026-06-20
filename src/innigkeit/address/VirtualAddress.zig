@@ -16,18 +16,20 @@ pub const VirtualAddress = extern union {
         return .{ .value = value };
     }
 
-    pub const Type = enum {
-        kernel,
-        user,
+    pub const Tagged = union(enum) {
+        kernel: root.KernelVirtualAddress,
+        user: root.UserVirtualAddress,
         invalid,
     };
 
-    /// Returns the type of memory this address points to.
-    pub fn getType(address: VirtualAddress) Type {
+    /// Returns the type of memory this address points to, carrying the typed
+    /// address for `kernel`/`user` so callers need not re-project (and
+    /// re-validate) via `toKernel`/`toUser`.
+    pub fn tagged(address: VirtualAddress) Tagged {
         if (architecture.paging.kernel_memory_range.containsAddress(address))
-            return .kernel
+            return .{ .kernel = .{ .value = address.value } }
         else if (architecture.user.user_memory_range.containsAddress(address))
-            return .user
+            return .{ .user = .{ .value = address.value } }
         else {
             @branchHint(.cold);
             return .invalid;

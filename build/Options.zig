@@ -60,8 +60,8 @@ pub fn get(b: *std.Build, version: std.SemanticVersion, architectures: []const B
 
     return .{
         .optimize = b.standardOptimizeOption(.{}),
-        .emulator = EmulatorOptions.get(b),
-        .filesystem = FilesystemOptions.get(b),
+        .emulator = .get(b),
+        .filesystem = .get(b),
         .root_path = root_path,
         .log_level = log_level,
         .log_scopes = log_scopes,

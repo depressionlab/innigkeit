@@ -74,13 +74,13 @@ fn buildKernel(
     wrapper: Wrapper,
     libraries: Library.Collection,
     options: Options,
-    arch: Bundle.Architecture,
+    architecture: Bundle.Architecture,
     apps: App.Collection,
     tools: Tool.Collection,
     extra_binaries: ?[]const ExtraBinary,
 ) !Kernel {
     // Build the initfs archive once; share between check and release modules.
-    const initfs_archive = buildInitfs(b, arch, apps, tools, extra_binaries);
+    const initfs_archive = buildInitfs(b, architecture, apps, tools, extra_binaries);
 
     // Check compilation: verifies correctness without emitting a binary.
     wrapper.registerCheck(b.addExecutable(.{
@@ -89,7 +89,7 @@ fn buildKernel(
             b,
             libraries,
             options,
-            arch,
+            architecture,
             initfs_archive,
             .check,
         ),
@@ -101,28 +101,28 @@ fn buildKernel(
             b,
             libraries,
             options,
-            arch,
+            architecture,
             initfs_archive,
             .release,
         ),
     });
 
     // x64: the Zig x86 backend does not yet support disabling SSE; force LLVM.
-    if (arch == .x64) kernel_exe.use_llvm = true;
+    if (architecture == .x64) kernel_exe.use_llvm = true;
 
     kernel_exe.entry = .disabled;
     kernel_exe.lto = .none;
     kernel_exe.pie = true; // required for KASLR
     kernel_exe.linkage = .static;
     kernel_exe.setLinkerScript(b.path(b.pathJoin(
-        &.{ "src", "architecture", @tagName(arch), "linker.ld" },
+        &.{ "src", "architecture", @tagName(architecture), "linker.ld" },
     )));
 
     const install = b.addInstallFile(
         kernel_exe.getEmittedBin(),
-        b.pathJoin(&.{ @tagName(arch), "kernel" }),
+        b.pathJoin(&.{ @tagName(architecture), "kernel" }),
     );
-    wrapper.registerKernel(arch, &install.step);
+    wrapper.registerKernel(architecture, &install.step);
 
     return .{
         .kernel_binary = kernel_exe.getEmittedBin(),
@@ -140,18 +140,18 @@ pub fn buildTestKernel(
     b: *std.Build,
     libraries: Library.Collection,
     options: Options,
-    arch: Bundle.Architecture,
+    architecture: Bundle.Architecture,
     apps: App.Collection,
     tools: Tool.Collection,
     extra_binaries: ?[]const ExtraBinary,
 ) !Kernel {
     // TODO: unify this with buildKernel()
-    const initfs_archive = buildInitfs(b, arch, apps, tools, extra_binaries);
+    const initfs_archive = buildInitfs(b, architecture, apps, tools, extra_binaries);
 
     // Build the component graph exactly as the normal kernel does.
     const graph = try resolveComponentGraph(b);
     const required_libs = try collectRequiredLibraries(b, libraries, graph);
-    try configureComponents(b, arch, graph, required_libs, options, false);
+    try configureComponents(b, architecture, graph, required_libs, options, false);
 
     // Wire initfs into the innigkeit component (the graph entry).
     graph.entry.module.addImport(
@@ -164,7 +164,7 @@ pub fn buildTestKernel(
     // collects every test block in them automatically, no dual-module conflict.
     // TODO: hone these options so we have the most optimized when we release and the most debuggable when we debug!
     const innigkeit_module = graph.nodes.get("innigkeit").?.module;
-    innigkeit_module.resolved_target = arch.kernelTarget(b);
+    innigkeit_module.resolved_target = architecture.kernelTarget(b);
     innigkeit_module.optimize = options.optimize;
     innigkeit_module.strip = false;
     innigkeit_module.omit_frame_pointer = false;
@@ -174,7 +174,7 @@ pub fn buildTestKernel(
         .ReleaseSafe => .trap,
         .ReleaseFast, .ReleaseSmall => .off,
     };
-    switch (arch) {
+    switch (architecture) {
         .arm, .riscv => {},
         .x64 => {
             innigkeit_module.code_model = .kernel;
@@ -193,18 +193,18 @@ pub fn buildTestKernel(
 
     // TODO: make this better
     // Force LLVM for architectures whose Zig backend lacks freestanding support.
-    if (arch == .x64 or arch == .arm) test_exe.use_llvm = true;
+    if (architecture == .x64 or architecture == .arm) test_exe.use_llvm = true;
     test_exe.entry = .disabled;
     test_exe.lto = .none;
     test_exe.pie = true;
     test_exe.linkage = .static;
     test_exe.setLinkerScript(b.path(b.pathJoin(
-        &.{ "src", "architecture", @tagName(arch), "linker.ld" },
+        &.{ "src", "architecture", @tagName(architecture), "linker.ld" },
     )));
 
     const install = b.addInstallFile(
         test_exe.getEmittedBin(),
-        b.pathJoin(&.{ @tagName(arch), "kernel_test" }),
+        b.pathJoin(&.{ @tagName(architecture), "kernel_test" }),
     );
 
     return .{
@@ -220,7 +220,7 @@ pub fn buildTestKernel(
 /// POSIX ustar archive that is later embedded in the kernel via @embedFile.
 fn buildInitfs(
     b: *std.Build,
-    arch: Bundle.Architecture,
+    architecture: Bundle.Architecture,
     apps: App.Collection,
     tools: Tool.Collection,
     extra_binaries: ?[]const ExtraBinary,
@@ -228,7 +228,7 @@ fn buildInitfs(
     const initfs_builder = tools.get("initfs_builder").?.release_safe_exe;
     const codesign_exe = tools.get("codesign").?.release_safe_exe;
     const run = b.addRunArtifact(initfs_builder);
-    const bundle: Bundle = .{ .architecture = arch, .context = .internal };
+    const bundle: Bundle = .{ .architecture = architecture, .context = .internal };
 
     var it = apps.iterator();
     while (it.next()) |entry| {
@@ -253,7 +253,7 @@ fn buildInitfs(
 
     // Embed extra (non-Zig) binaries such as Rust no_std apps.
     // Each extra binary is signed the same way as Zig apps.
-    if (arch == .x64) {
+    if (architecture == .x64) {
         for (extra_binaries.?) |eb| {
             const entitlements_path = b.path(b.pathJoin(&.{ "apps", eb.name, "manifest.toml" }));
             const sign_run = b.addRunArtifact(codesign_exe);
@@ -287,7 +287,7 @@ fn buildRootModule(
     b: *std.Build,
     libraries: Library.Collection,
     options: Options,
-    arch: Bundle.Architecture,
+    architecture: Bundle.Architecture,
     initfs_archive: std.Build.LazyPath,
     mode: BuildMode,
 ) !*std.Build.Module {
@@ -296,7 +296,7 @@ fn buildRootModule(
 
     try configureComponents(
         b,
-        arch,
+        architecture,
         graph,
         required_libs,
         options,
@@ -305,7 +305,7 @@ fn buildRootModule(
 
     const root = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
-        .target = arch.kernelTarget(b),
+        .target = architecture.kernelTarget(b),
         .optimize = options.optimize,
         .strip = false,
         .sanitize_c = switch (options.optimize) {
@@ -326,7 +326,7 @@ fn buildRootModule(
     root.addImport("boot", graph.nodes.get("boot").?.module);
     root.addImport("innigkeit", graph.nodes.get("innigkeit").?.module);
 
-    switch (arch) {
+    switch (architecture) {
         .arm, .riscv => {},
         .x64 => {
             root.code_model = .kernel;
@@ -418,7 +418,7 @@ fn collectRequiredLibraries(
 /// dependency imports, adds sourcemap modules, and calls any custom callback.
 fn configureComponents(
     b: *std.Build,
-    arch: Bundle.Architecture,
+    architecture: Bundle.Architecture,
     graph: ComponentNode.Graph,
     libraries: Library.Collection,
     options: Options,
@@ -433,7 +433,7 @@ fn configureComponents(
         for (desc.library_dependencies) |dep| {
             module.addImport(
                 dep.import_name orelse dep.name,
-                libraries.get(dep.name).?.internal_modules.get(arch) orelse unreachable,
+                libraries.get(dep.name).?.internal_modules.get(architecture) orelse unreachable,
             );
         }
 
@@ -450,7 +450,7 @@ fn configureComponents(
             }
         }
 
-        if (desc.configuration) |f| try f(b, arch, module, options, is_check);
+        if (desc.configuration) |f| try f(b, architecture, module, options, is_check);
     }
 }
 

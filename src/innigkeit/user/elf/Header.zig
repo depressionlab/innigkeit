@@ -21,15 +21,15 @@ machine: innigkeit.user.elf.Machine,
 /// The virtual address to which the system first transfers control, thus starting the process.
 ///
 /// Zero if the file has no associated entry point.
-entry: u64,
+entry: innigkeit.VirtualAddress,
 
 /// The program header tables file offset in bytes.
 ///
 /// Zero if the file has no program header table.
-program_header_offset: u64,
+program_header_offset: core.Size,
 
 /// Size in bytes of one entry in the program header table.
-program_header_entry_size: u16,
+program_header_entry_size: core.Size,
 
 /// The number of entries in the program header table.
 program_header_entry_count: u16,
@@ -37,10 +37,10 @@ program_header_entry_count: u16,
 /// The section header tables file offset in bytes.
 ///
 /// Zero if the file has no section header table.
-section_header_offset: u64,
+section_header_offset: core.Size,
 
 /// Size in bytes of one entry in the section header table.
-section_header_entry_size: u16,
+section_header_entry_size: core.Size,
 
 /// The number of entries in the section header table.
 section_header_entry_count: u16,
@@ -94,26 +94,31 @@ fn innerParse(elf_header_slice: []const u8, comptime is_64: bool, endian: std.bu
         .endian = endian,
         .type = @enumFromInt(std.mem.toNative(u16, raw_elf_header.e_type, endian)),
         .machine = @enumFromInt(std.mem.toNative(u16, raw_elf_header.e_machine, endian)),
-        .entry = std.mem.toNative(FileOffset, raw_elf_header.e_entry, endian),
-        .program_header_offset = std.mem.toNative(FileOffset, raw_elf_header.e_phoff, endian),
-        .program_header_entry_size = std.mem.toNative(u16, raw_elf_header.e_phentsize, endian),
+        .entry = .from(std.mem.toNative(FileOffset, raw_elf_header.e_entry, endian)),
+        .program_header_offset = .from(std.mem.toNative(FileOffset, raw_elf_header.e_phoff, endian), .byte),
+        .program_header_entry_size = .from(std.mem.toNative(u16, raw_elf_header.e_phentsize, endian), .byte),
         .program_header_entry_count = std.mem.toNative(u16, raw_elf_header.e_phnum, endian),
-        .section_header_offset = std.mem.toNative(FileOffset, raw_elf_header.e_shoff, endian),
-        .section_header_entry_size = std.mem.toNative(u16, raw_elf_header.e_shentsize, endian),
+        .section_header_offset = .from(std.mem.toNative(FileOffset, raw_elf_header.e_shoff, endian), .byte),
+        .section_header_entry_size = .from(std.mem.toNative(u16, raw_elf_header.e_shentsize, endian), .byte),
         .section_header_entry_count = std.mem.toNative(u16, raw_elf_header.e_shnum, endian),
         .section_name_string_table_index = std.mem.toNative(u16, raw_elf_header.e_shstrndx, endian),
     };
 }
 
 pub const TableLocation = struct {
-    base: u64,
-    length: u32, // as number and size of entries are both u16 the length cannot be larger than u32
+    /// Byte offset of the table from the start of the file.
+    offset: core.Size,
+    /// Total size of the table in bytes.
+    size: core.Size,
 };
 
 pub fn programHeaderTableLocation(self: *const Header) TableLocation {
     return .{
-        .base = self.program_header_offset,
-        .length = self.program_header_entry_count * self.program_header_entry_size,
+        .offset = self.program_header_offset,
+        // `multiplyScalar` widens internally, so the u16*u16 product that would
+        // overflow-panic on a malformed header is computed safely (it always
+        // fits well within u64).
+        .size = self.program_header_entry_size.multiplyScalar(self.program_header_entry_count),
     };
 }
 
@@ -131,7 +136,7 @@ pub fn loadableRegionIterator(self: *const Header, program_header_table: []const
 /// The provided slice must match the location and size given by `programHeaderTableLocation`.
 pub fn iterateProgramHeaders(self: *const Header, program_header_table: []const u8) innigkeit.user.elf.ProgramHeader.Iterator {
     if (builtin.mode == .Debug) std.debug.assert(
-        program_header_table.len >= self.program_header_entry_count * self.program_header_entry_size,
+        program_header_table.len >= self.program_header_entry_size.multiplyScalar(self.program_header_entry_count).value,
     );
 
     return .{
@@ -164,22 +169,22 @@ pub fn print(self: *const Header, writer: *std.Io.Writer, indent: usize) !void {
     }
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("entry: 0x{x},\n", .{self.entry});
+    try writer.print("entry: 0x{x},\n", .{self.entry.value});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("program_header_offset: 0x{x},\n", .{self.program_header_offset});
+    try writer.print("program_header_offset: 0x{x},\n", .{self.program_header_offset.value});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("program_header_entry_size: 0x{x},\n", .{self.program_header_entry_size});
+    try writer.print("program_header_entry_size: 0x{x},\n", .{self.program_header_entry_size.value});
 
     try writer.splatByteAll(' ', new_indent);
     try writer.print("program_header_entry_count: {},\n", .{self.program_header_entry_count});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("section_header_offset: 0x{x},\n", .{self.section_header_offset});
+    try writer.print("section_header_offset: 0x{x},\n", .{self.section_header_offset.value});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("section_header_entry_size: 0x{x},\n", .{self.section_header_entry_size});
+    try writer.print("section_header_entry_size: 0x{x},\n", .{self.section_header_entry_size.value});
 
     try writer.splatByteAll(' ', new_indent);
     try writer.print("section_header_entry_count: {},\n", .{self.section_header_entry_count});

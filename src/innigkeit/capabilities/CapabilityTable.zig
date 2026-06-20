@@ -248,6 +248,7 @@ pub fn transferCaps(msg: *Message, sender_task: *innigkeit.Task, receiver_task: 
 }
 
 const Notify = @import("types/Notify.zig");
+const Frame = @import("types/Frame.zig");
 
 test "capability: fresh slot passes generation check" {
     const notify = try Notify.create();
@@ -264,6 +265,58 @@ test "capability: fresh slot passes generation check" {
     const info = table.getAndRefLocked(slot_idx);
     try std.testing.expect(info != null);
     unrefObject(info.?.cap_type, info.?.ptr);
+}
+
+test "capability: Frame sharing transfers backing zero-copy and can restrict rights" {
+    const frame = try Frame.create(); // refcount = 1, owned by the client slot below
+
+    var client: CapabilityTable = undefined;
+    client.init();
+    var server: CapabilityTable = undefined;
+    server.init();
+
+    // Client holds the buffer read+write.
+    client.lock.lock();
+    const ha = try client.insertLocked(.frame, frame, .{ .read = true, .write = true });
+    client.lock.unlock();
+
+    // Transfer (the move Endpoint.transferCaps does): ref out of the client, then
+    // insert into the server with rights narrowed to read-only. The ref taken by
+    // getAndRefLocked becomes the server slot's owned ref (no unref in between).
+    client.lock.lock();
+    const moved = client.getAndRefLocked(ha).?;
+    client.lock.unlock();
+    try std.testing.expectEqual(ObjectType.frame, moved.cap_type);
+
+    server.lock.lock();
+    const hb = try server.insertLocked(moved.cap_type, moved.ptr, .{ .read = true, .write = false });
+    server.lock.unlock();
+
+    // The server's view is the SAME physical frame (zero-copy)...
+    server.lock.lock();
+    const sinfo = server.getAndRefLocked(hb).?;
+    server.lock.unlock();
+    const server_frame: *Frame = @ptrCast(@alignCast(sinfo.ptr));
+    try std.testing.expect(server_frame == frame);
+    try std.testing.expectEqual(frame.page, server_frame.page);
+    // ...but read-only (the compositor cannot scribble on a client's buffer).
+    try std.testing.expect(sinfo.rights.read and !sinfo.rights.write);
+
+    // The client still holds read+write to that same frame.
+    client.lock.lock();
+    const cinfo = client.getAndRefLocked(ha).?;
+    client.lock.unlock();
+    try std.testing.expect(@as(*Frame, @ptrCast(@alignCast(cinfo.ptr))) == frame);
+    try std.testing.expect(cinfo.rights.read and cinfo.rights.write);
+
+    unrefObject(sinfo.cap_type, sinfo.ptr);
+    unrefObject(cinfo.cap_type, cinfo.ptr);
+    client.lock.lock();
+    client.removeLocked(ha) catch unreachable;
+    client.lock.unlock();
+    server.lock.lock();
+    server.removeLocked(hb) catch unreachable;
+    server.lock.unlock();
 }
 
 test "capability: revoke invalidates all slots pointing to the same object" {

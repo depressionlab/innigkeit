@@ -16,7 +16,7 @@
 //! children's cached values.
 //!
 //! Conservative invariant (maintained at all times):
-//!   se.subtree_min_vruntime <= true_min(se's subtree)
+//!   `se.subtree_min_vruntime <= true_min(se's subtree)`
 //!
 //! For INSERT: `tree.put` rotations move nodes DOWN; the demoted node's old
 //! subtree CONTAINS its new subtree, so its old smin is still <= the new
@@ -82,10 +82,47 @@ pub const nice_0_weight: u32 = weight_table[20]; // 1024
 /// Default time slice in nanoseconds (3 ms).
 pub const default_slice_ns: u64 = 3_000_000;
 
+/// Quality-of-Service class. For more information, see `docs/qos.md`.
+///
+/// QoS maps onto EEVDF weight + slice rather than a separate root-bucket
+/// scheduler: a higher class gets more weight (a larger CPU share) and a
+/// shorter slice (finer preemption granularity -> lower latency).
+pub const Qos = enum(u8) {
+    /// Low latency: ~2x weight, 1 ms slice. UI / input / audio threads.
+    interactive,
+    /// nice-0 weight, default slice. The default for every task.
+    default,
+    /// Throughput over latency: ~1/3 weight, 10 ms slice. Batch / background work.
+    background,
+};
+
+const QosPreset = struct {
+    weight: u32,
+    slice: u64,
+};
+
+/// {weight, slice} for each `Qos`, indexed by `@intFromEnum(qos)`. Weights are
+/// on the same scale as the nice `weight_table`, so QoS composes with nice if
+/// that ever lands: interactive ≈ 2x nice-0, background = nice +5 (335).
+const qos_presets = [_]QosPreset{
+    .{ .weight = 2 * nice_0_weight, .slice = 1_000_000 }, // interactive
+    .{ .weight = nice_0_weight, .slice = default_slice_ns }, // default
+    .{ .weight = weight_table[25], .slice = 10_000_000 }, // background (335)
+};
+
+comptime {
+    // Keep the preset table in lockstep with the Qos enum.
+    std.debug.assert(qos_presets.len == @typeInfo(Qos).@"enum".fields.len);
+}
+
 pub const SchedEntity = struct {
-    /// Scheduling weight derived from nice value.
+    /// Scheduling weight derived from the nice value or a `Qos` preset.
+    ///
     /// Default: nice 0 = 1024.
     weight: u32 = nice_0_weight,
+
+    /// QoS class this entity's weight+slice came from.
+    qos: Qos = .default,
 
     /// Virtual runtime in nanoseconds scaled by NICE_0_WEIGHT / weight.
     /// Tracks how much "fair" service this task has received.
@@ -465,6 +502,24 @@ pub fn taskNew(rq: *Runqueue, task: *innigkeit.Task) void {
     se.exec_start = wallclock.read();
 }
 
+/// Apply a QoS preset to `se`: set weight + slice and rescale the virtual
+/// deadline so the new class takes effect on the next pick (not just at the next
+/// slice boundary). A slice set explicitly via `custom_slice` is preserved.
+///
+/// Must run under the scheduler lock. Precondition: `se` is NOT enqueued. QoS
+/// changes target the running task (`curr`), which is never in the tree, so the
+/// weighted-average accounting (sum_w_vruntime / sum_weight) and the deadline
+/// tree key stay consistent without a dequeue/enqueue. A future cross-task QoS
+/// API (capability-gated) must dequeue the target first.
+pub fn setQos(se: *SchedEntity, qos: Qos) void {
+    std.debug.assert(!se.on_rq);
+    se.qos = qos;
+    const preset = qos_presets[@intFromEnum(qos)];
+    se.weight = preset.weight;
+    if (!se.custom_slice) se.slice = preset.slice;
+    se.deadline = se.vruntime + calcDeltaFair(se.slice, se.weight);
+}
+
 pub fn taskWaking(task: *innigkeit.Task) void {
     // Placement (lag accounting) is deferred to enqueue with flags.wakeup=true.
     _ = task;
@@ -667,6 +722,7 @@ test "calcDeltaFair: nice-0 task (identity)" {
     try std.testing.expectEqual(@as(u64, 3_000_000), calcDeltaFair(3_000_000, nice_0_weight));
 }
 
+// TODO: fix these test errors
 // test "calcDeltaFair: heavy task (nice -20, weight 88761) earns more real time" {
 //     // Heavy task's virtual time advances slowly: delta_fair < elapsed.
 //     const elapsed: u64 = 1_000_000;
@@ -684,6 +740,109 @@ test "calcDeltaFair: nice-0 task (identity)" {
 //     // Exact: 1_000_000 * 1024 / 15 = 68266666
 //     try std.testing.expectEqual(@as(u64, 68266666), result);
 // }
+
+test "qos: presets apply weight + slice; default is nice-0" {
+    var se: SchedEntity = .{};
+    try std.testing.expectEqual(Qos.default, se.qos);
+
+    setQos(&se, .interactive);
+    try std.testing.expectEqual(@as(u32, 2 * nice_0_weight), se.weight);
+    try std.testing.expectEqual(@as(u64, 1_000_000), se.slice);
+    try std.testing.expectEqual(Qos.interactive, se.qos);
+
+    setQos(&se, .background);
+    try std.testing.expectEqual(@as(u32, 335), se.weight); // nice +5
+    try std.testing.expectEqual(@as(u64, 10_000_000), se.slice);
+
+    setQos(&se, .default);
+    try std.testing.expectEqual(nice_0_weight, se.weight);
+    try std.testing.expectEqual(default_slice_ns, se.slice);
+}
+
+test "qos: higher class earns more CPU (vruntime advances slower)" {
+    // For the same real CPU time, vruntime advances at rate nice_0/weight.
+    // Higher QoS => higher weight => slower vruntime growth => more CPU share.
+    const real: u64 = 6_000_000; // 6 ms of CPU
+    var interactive: SchedEntity = .{};
+    var background: SchedEntity = .{};
+    setQos(&interactive, .interactive);
+    setQos(&background, .background);
+
+    const vi = calcDeltaFair(real, interactive.weight);
+    const vb = calcDeltaFair(real, background.weight);
+
+    // background's virtual time runs far ahead of interactive's, so EEVDF lets
+    // interactive run more. Ratio ≈ weight_bg^-1 : weight_int^-1 = 2048:335.
+    try std.testing.expect(vb > vi);
+    try std.testing.expectEqual(real / 2, vi); // 2x weight => half-rate
+}
+
+test "qos: a custom slice survives a QoS change" {
+    var se: SchedEntity = .{};
+    se.slice = 7_777;
+    se.custom_slice = true;
+    setQos(&se, .background);
+    try std.testing.expectEqual(@as(u32, 335), se.weight); // weight still applied
+    try std.testing.expectEqual(@as(u64, 7_777), se.slice); // slice preserved
+}
+
+// Test-only enqueue/dequeue: run the SAME internal-op sequence the real
+// enqueue()/dequeue() use (addToAvg + tree put/remove + augmentation fixup),
+// minus placeEntity/lag, so a fairness simulation can drive the real selection
+// path with stack SchedEntity fixtures (no Task/scheduler needed).
+fn simEnqueue(erq: *EevdfRunqueue, se: *SchedEntity) void {
+    erq.addToAvg(se);
+    se.subtree_min_vruntime = std.math.maxInt(u64);
+    _ = erq.tree.put(EevdfRunqueue.deadlineCmp, &se.rq_node);
+    fixupAugmentationUp(&se.rq_node);
+    erq.nr_queued += 1;
+    se.on_rq = true;
+    erq.updateMinVruntime();
+}
+
+fn simDequeue(erq: *EevdfRunqueue, se: *SchedEntity) void {
+    erq.removeFromAvg(se);
+    const hint = augmentHintBeforeRemove(&se.rq_node);
+    erq.tree.remove(&se.rq_node);
+    if (hint) |h| fixupAugmentationUp(h);
+    erq.nr_queued -= 1;
+    se.on_rq = false;
+    erq.updateMinVruntime();
+}
+
+test "qos: real pick path gives the interactive class proportionally more CPU" {
+    // The ratio must track the QoS weights 2048:335 (≈ 6.1:1).
+    var erq: EevdfRunqueue = .{};
+    var a: SchedEntity = .{}; // interactive
+    var b: SchedEntity = .{}; // background
+    setQos(&a, .interactive);
+    setQos(&b, .background);
+
+    simEnqueue(&erq, &a);
+    simEnqueue(&erq, &b);
+
+    var cpu_a: u64 = 0;
+    var cpu_b: u64 = 0;
+    const quantum: u64 = 500_000; // 0.5 ms of "CPU" per scheduling round
+    var round: usize = 0;
+    while (round < 4000) : (round += 1) {
+        const winner = erq.pickNext(null) orelse break;
+        const se = if (winner == a.task()) &a else &b;
+        simDequeue(&erq, se);
+        // "Run" for the quantum: advance virtual time by the fair-scaled amount.
+        se.vruntime += calcDeltaFair(quantum, se.weight);
+        if (se == &a) cpu_a += quantum else cpu_b += quantum;
+        if (se.vruntime >= se.deadline) {
+            se.deadline = se.vruntime + calcDeltaFair(se.slice, se.weight);
+        }
+        simEnqueue(&erq, se);
+    }
+
+    // Neither class is starved, and the interactive class wins by a wide margin
+    // (assert well clear of 1:1; the ideal is ~6.1:1).
+    try std.testing.expect(cpu_a > 0 and cpu_b > 0);
+    try std.testing.expect(cpu_a > cpu_b * 4);
+}
 
 test "vruntimeEligible: empty queue is always eligible" {
     const erq: EevdfRunqueue = .{};
@@ -1071,7 +1230,7 @@ test "fairness: double weight advances vruntime at half rate; underserved entity
 
     // Weighted avg = (1024*1e6 + 2048*5e5) / 3072 = 666_666.67: the heavy
     // entity is underserved relative to its fair share, so only it is
-    // eligible -- and pickBest selects it despite its LATER deadline.
+    // eligible, and pickBest selects it despite its LATER deadline.
     try std.testing.expect(!erq.entityEligible(&light));
     try std.testing.expect(erq.entityEligible(&heavy));
     const picked = pickBest(&erq, erq.tree.root);

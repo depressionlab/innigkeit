@@ -109,41 +109,41 @@ pub fn getLibraries(
 /// Panics if a dependency name does not exist in any known description.
 fn resolveLibrary(
     b: *std.Build,
-    desc: LibraryDescription,
+    description: LibraryDescription,
     libraries: Library.Collection,
     wrapper: Wrapper,
     options: Options,
     architectures: []const Bundle.Architecture,
-    all_descriptions: []const LibraryDescription,
+    descriptions: []const LibraryDescription,
 ) !?*Library {
     // Check all deps are resolved; return null if any aren't yet.
-    for (desc.dependencies) |dep_name| {
+    for (description.dependencies) |dep_name| {
         if (libraries.contains(dep_name)) continue;
-        const known = for (all_descriptions) |d| {
+        const known = for (descriptions) |d| {
             if (std.mem.eql(u8, d.name, dep_name)) break true;
         } else false;
         if (!known) std.debug.panic(
             "library '{s}' depends on non-existent library '{s}'!",
-            .{ desc.name, dep_name },
+            .{ description.name, dep_name },
         );
         return null;
     }
 
-    const owned_deps = try resolveDeps(b, libraries, desc.name, desc.dependencies);
-    const dir = b.pathJoin(&.{ "library", desc.name });
+    const owned_deps = try resolveDeps(b, libraries, description.name, description.dependencies);
+    const dir = b.pathJoin(&.{ "library", description.name });
     const lazy_path = b.path(b.pathJoin(&.{ dir, "root.zig" }));
-    const target_archs = desc.architectures.resolve(architectures);
+    const target_archs = description.architectures.resolve(architectures);
 
     var internal_modules: Modules = .empty;
     var external_modules: Modules = .empty;
     var host_module: ?*std.Build.Module = null;
 
     const all_tests_step = b.step(
-        desc.name,
-        if (desc.freestanding_only)
-            b.fmt("Build tests for {s} for every supported architecture", .{desc.name})
+        description.name,
+        if (description.freestanding_only)
+            b.fmt("Build tests for {s} for every supported architecture", .{description.name})
         else
-            b.fmt("Build and run tests for {s} for every supported architecture", .{desc.name}),
+            b.fmt("Build and run tests for {s} for every supported architecture", .{description.name}),
     );
 
     for (target_archs) |arch| {
@@ -155,7 +155,7 @@ fn resolveLibrary(
             arch,
             createModule(
                 b,
-                desc,
+                description,
                 lazy_path,
                 options,
                 internal_bundle,
@@ -166,7 +166,7 @@ fn resolveLibrary(
 
         const ext_module = createModule(
             b,
-            desc,
+            description,
             lazy_path,
             options,
             external_bundle,
@@ -178,10 +178,10 @@ fn resolveLibrary(
 
         // Check exe: verify the library compiles for the host without emitting a binary.
         wrapper.registerCheck(b.addTest(.{
-            .name = b.fmt("{s}_check", .{desc.name}),
+            .name = b.fmt("{s}_check", .{description.name}),
             .root_module = createModule(
                 b,
-                desc,
+                description,
                 lazy_path,
                 options,
                 external_bundle,
@@ -190,11 +190,11 @@ fn resolveLibrary(
             ),
         }));
 
-        if (!desc.freestanding_only) {
+        if (!description.freestanding_only) {
             // Host test exe: build, install, and (where native) run the test binary.
             const test_module = createModule(
                 b,
-                desc,
+                description,
                 lazy_path,
                 options,
                 external_bundle,
@@ -204,7 +204,7 @@ fn resolveLibrary(
             test_module.optimize = options.optimize;
 
             const test_exe = b.addTest(.{
-                .name = desc.name,
+                .name = description.name,
                 .root_module = test_module,
             });
             const install = b.addInstallArtifact(test_exe, .{
@@ -219,8 +219,8 @@ fn resolveLibrary(
             run.step.dependOn(&install.step);
 
             const test_step = b.step(
-                b.fmt("{s}_host_{s}", .{ desc.name, @tagName(arch) }),
-                b.fmt("Build and run tests for {s} on {s} targeting the host os", .{ desc.name, @tagName(arch) }),
+                b.fmt("{s}_host_{s}", .{ description.name, @tagName(arch) }),
+                b.fmt("Build and run tests for {s} on {s} targeting the host os", .{ description.name, @tagName(arch) }),
             );
             test_step.dependOn(&run.step);
             all_tests_step.dependOn(test_step);
@@ -230,7 +230,7 @@ fn resolveLibrary(
 
     const library = try b.allocator.create(Library);
     library.* = .{
-        .name = desc.name,
+        .name = description.name,
         .directory_path = dir,
         .dependencies = owned_deps,
         .internal_modules = internal_modules,
@@ -250,7 +250,7 @@ const ModulePurpose = enum {
 
 fn createModule(
     b: *std.Build,
-    desc: LibraryDescription,
+    description: LibraryDescription,
     lazy_path: std.Build.LazyPath,
     options: Options,
     bundle: Bundle,
@@ -261,7 +261,7 @@ fn createModule(
 
     if (purpose == .exe_root) module.resolved_target = bundle.resolveTarget(b);
 
-    module.addImport(desc.name, module);
+    module.addImport(description.name, module);
     module.addImport("is_internal", switch (bundle.context) {
         .internal => options.internal_detection_module,
         .external => options.external_detection_module,

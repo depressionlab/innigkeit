@@ -1,6 +1,7 @@
 const ProgramHeader = @import("ProgramHeader.zig");
 
 const std = @import("std");
+const core = @import("core");
 const innigkeit = @import("innigkeit");
 
 /// What kind of segment this describes or how to interpret the information.
@@ -9,13 +10,13 @@ type: Type,
 flags: Flags,
 
 /// The offset from the beginning of the file at which the first byte of the segment resides.
-offset: u64,
+offset: core.Size,
 
 /// The number of bytes in the file image of the segment; it may be zero.
-file_size: u64,
+file_size: core.Size,
 
 /// The virtual address at which the first byte of the segment resides in memory.
-virtual_address: u64,
+virtual_address: innigkeit.VirtualAddress,
 
 /// On systems for which physical addressing is relevant, this member is reserved for the segment’s physical address.
 ///
@@ -24,7 +25,7 @@ virtual_address: u64,
 physical_address: u64,
 
 /// The number of bytes in the memory image of the segment; it may be zero.
-memory_size: u64,
+memory_size: core.Size,
 
 /// Loadable process segments must have congruent values for `virtual_address` and `offset`, modulo the page size.
 ///
@@ -47,7 +48,7 @@ pub const Iterator = struct {
         if (index >= header.program_header_entry_count) return null;
         defer it.index += 1;
 
-        var reader: std.Io.Reader = .fixed(it.program_header_table[header.program_header_entry_size * index ..]);
+        var reader: std.Io.Reader = .fixed(it.program_header_table[header.program_header_entry_size.multiplyScalar(index).value..]);
 
         if (header.is_64) {
             const raw_header = reader.takeStruct(
@@ -58,11 +59,11 @@ pub const Iterator = struct {
             return .{
                 .type = @enumFromInt(raw_header.p_type),
                 .flags = @bitCast(raw_header.p_flags),
-                .offset = raw_header.p_offset,
-                .virtual_address = raw_header.p_vaddr,
+                .offset = .from(raw_header.p_offset, .byte),
+                .virtual_address = .from(raw_header.p_vaddr),
                 .physical_address = raw_header.p_paddr,
-                .file_size = raw_header.p_filesz,
-                .memory_size = raw_header.p_memsz,
+                .file_size = .from(raw_header.p_filesz, .byte),
+                .memory_size = .from(raw_header.p_memsz, .byte),
                 .alignment = raw_header.p_align,
             };
         } else {
@@ -74,11 +75,11 @@ pub const Iterator = struct {
             return .{
                 .type = @enumFromInt(raw_header.p_type),
                 .flags = @bitCast(raw_header.p_flags),
-                .offset = raw_header.p_offset,
-                .virtual_address = raw_header.p_vaddr,
+                .offset = .from(raw_header.p_offset, .byte),
+                .virtual_address = .from(raw_header.p_vaddr),
                 .physical_address = raw_header.p_paddr,
-                .file_size = raw_header.p_filesz,
-                .memory_size = raw_header.p_memsz,
+                .file_size = .from(raw_header.p_filesz, .byte),
+                .memory_size = .from(raw_header.p_memsz, .byte),
                 .alignment = raw_header.p_align,
             };
         }
@@ -210,19 +211,19 @@ pub fn print(self: *const ProgramHeader, writer: *std.Io.Writer, indent: usize) 
     try writer.writeAll(",\n");
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("offset: 0x{x},\n", .{self.offset});
+    try writer.print("offset: 0x{x},\n", .{self.offset.value});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("file_size: 0x{x},\n", .{self.file_size});
+    try writer.print("file_size: 0x{x},\n", .{self.file_size.value});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("virtual_address: 0x{x},\n", .{self.virtual_address});
+    try writer.print("virtual_address: 0x{x},\n", .{self.virtual_address.value});
 
     try writer.splatByteAll(' ', new_indent);
     try writer.print("physical_address: 0x{x},\n", .{self.physical_address});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("memory_size: 0x{x},\n", .{self.memory_size});
+    try writer.print("memory_size: 0x{x},\n", .{self.memory_size.value});
 
     try writer.splatByteAll(' ', new_indent);
     try writer.print("alignment: 0x{x},\n", .{self.alignment});

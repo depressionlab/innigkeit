@@ -1,7 +1,10 @@
 const builtin = @import("builtin");
+const Error = @import("Error.zig");
+
+// TODO(syscall): surely there's a better way
 
 /// Kernel-defined syscall numbers.
-pub const Syscall = enum(usize) {
+pub const Syscall = enum(u64) {
     /// Exit an existing thread
     exit_thread = 0,
     /// Spawn a new thread
@@ -158,28 +161,25 @@ pub const Syscall = enum(usize) {
     /// is queued instead of blocking.
     /// (sock: usize, from_ptr: usize, buf_ptr: usize, buf_len: usize) -> bytes|error
     net_udp_recv_nb = 58,
+    /// Set the calling thread's QoS class (scheduler weight + slice).
+    /// (qos: u8) -> 0|error; qos: 0=interactive, 1=default, 2=background.
+    /// Affects only the caller, so no entitlement is needed.
+    thread_set_qos = 59,
+    /// Present a damage rectangle of the scanout to the display.
+    /// (x: u32, y: u32, w: u32, h: u32) -> 0
+    /// Clamped to the display; a no-op on a plain (direct-mapped) framebuffer
+    /// where writes are already visible.
+    /// TODO: is this necessary?
+    present = 60,
 
-    /// Decode a raw syscall return value into a success count or a `SyscallError`.
+    /// Decode a raw syscall return value into a success count or an error.
     ///
-    /// The kernel encodes errors as negated errno-style codes (e.g. -9 = EBADF).
-    /// Non-negative values are returned as-is.
-    pub fn decode(result: isize) Syscall.Error!usize {
+    /// Non-negative values are the result whereas negative values are the stable
+    /// wire codes, mapped back through the shared `Error` table.
+    /// `Error.Syscall.Unknown` covers an unrecognized `result` error code.
+    pub fn decode(result: isize) Error.Syscall!usize {
         if (result >= 0) return @intCast(result);
-        return switch (result) {
-            -1 => error.PermissionDenied,
-            -2 => error.NotFound,
-            -5 => error.IoError,
-            -9 => error.BadFileDescriptor,
-            -11 => error.WouldBlock,
-            -12 => error.OutOfMemory,
-            -14 => error.BadAddress,
-            -17 => error.AlreadyExists,
-            -19 => error.NoDevice,
-            -22 => error.InvalidArgument,
-            -28 => error.NoSpace,
-            -38 => error.Unsupported,
-            else => error.Unknown,
-        };
+        return Error.fromCode(@intCast(result));
     }
 
     /// Syscall ABI:
@@ -425,21 +425,4 @@ pub const Syscall = enum(usize) {
             else => @compileError("too many syscall arguments (max 6)"),
         };
     }
-
-    /// Error codes returned by the kernel as negative isize values.
-    pub const Error = error{
-        PermissionDenied,
-        NotFound,
-        IoError,
-        BadFileDescriptor,
-        WouldBlock,
-        OutOfMemory,
-        BadAddress,
-        AlreadyExists,
-        NoDevice,
-        InvalidArgument,
-        NoSpace,
-        Unsupported,
-        Unknown,
-    };
 };

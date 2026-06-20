@@ -30,20 +30,19 @@ fn bucketOf(addr: usize) *Bucket {
 /// `expected`, returns immediately (retry signal to caller).
 /// Caller must have validated that [addr, addr+4) lies inside user space.
 pub fn wait(addr: usize, expected: u32) void {
-    // The caller has already validated the range; this re-validation can only
-    // succeed and never returns BadAddress in practice.
-    const word_bytes = validate.userSliceConst(addr, @sizeOf(u32)) catch return;
-    const word: *const std.atomic.Value(u32) = @ptrCast(@alignCast(word_bytes.ptr));
-
+    if (!validate.validateUserBuffer(addr, @sizeOf(u32))) return;
     const bucket = bucketOf(addr);
     bucket.lock.lock();
 
     const current_task: innigkeit.Task.Current = .get();
-    // Open the SMAP/SUM window only around the atomic load; it must never be
-    // held across the blocking queue.wait below.
-    const access: validate.UserAccess = .acquire();
-    const current_val = word.load(.acquire);
-    access.release();
+    // Fault-safe atomic load under the bucket lock: a bad/unmapped futex word
+    // returns an error (a no-op; the caller retries) instead of panicking the
+    // kernel. The load is atomic (lost-wakeup correctness) and the lock guards
+    // the check-then-enqueue against a concurrent wake.
+    const current_val = innigkeit.mem.safe.atomicLoadU32(.from(addr)) catch {
+        bucket.lock.unlock();
+        return;
+    };
 
     if (current_val != expected) {
         bucket.lock.unlock();
@@ -63,20 +62,16 @@ pub fn wait(addr: usize, expected: u32) void {
 /// Same as wait() but with a millisecond deadline. Sets futex_timeout_ms and block_reason.
 /// Caller must have validated that [addr, addr+4) lies inside user space.
 pub fn waitTimeout(addr: usize, expected: u32, deadline_ms: u64) void {
-    // The caller has already validated the range; this re-validation can only
-    // succeed and never returns BadAddress in practice.
-    const word_bytes = validate.userSliceConst(addr, @sizeOf(u32)) catch return;
-    const word: *const std.atomic.Value(u32) = @ptrCast(@alignCast(word_bytes.ptr));
-
+    if (!validate.validateUserBuffer(addr, @sizeOf(u32))) return;
     const bucket = bucketOf(addr);
     bucket.lock.lock();
 
     const current_task: innigkeit.Task.Current = .get();
-    // Open the SMAP/SUM window only around the atomic load; it must never be
-    // held across the blocking queue.wait below.
-    const access: validate.UserAccess = .acquire();
-    const current_val = word.load(.acquire);
-    access.release();
+    // Fault-safe atomic load under the bucket lock (see `wait`).
+    const current_val = innigkeit.mem.safe.atomicLoadU32(.from(addr)) catch {
+        bucket.lock.unlock();
+        return;
+    };
 
     if (current_val != expected) {
         bucket.lock.unlock();

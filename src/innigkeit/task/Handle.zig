@@ -11,8 +11,8 @@ scheduler: *innigkeit.Task.Scheduler,
 
 /// Returns a handle to the scheduler.
 ///
-/// The scheduler is locked by this function, it is the caller's responsibility to call `Handle.unlock` when the handle is no longer
-/// needed.
+/// The scheduler is locked by this function, it is the caller's responsibility to call
+/// `Handle.unlock` when the handle is no longer needed. Use `defer scheduler_handle.unlock();`
 pub fn get() Handle {
     const current_task: innigkeit.Task.Current = .get();
     if (core.is_debug) std.debug.assert(!current_task.task.scheduler_locked);

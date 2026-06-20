@@ -12,14 +12,22 @@ pub const VirtualRange = struct {
         return .{ .address = address, .size = size };
     }
 
-    /// Returns the type of memory this range is in.
+    pub const Tagged = union(enum) {
+        kernel: root.KernelVirtualRange,
+        user: root.UserVirtualRange,
+        invalid,
+    };
+
+    /// Returns the type of memory this range is in, carrying the typed range
+    /// for `kernel`/`user` so callers need not re-project (and re-validate) via
+    /// `toKernel`/`toUser`.
     ///
     /// If the range is not fully contained in either kernel or user memory, returns `.invalid`.
-    pub fn getType(range: VirtualRange) root.VirtualAddress.Type {
+    pub fn tagged(range: VirtualRange) Tagged {
         if (architecture.paging.kernel_memory_range.fullyContains(range))
-            return .kernel
+            return .{ .kernel = .{ .address = range.address._kernel, .size = range.size } }
         else if (architecture.user.user_memory_range.fullyContains(range))
-            return .user
+            return .{ .user = .{ .address = range.address._user, .size = range.size } }
         else {
             @branchHint(.cold);
             return .invalid;

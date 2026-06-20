@@ -74,7 +74,7 @@ pub fn registerImageSteps(
         const image_step = try b.allocator.create(ImageStep);
         image_step.* = .{
             .install_image = install,
-            .step = Step.init(.{
+            .step = .init(.{
                 .id = .custom,
                 .name = b.fmt("build {s} image", .{@tagName(arch)}),
                 .owner = b,
@@ -140,7 +140,7 @@ pub fn buildTestImageStep(
     const image_step = try b.allocator.create(ImageStep);
     image_step.* = .{
         .install_image = install,
-        .step = Step.init(.{
+        .step = .init(.{
             .id = .custom,
             .name = b.fmt("build {s} test image", .{@tagName(arch)}),
             .owner = b,

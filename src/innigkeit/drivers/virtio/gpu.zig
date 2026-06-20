@@ -385,7 +385,17 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
 
 /// Copy the entire backing store to the host and flush scanout 0.
 pub fn flush(w: u32, h: u32) error{NoGpu}!void {
+    return flushRect(0, 0, w, h);
+}
+
+/// Copy a sub-rectangle of the backing store to the host and flush it to
+/// scanout 0. (x,y,w,h) are pixels and the caller must keep the rect within
+/// the display.
+pub fn flushRect(x: u32, y: u32, w: u32, h: u32) error{NoGpu}!void {
     const s = state orelse return error.NoGpu;
+
+    // Ensure that the `present` syscall handler correctly clamped.
+    std.debug.assert(x +| w <= s.fb_width and y +| h <= s.fb_height);
 
     // Drain write-combining stores from userspace before the device DMA-reads
     // the framebuffer. SYSCALL does not flush WC fill buffers; without this
@@ -394,13 +404,15 @@ pub fn flush(w: u32, h: u32) error{NoGpu}!void {
 
     const qp_virt = s.queue_page.baseAddress().toDirectMap().value;
     const qp_phys = s.queue_page.baseAddress().value;
-    const rect: GpuRect = .{ .x = 0, .y = 0, .w = w, .h = h };
+    const rect: GpuRect = .{ .x = x, .y = y, .w = w, .h = h };
 
-    // TRANSFER_TO_HOST_2D
+    // TRANSFER_TO_HOST_2D: `offset` is the byte position of the rect's top-left
+    // in the backing resources (row stride = fb_width * 4).
+    const offset = (@as(u64, y) * @as(u64, s.fb_width) + x) * 4;
     const xfer = buildCmd(GpuTransferToHost2d, .{
         .hdr = .{ .type_ = CMD_TRANSFER_TO_HOST_2D },
         .r = rect,
-        .offset = 0,
+        .offset = offset,
         .resource_id = RESOURCE_ID,
     }, qp_virt);
     const resp_xfer = submitCmd(s, qp_virt, qp_phys, @sizeOf(GpuTransferToHost2d), xfer, @sizeOf(GpuCtrlHdr)) catch return;

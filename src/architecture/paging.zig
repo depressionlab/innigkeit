@@ -172,6 +172,33 @@ pub fn disableAccessToUserMemory() callconv(core.inline_in_non_debug) void {
     )();
 }
 
+/// Copy `source.size` bytes from `source` to `destination`, recording in
+/// `target.*` the address the page-fault handler resumes at on an unhandleable
+/// fault.
+pub fn safeMemcpy(
+    destination: innigkeit.VirtualRange,
+    source: innigkeit.VirtualRange,
+    target: *innigkeit.KernelVirtualAddress,
+) callconv(core.inline_in_non_debug) void {
+    architecture.getFunction(
+        architecture.current_functions.paging,
+        "safeMemcpy",
+    )(destination, source, target);
+}
+
+/// Atomically load a `u32` from `address` (acquire) into `out`, recording the
+/// fault-recovery address in `target.*`.
+pub fn safeAtomicLoad32(
+    address: innigkeit.VirtualAddress,
+    out: *u32,
+    target: *innigkeit.KernelVirtualAddress,
+) callconv(core.inline_in_non_debug) void {
+    architecture.getFunction(
+        architecture.current_functions.paging,
+        "safeAtomicLoad32",
+    )(address, out, target);
+}
+
 pub const init = struct {
     /// The total size of the virtual address space that one entry in the top level of the page table covers.
     pub fn sizeOfTopLevelEntry() callconv(core.inline_in_non_debug) core.Size {

@@ -12,7 +12,7 @@ kaslr: bool,
 tpm_socket: ?[]const u8,
 qemu_monitor: bool,
 remote_debug: bool,
-wad_path: ?[]const u8,
+wad_path: []const u8,
 
 pub fn get(b: *std.Build) EmulatorOptions {
     const qemu_monitor = b.option(bool, "monitor", "Enable the QEMU monitor (default: false)") orelse false;
@@ -25,7 +25,8 @@ pub fn get(b: *std.Build) EmulatorOptions {
     const memory = b.option(usize, "memory", "MiB of RAM to give QEMU (default: 512)") orelse 512;
     const kaslr = b.option(bool, "kaslr", "Enable KASLR (default: true, forced false when '-Ddebug' is set)") orelse !remote_debug;
     const tpm_socket = b.option([]const u8, "tpm_socket", "Path to an swtpm socket; omit to run without a TPM");
-    const wad_path = b.option([]const u8, "wad", "Path to a WAD file to attach as data disk (e.g. -Dwad=/path/to/doom1.wad)");
+    const wad_path = b.option([]const u8, "wad", "Path to a WAD file to attach as data disk (e.g. -Dwad=/path/to/doom1.wad)") orelse
+        b.path("apps/doom/doom1.wad").getPath2(b, b.default_step);
 
     if (cpus == 0) std.debug.panic("'-Dcpus' must be greater than zero!", .{});
 

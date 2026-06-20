@@ -59,7 +59,7 @@ pub const File = struct {
     fd: u32,
 
     /// Open `path` (leading '/' optional; the VFS is rooted at "/").
-    pub fn open(path: []const u8, flags: OpenFlags) innigkeit.Syscall.Error!File {
+    pub fn open(path: []const u8, flags: OpenFlags) innigkeit.Error.Syscall!File {
         const result = innigkeit.Syscall.invoke(.open, .{
             @intFromPtr(path.ptr),
             path.len,
@@ -70,7 +70,7 @@ pub const File = struct {
 
     /// Read up to `buf.len` bytes at the current offset; advances the offset.
     /// Returns the number of bytes read (0 at EOF).
-    pub fn read(self: File, buf: []u8) innigkeit.Syscall.Error!usize {
+    pub fn read(self: File, buf: []u8) innigkeit.Error.Syscall!usize {
         const result = innigkeit.Syscall.invoke(.read, .{
             @as(usize, self.fd),
             @intFromPtr(buf.ptr),
@@ -81,7 +81,7 @@ pub const File = struct {
 
     /// Write `data` at the current offset; advances the offset.
     /// Returns the number of bytes written.
-    pub fn write(self: File, data: []const u8) innigkeit.Syscall.Error!usize {
+    pub fn write(self: File, data: []const u8) innigkeit.Error.Syscall!usize {
         const result = innigkeit.Syscall.invoke(.write, .{
             @as(usize, self.fd),
             @intFromPtr(data.ptr),
@@ -91,7 +91,7 @@ pub const File = struct {
     }
 
     /// Write all of `data`, looping on partial writes.
-    pub fn writeAll(self: File, data: []const u8) innigkeit.Syscall.Error!void {
+    pub fn writeAll(self: File, data: []const u8) innigkeit.Error.Syscall!void {
         var remaining = data;
         while (remaining.len > 0) {
             const n = try self.write(remaining);
@@ -101,7 +101,7 @@ pub const File = struct {
     }
 
     /// Reposition the file offset. Returns the new offset.
-    pub fn seek(self: File, offset: i64, whence: Whence) innigkeit.Syscall.Error!u64 {
+    pub fn seek(self: File, offset: i64, whence: Whence) innigkeit.Error.Syscall!u64 {
         const result = innigkeit.Syscall.invoke(.lseek, .{
             @as(usize, self.fd),
             @as(usize, @bitCast(offset)),
@@ -111,7 +111,7 @@ pub const File = struct {
     }
 
     /// Query size and kind of the descriptor.
-    pub fn stat(self: File) innigkeit.Syscall.Error!Stat {
+    pub fn stat(self: File) innigkeit.Error.Syscall!Stat {
         var out: Stat = undefined;
         const result = innigkeit.Syscall.invoke(.fstat, .{
             @as(usize, self.fd),
@@ -225,7 +225,7 @@ const InitfsReadSpec = extern struct {
 ///
 /// If buf is shorter than the file, only buf.len bytes are copied (truncated).
 /// Returns error.NotFound if the file doesn't exist in initfs.
-pub fn initfsRead(name: []const u8, buf: []u8) innigkeit.Syscall.Error!usize {
+pub fn initfsRead(name: []const u8, buf: []u8) innigkeit.Error.Syscall!usize {
     const spec = InitfsReadSpec{
         .name_ptr = @intFromPtr(name.ptr),
         .name_len = @intCast(name.len),
@@ -239,7 +239,7 @@ pub fn initfsRead(name: []const u8, buf: []u8) innigkeit.Syscall.Error!usize {
 /// Return the size of `name` in initfs without copying data.
 ///
 /// Returns error.NotFound if the file doesn't exist.
-pub fn initfsSize(name: []const u8) innigkeit.Syscall.Error!usize {
+pub fn initfsSize(name: []const u8) innigkeit.Error.Syscall!usize {
     const spec = InitfsReadSpec{
         .name_ptr = @intFromPtr(name.ptr),
         .name_len = @intCast(name.len),
@@ -260,7 +260,7 @@ const BlkReadSpec = extern struct {
 /// Read bytes from the data disk (virtio-blk device 1) at `byte_offset` into `buf`.
 ///
 /// Returns error.NoDevice if no data disk is present.
-pub fn blkRead(byte_offset: u64, buf: []u8) innigkeit.Syscall.Error!usize {
+pub fn blkRead(byte_offset: u64, buf: []u8) innigkeit.Error.Syscall!usize {
     const spec = BlkReadSpec{
         .byte_offset = byte_offset,
         .buf_ptr = @intFromPtr(buf.ptr),
@@ -274,7 +274,7 @@ pub fn blkRead(byte_offset: u64, buf: []u8) innigkeit.Syscall.Error!usize {
 ///
 /// `byte_offset` and `buf.len` must be multiples of 512 (sector size).
 /// Returns error.NoDevice if no data disk is present.
-pub fn blkWrite(byte_offset: u64, buf: []const u8) innigkeit.Syscall.Error!void {
+pub fn blkWrite(byte_offset: u64, buf: []const u8) innigkeit.Error.Syscall!void {
     const spec = BlkReadSpec{
         .byte_offset = byte_offset,
         .buf_ptr = @intFromPtr(buf.ptr),
@@ -285,7 +285,7 @@ pub fn blkWrite(byte_offset: u64, buf: []const u8) innigkeit.Syscall.Error!void 
 }
 
 /// Return the size in 512-byte sectors of virtio-blk device `dev_idx`.
-pub fn blkDiskSize(dev_idx: u32) innigkeit.Syscall.Error!u64 {
+pub fn blkDiskSize(dev_idx: u32) innigkeit.Error.Syscall!u64 {
     const result = innigkeit.Syscall.invoke(.blk_disk_size, .{@as(usize, dev_idx)});
     return @intCast(try innigkeit.Syscall.decode(result));
 }
@@ -295,7 +295,7 @@ pub fn blkDiskSize(dev_idx: u32) innigkeit.Syscall.Error!u64 {
 /// `name` must be at most 15 bytes.
 /// `flags`: bit 0 = create if not exists, bit 1 = truncate on open.
 /// Returns a file descriptor (>= 3) on success.
-pub fn fsOpen(name: []const u8, flags: u32) innigkeit.Syscall.Error!u32 {
+pub fn fsOpen(name: []const u8, flags: u32) innigkeit.Error.Syscall!u32 {
     const result = innigkeit.Syscall.invoke(.fs_open, .{
         @intFromPtr(name.ptr),
         @as(usize, name.len),
@@ -307,7 +307,7 @@ pub fn fsOpen(name: []const u8, flags: u32) innigkeit.Syscall.Error!u32 {
 /// Read up to `buf.len` bytes from `fd` into `buf`.
 ///
 /// Returns the number of bytes actually read (0 at EOF).
-pub fn fsRead(fd: u32, buf: []u8) innigkeit.Syscall.Error!usize {
+pub fn fsRead(fd: u32, buf: []u8) innigkeit.Error.Syscall!usize {
     const result = innigkeit.Syscall.invoke(.fs_read, .{
         @as(usize, fd),
         @intFromPtr(buf.ptr),
@@ -319,7 +319,7 @@ pub fn fsRead(fd: u32, buf: []u8) innigkeit.Syscall.Error!usize {
 /// Write `data` to `fd`.
 ///
 /// Returns the number of bytes written.
-pub fn fsWrite(fd: u32, data: []const u8) innigkeit.Syscall.Error!usize {
+pub fn fsWrite(fd: u32, data: []const u8) innigkeit.Error.Syscall!usize {
     const result = innigkeit.Syscall.invoke(.fs_write, .{
         @as(usize, fd),
         @intFromPtr(data.ptr),
@@ -329,7 +329,7 @@ pub fn fsWrite(fd: u32, data: []const u8) innigkeit.Syscall.Error!usize {
 }
 
 /// Close `fd`.
-pub fn fsClose(fd: u32) innigkeit.Syscall.Error!void {
+pub fn fsClose(fd: u32) innigkeit.Error.Syscall!void {
     const result = innigkeit.Syscall.invoke(.fs_close, .{@as(usize, fd)});
     _ = try innigkeit.Syscall.decode(result);
 }

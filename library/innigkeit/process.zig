@@ -87,7 +87,7 @@ pub const Arg = extern struct {
 pub const EnvVar = Arg;
 
 /// Spawn a new process from the embedded initfs with no arguments.
-pub fn spawn(path: [:0]const u8, grants: []const CapGrant) innigkeit.Syscall.Error!u32 {
+pub fn spawn(path: [:0]const u8, grants: []const CapGrant) innigkeit.Error.Syscall!innigkeit.capabilities.Handle {
     return spawnFull(path, &.{}, &.{}, grants);
 }
 
@@ -102,7 +102,7 @@ pub fn spawnWithArgs(
     path: [:0]const u8,
     argv: []const Arg,
     grants: []const CapGrant,
-) innigkeit.Syscall.Error!u32 {
+) innigkeit.Error.Syscall!innigkeit.capabilities.Handle {
     return spawnFull(path, argv, &.{}, grants);
 }
 
@@ -116,7 +116,7 @@ pub fn spawnFull(
     argv: []const Arg,
     envp: []const EnvVar,
     grants: []const CapGrant,
-) innigkeit.Syscall.Error!u32 {
+) innigkeit.Error.Syscall!innigkeit.capabilities.Handle {
     const spec = SpawnSpec{
         .path = @intFromPtr(path.ptr),
         .path_len = @intCast(path.len),
@@ -129,13 +129,13 @@ pub fn spawnFull(
     };
     const ret = innigkeit.Syscall.invoke(.spawn, .{@intFromPtr(&spec)});
     const handle = try innigkeit.Syscall.decode(ret);
-    return @truncate(handle);
+    return @enumFromInt(@as(u32, @truncate(handle)));
 }
 
 /// Convenience wrapper: spawn with a slice of string slices (no CapGrants or envp).
 ///
 /// Builds the `Arg` array on the stack (max 64 entries).
-pub fn spawnArgs(path: [:0]const u8, argv: []const []const u8) innigkeit.Syscall.Error!u32 {
+pub fn spawnArgs(path: [:0]const u8, argv: []const []const u8) innigkeit.Error.Syscall!innigkeit.capabilities.Handle {
     var args_buf: [64]Arg = undefined;
     const argc = @min(argv.len, args_buf.len);
     for (argv[0..argc], 0..) |a, i| args_buf[i] = Arg.fromSlice(a);
@@ -146,8 +146,8 @@ pub fn spawnArgs(path: [:0]const u8, argv: []const []const u8) innigkeit.Syscall
 ///
 /// `notify_handle` must be the value returned by `spawn`. Returns as soon as
 /// the child process's exit Notify is signalled.
-pub fn waitProcess(notify_handle: u32) innigkeit.Syscall.Error!u8 {
-    const ret = innigkeit.Syscall.invoke(.wait_process, .{@as(usize, notify_handle)});
+pub fn waitProcess(notify_handle: innigkeit.capabilities.Handle) innigkeit.Error.Syscall!u8 {
+    const ret = innigkeit.Syscall.invoke(.wait_process, .{@as(usize, @intFromEnum(notify_handle))});
     return @truncate(try innigkeit.Syscall.decode(ret));
 }
 
@@ -163,8 +163,8 @@ pub fn getPid() u64 {
 ///
 /// Returns the exit status if the process has exited, or `error.WouldBlock` if
 /// it is still running. Never blocks.
-pub fn waitProcessNb(notify_handle: u32) innigkeit.Syscall.Error!u8 {
-    const ret = innigkeit.Syscall.invoke(.wait_process_nb, .{@as(usize, notify_handle)});
+pub fn waitProcessNb(notify_handle: innigkeit.capabilities.Handle) innigkeit.Error.Syscall!u8 {
+    const ret = innigkeit.Syscall.invoke(.wait_process_nb, .{@as(usize, @intFromEnum(notify_handle))});
     return @truncate(try innigkeit.Syscall.decode(ret));
 }
 
@@ -173,7 +173,7 @@ pub fn waitProcessNb(notify_handle: u32) innigkeit.Syscall.Error!u8 {
 ///
 /// This is a "soft kill": the target process is not immediately terminated,
 /// but the wait syscall will return with status 130.
-pub fn killProcess(notify_handle: u32) innigkeit.Syscall.Error!void {
-    const ret = innigkeit.Syscall.invoke(.process_kill, .{@as(usize, notify_handle)});
+pub fn killProcess(notify_handle: innigkeit.capabilities.Handle) innigkeit.Error.Syscall!void {
+    const ret = innigkeit.Syscall.invoke(.process_kill, .{@as(usize, @intFromEnum(notify_handle))});
     _ = try innigkeit.Syscall.decode(ret);
 }

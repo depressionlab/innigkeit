@@ -69,19 +69,27 @@ pub fn userSlice(ptr: usize, len: usize) UserAccessError![]u8 {
 }
 
 /// Copy `dst.len` bytes from user memory at `user_ptr` into `dst`.
+///
+/// Backed by `mem.safe.memcpy`, so a bad user pointer (in-range but unmapped, or
+/// unmapped concurrently on another executor) returns `error.BadAddress` rather
+/// than faulting the kernel into a panic.
 pub fn copyFromUser(dst: []u8, user_ptr: usize) UserAccessError!void {
-    const src = try userSliceConst(user_ptr, dst.len);
-    const access: UserAccess = .acquire();
-    defer access.release();
-    @memcpy(dst, src);
+    if (!validateUserBuffer(user_ptr, dst.len)) return error.BadAddress;
+    if (dst.len == 0) return;
+    try innigkeit.mem.safe.memcpy(.{
+        .destination = .from(.from(@intFromPtr(dst.ptr)), .from(dst.len, .byte)),
+        .source = .from(.from(user_ptr), .from(dst.len, .byte)),
+    });
 }
 
 /// Copy `src` into user memory at `user_ptr`.
 pub fn copyToUser(user_ptr: usize, src: []const u8) UserAccessError!void {
-    const dst = try userSlice(user_ptr, src.len);
-    const access: UserAccess = .acquire();
-    defer access.release();
-    @memcpy(dst, src);
+    if (!validateUserBuffer(user_ptr, src.len)) return error.BadAddress;
+    if (src.len == 0) return;
+    try innigkeit.mem.safe.memcpy(.{
+        .destination = .from(.from(user_ptr), .from(src.len, .byte)),
+        .source = .from(.from(@intFromPtr(src.ptr)), .from(src.len, .byte)),
+    });
 }
 
 /// Read a `T` from user memory at `user_ptr`.

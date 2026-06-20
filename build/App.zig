@@ -209,7 +209,7 @@ fn resolveApp(
 
 fn createModule(
     b: *std.Build,
-    desc: AppDescription,
+    description: AppDescription,
     root_source_file: std.Build.LazyPath,
     options: Options,
     bundle: Bundle,
@@ -224,7 +224,7 @@ fn createModule(
         .sanitize_c = .off, // TODO: enable based on whether any C is linked
     });
 
-    app_module.addImport(desc.name, app_module);
+    app_module.addImport(description.name, app_module);
     app_module.addImport("is_internal", switch (bundle.context) {
         .internal => options.internal_detection_module,
         .external => options.external_detection_module,
@@ -237,7 +237,7 @@ fn createModule(
         });
     }
 
-    switch (desc.configuration) {
+    switch (description.configuration) {
         .simple => {},
         .link_c => app_module.link_libc = true,
         .custom => |f| try f(b, bundle, app_module),

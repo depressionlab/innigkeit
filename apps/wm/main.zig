@@ -203,7 +203,7 @@ fn drawDesktop(c: Canvas, W: u32, H: u32, sel: ?usize) void {
         const iy = iconY(W, H, i);
         const is_sel = if (sel) |s| s == i else false;
         drawAppIcon(c, ix, iy, GRID_ICON, GRID_ICON_R, app, 2, is_sel);
-        // Label below icon (1× scale, centered)
+        // Label below icon (1x scale, centered)
         const lw = Canvas.textWidth(app.label);
         c.drawText(ix + (GRID_ICON -| lw) / 2, iy + GRID_ICON + 8, app.label, C_LABEL, null);
     }
@@ -262,7 +262,7 @@ pub fn main() void {
     const buf_u32 = @as([*]u32, @ptrCast(@alignCast(buf_bytes.ptr)))[0 .. @as(usize, W) * @as(usize, H)];
     var back: innigkeit.graphics.Buffer = .{ .pixels = buf_u32, .width = W, .height = H, .stride = W };
 
-    var running_handle: ?u32 = null;
+    var running_handle: ?innigkeit.capabilities.Handle = null;
     var running_idx: ?usize = null;
 
     var sel: ?usize = null;
@@ -388,7 +388,7 @@ pub fn main() void {
 // Show a launch splash immediately (so the user gets instant feedback),
 // then spawn the app. If spawn fails the desktop will redraw on the next
 // frame (dirty stays true).
-fn launch(idx: usize, back: *innigkeit.graphics.Buffer, canvas: Canvas, W: u32, H: u32, handle_out: *?u32, idx_out: *?usize) void {
+fn launch(idx: usize, back: *innigkeit.graphics.Buffer, canvas: Canvas, W: u32, H: u32, handle_out: *?innigkeit.capabilities.Handle, idx_out: *?usize) void {
     // Splash: render to back buffer, blit, flush visible within one frame.
     const bc = back.canvas();
     drawLaunchSplash(bc, W, H, &APPS[idx]);

@@ -4,31 +4,13 @@
 //! - fs_write (id=33): write to an open fd
 //! - fs_close (id=34): close an fd
 
-const std = @import("std");
 const innigkeit = @import("innigkeit");
-const validate = @import("../validate.zig");
-const validateUserBuffer = validate.validateUserBuffer;
-
 const simple_fs = innigkeit.fs.simple_fs;
-
 const log = innigkeit.debug.log.scoped(.user_fs);
 
-inline fn errCode(code: i64) usize {
-    return @bitCast(code);
-}
-
-const e = struct {
-    const ENOENT: i64 = -2;
-    const EIO: i64 = -5;
-    const EBADF: i64 = -9;
-    const ENOMEM: i64 = -12;
-    const EFAULT: i64 = -14;
-    const EEXIST: i64 = -17;
-    const ENODEV: i64 = -19;
-    const EINVAL: i64 = -22;
-    const ENOSPC: i64 = -28;
-    const EPERM: i64 = -1;
-};
+const Error = @import("libinnigkeit").Error;
+const Context = @import("../Context.zig");
+const validate = @import("../validate.zig");
 
 // FD numbering: userspace FDs 3..14 -> open_files[0..11].
 const FD_BASE: u32 = 3;
@@ -40,25 +22,21 @@ fn fdToIndex(fd: u32) ?usize {
 }
 
 /// fs_open(name_ptr: usize, name_len: u32, flags: u32) -> fd|error
-pub fn syscallFsOpen(
-    name_ptr: usize,
-    name_len_raw: usize,
-    flags_raw: usize,
-    current_task: innigkeit.Task.Current,
-) usize {
-    const name_len: u32 = @truncate(name_len_raw);
-    const flags_bits: u32 = @truncate(flags_raw);
+pub fn fsOpen(context: Context) Error.Syscall!usize {
+    const name_ptr = context.arg(.one);
+    const name_len = context.arg32(.two);
+    const flags_bits = context.arg32(.three);
 
-    if (name_len == 0 or name_len > 15) return errCode(e.EINVAL);
+    if (name_len == 0 or name_len > 15) return Error.Syscall.InvalidArgument;
 
     var name_buf: [16]u8 = undefined;
-    validate.copyFromUser(name_buf[0..name_len], name_ptr) catch return errCode(e.EFAULT);
+    validate.copyFromUser(name_buf[0..name_len], name_ptr) catch
+        return Error.Syscall.BadAddress;
     const name = name_buf[0..name_len];
 
     const flags: simple_fs.OpenFlags = @bitCast(flags_bits);
 
-    const process = innigkeit.user.Process.from(current_task.task);
-
+    const process = context.process();
     // Find a free slot while holding the lock.
     process.open_files_lock.lock();
     var free_idx: ?usize = null;
@@ -70,16 +48,16 @@ pub fn syscallFsOpen(
     }
     process.open_files_lock.unlock();
 
-    const idx = free_idx orelse return errCode(e.ENOMEM); // too many open files
+    const idx = free_idx orelse return Error.Syscall.OutOfMemory; // too many open files
 
     const file = simple_fs.open(name, flags) catch |err| {
         log.debug("fs_open({s}): {t}", .{ name, err });
         return switch (err) {
-            error.NotFound => errCode(e.ENOENT),
-            error.NoSpace => errCode(e.ENOSPC),
-            error.IoError => errCode(e.EIO),
-            error.NoDevice => errCode(e.ENODEV),
-            error.InvalidArgument => errCode(e.EINVAL),
+            error.NotFound => Error.Syscall.NotFound,
+            error.NoSpace => Error.Syscall.NoSpace,
+            error.IoError => Error.Syscall.IoError,
+            error.NoDevice => Error.Syscall.NoDevice,
+            error.InvalidArgument => Error.Syscall.InvalidArgument,
         };
     };
 
@@ -90,7 +68,7 @@ pub fn syscallFsOpen(
         // Closing the file we just opened since we can't store it.
         var mutable_file = file;
         simple_fs.close(&mutable_file);
-        return errCode(e.ENOMEM);
+        return Error.Syscall.OutOfMemory;
     }
     process.open_files[idx] = file;
     process.open_files_lock.unlock();
@@ -99,26 +77,22 @@ pub fn syscallFsOpen(
 }
 
 /// fs_read(fd: u32, buf_ptr: usize, buf_len: usize) -> nbytes|error
-pub fn syscallFsRead(
-    fd_raw: usize,
-    buf_ptr: usize,
-    buf_len: usize,
-    current_task: innigkeit.Task.Current,
-) usize {
-    const fd: u32 = @truncate(fd_raw);
-    const idx = fdToIndex(fd) orelse return errCode(e.EBADF);
+pub fn fsRead(context: Context) Error.Syscall!usize {
+    const fd = context.arg32(.one);
+    const buf_ptr = context.arg(.two);
+    const buf_len = context.arg(.three);
+    const idx = fdToIndex(fd) orelse return Error.Syscall.BadHandle;
 
     if (buf_len == 0) return 0;
     // Validate up front so a bad buffer faults before the read advances the
     // file offset.
-    if (!validateUserBuffer(buf_ptr, buf_len)) return errCode(e.EFAULT);
+    if (!validate.validateUserBuffer(buf_ptr, buf_len)) return Error.Syscall.BadAddress;
 
-    const process = innigkeit.user.Process.from(current_task.task);
-
+    const process = context.process();
     process.open_files_lock.lock();
     const file_ptr: *simple_fs.OpenFile = if (process.open_files[idx]) |*f| f else {
         process.open_files_lock.unlock();
-        return errCode(e.EBADF);
+        return Error.Syscall.BadHandle;
     };
 
     // Read into a kernel bounce buffer, then copy to user memory.
@@ -129,54 +103,50 @@ pub fn syscallFsRead(
         process.open_files_lock.unlock();
         log.debug("fs_read fd={}: {t}", .{ fd, err });
         return switch (err) {
-            error.IoError => errCode(e.EIO),
-            error.NoDevice => errCode(e.ENODEV),
+            error.IoError => Error.Syscall.IoError,
+            error.NoDevice => Error.Syscall.NoDevice,
         };
     };
     process.open_files_lock.unlock();
 
     if (n > 0) validate.copyToUser(buf_ptr, tmp[0..n]) catch
-        return errCode(e.EFAULT); // unreachable: validated above
+        return Error.Syscall.BadAddress; // unreachable: validated above
 
     return n;
 }
 
 /// fs_write(fd: u32, buf_ptr: usize, buf_len: usize) -> nbytes|error
-pub fn syscallFsWrite(
-    fd_raw: usize,
-    buf_ptr: usize,
-    buf_len: usize,
-    current_task: innigkeit.Task.Current,
-) usize {
-    const fd: u32 = @truncate(fd_raw);
-    const idx = fdToIndex(fd) orelse return errCode(e.EBADF);
+pub fn fsWrite(context: Context) Error.Syscall!usize {
+    const fd = context.arg32(.one);
+    const buf_ptr = context.arg(.two);
+    const buf_len = context.arg(.three);
+    const idx = fdToIndex(fd) orelse return Error.Syscall.BadHandle;
 
     if (buf_len == 0) return 0;
     // The whole user range must be valid even though at most tmp.len bytes
     // are consumed per call.
-    if (!validateUserBuffer(buf_ptr, buf_len)) return errCode(e.EFAULT);
+    if (!validate.validateUserBuffer(buf_ptr, buf_len)) return Error.Syscall.BadAddress;
 
     // Copy user data into a kernel bounce buffer before touching the file.
     var tmp: [4096]u8 = undefined;
     const to_write: usize = @min(buf_len, tmp.len);
 
-    validate.copyFromUser(tmp[0..to_write], buf_ptr) catch return errCode(e.EFAULT);
+    validate.copyFromUser(tmp[0..to_write], buf_ptr) catch return Error.Syscall.BadAddress;
 
-    const process = innigkeit.user.Process.from(current_task.task);
-
+    const process = context.process();
     process.open_files_lock.lock();
     const file_ptr: *simple_fs.OpenFile = if (process.open_files[idx]) |*f| f else {
         process.open_files_lock.unlock();
-        return errCode(e.EBADF);
+        return Error.Syscall.BadHandle;
     };
 
     const n = simple_fs.write(file_ptr, tmp[0..to_write]) catch |err| {
         process.open_files_lock.unlock();
         log.debug("fs_write fd={}: {t}", .{ fd, err });
         return switch (err) {
-            error.PermissionDenied => errCode(e.EPERM),
-            error.IoError => errCode(e.EIO),
-            error.NoDevice => errCode(e.ENODEV),
+            error.PermissionDenied => Error.Syscall.PermissionDenied,
+            error.IoError => Error.Syscall.IoError,
+            error.NoDevice => Error.Syscall.NoDevice,
         };
     };
     process.open_files_lock.unlock();
@@ -185,19 +155,15 @@ pub fn syscallFsWrite(
 }
 
 /// fs_close(fd: u32) -> 0|error
-pub fn syscallFsClose(
-    fd_raw: usize,
-    current_task: innigkeit.Task.Current,
-) usize {
-    const fd: u32 = @truncate(fd_raw);
-    const idx = fdToIndex(fd) orelse return errCode(e.EBADF);
-
-    const process = innigkeit.user.Process.from(current_task.task);
+pub fn fsClose(context: Context) Error.Syscall!usize {
+    const fd = context.arg32(.one);
+    const idx = fdToIndex(fd) orelse return Error.Syscall.BadHandle;
+    const process = context.process();
 
     process.open_files_lock.lock();
     var file = (process.open_files[idx]) orelse {
         process.open_files_lock.unlock();
-        return errCode(e.EBADF);
+        return Error.Syscall.BadHandle;
     };
     process.open_files[idx] = null;
     process.open_files_lock.unlock();

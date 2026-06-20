@@ -28,6 +28,11 @@ pub const functions: architecture.Functions = .{
                 return interrupt_frame.rip;
             }
         }.instructionPointer,
+        .setInstructionPointer = struct {
+            fn setInstructionPointer(interrupt_frame: *x64.interrupts.InterruptFrame, instruction_pointer: innigkeit.VirtualAddress) void {
+                interrupt_frame.rip = instruction_pointer;
+            }
+        }.setInstructionPointer,
 
         .init = .{
             .initializeEarlyInterrupts = x64.interrupts.init.initializeEarlyInterrupts,
@@ -52,6 +57,8 @@ pub const functions: architecture.Functions = .{
         .flushCache = x64.paging.flushCache,
         .enableAccessToUserMemory = x64.instructions.enableAccessToUserMemory,
         .disableAccessToUserMemory = x64.instructions.disableAccessToUserMemory,
+        .safeMemcpy = x64.paging.safeMemcpy,
+        .safeAtomicLoad32 = x64.paging.safeAtomicLoad32,
 
         .init = .{
             .sizeOfTopLevelEntry = x64.paging.PageTable.sizeOfTopLevelEntry,

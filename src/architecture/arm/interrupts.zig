@@ -58,7 +58,7 @@ pub fn deallocate(interrupt: ArchInterrupt) void {
 }
 
 /// Route `interrupt` to PCI INTx GIC interrupt id `gsi` (level-sensitive,
-/// active-low PCI semantics → GIC level-sensitive), targeted at CPU0.
+/// active-low PCI semantics -> GIC level-sensitive), targeted at CPU0.
 pub fn routeInterruptPci(
     interrupt: ArchInterrupt,
     gsi: u32,

@@ -850,6 +850,10 @@ pub const PageTable = extern struct {
     pub const loadPageTable = loadPageTableImpl;
     /// See `flushCacheImpl`.
     pub const flushCache = flushCacheImpl;
+    /// See `safeMemcpyImpl`.
+    pub const safeMemcpy = safeMemcpyImpl;
+    /// See `safeAtomicLoad32Impl`.
+    pub const safeAtomicLoad32 = safeAtomicLoad32Impl;
     /// See `loadUserPageTableImpl`.
     pub const loadUserPageTable = loadUserPageTableImpl;
     /// See `flushAllTlbImpl`.
@@ -1136,4 +1140,41 @@ pub fn flushCacheImpl(virtual_range: innigkeit.VirtualRange) void {
         \\ dsb ish
         \\ isb
         ::: .{ .memory = true });
+}
+
+/// Copy `source.size` bytes from `source` to `destination`.
+///
+/// NOTE: currently a plain copy. The fault-fixup that makes this *safe* (return
+/// instead of panic on a bad pointer) needs the arm data-abort path to route to
+/// `innigkeit.mem.onPageFault`, which does not exist yet (data aborts hit the
+/// diagnostic panic handler in `vectors.zig`). Until that routing lands, a fault
+/// here panics exactly as a direct access would today (no regression), so valid
+/// copies work and `mem.safe.memcpy` is usable on arm; the DoS-hardening only
+/// takes effect on x64 for now. `target` is unused until then.
+pub fn safeMemcpyImpl(
+    destination: innigkeit.VirtualRange,
+    source: innigkeit.VirtualRange,
+    target: *innigkeit.KernelVirtualAddress,
+) void {
+    target.* = .{ .value = 0 };
+    const len = source.size.value;
+    const dst: [*]u8 = @ptrFromInt(destination.address.value);
+    const src: [*]const u8 = @ptrFromInt(source.address.value);
+    @memcpy(dst[0..len], src[0..len]);
+}
+
+/// Atomically load a `u32` from `address` (acquire = `ldar`) into `out`.
+///
+/// Like `safeMemcpyImpl`, the fault recovery is a no-op until arm data aborts
+/// route to `onPageFault`; `target` is unused and a fault on a bad address
+/// still panics (no regression). Valid loads work, so `mem.safe.atomicLoadU32`
+/// is usable on arm; the DoS-hardening only takes effect on x64 for now.
+pub fn safeAtomicLoad32Impl(
+    address: innigkeit.VirtualAddress,
+    out: *u32,
+    target: *innigkeit.KernelVirtualAddress,
+) void {
+    target.* = .{ .value = 0 };
+    const ptr: *const u32 = @ptrFromInt(address.value);
+    out.* = @atomicLoad(u32, ptr, .acquire);
 }

@@ -15,7 +15,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-/* DOOM renders at 320×200; we scale it up 2× to 640×400 on screen. */
+/* DOOM renders at 320x200; we scale it up 2x to 640x400 on screen. */
 #define DOOM_W  DOOMGENERIC_RESX   /* 320 */
 #define DOOM_H  DOOMGENERIC_RESY   /* 200 */
 #define SCALE   2
@@ -131,7 +131,7 @@ void DG_DrawFrame(void) {
     if (!s_fb || !DG_ScreenBuffer) return;
 
     /*
-     * Scale the 320×200 DOOM frame up to SCALE×SCALE blocks.
+     * Scale the 320x200 DOOM frame up to SCALExSCALE blocks.
      * DG_ScreenBuffer pixels are BGRX (same format as the framebuffer).
      * Centre the scaled image if the display is larger.
      */
@@ -146,7 +146,7 @@ void DG_DrawFrame(void) {
             uint32_t pixel = src_row[sx];
             uint32_t fy = offset_y + sy * SCALE;
             uint32_t fx = offset_x + sx * SCALE;
-            /* Write SCALE×SCALE block */
+            /* Write SCALExSCALE block */
             for (uint32_t dy = 0; dy < SCALE; dy++) {
                 uint32_t row = fy + dy;
                 if (row >= s_fb_h) break;

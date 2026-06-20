@@ -12,27 +12,11 @@
 const std = @import("std");
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
-const core = @import("core");
-const validate = @import("../validate.zig");
-const validateUserBuffer = validate.validateUserBuffer;
-
 const log = innigkeit.debug.log.scoped(.user_fb);
 
-inline fn errCode(code: i64) usize {
-    return @bitCast(code);
-}
-
-const e = struct {
-    const EPERM: i64 = -1;
-    const ENOENT: i64 = -2;
-    const EIO: i64 = -5;
-    const EBADF: i64 = -9;
-    const ENOMEM: i64 = -12;
-    const EFAULT: i64 = -14;
-    const EINVAL: i64 = -22;
-    const ENODEV: i64 = -19;
-    const ENOSPC: i64 = -28;
-};
+const validate = @import("../validate.zig");
+const Error = @import("libinnigkeit").Error;
+const Context = @import("../Context.zig");
 
 /// ABI layout of the FramebufferInfo struct (must match library/innigkeit/display.zig).
 const FramebufferInfo = extern struct {
@@ -45,38 +29,38 @@ const FramebufferInfo = extern struct {
 
 /// Map the bootloader framebuffer (or virtio-gpu backing store if present)
 /// into the calling process's address space.
-pub fn syscallFramebufferMap(info_ptr: usize, current_task: innigkeit.Task.Current) usize {
+pub fn framebufferMap(context: Context) Error.Syscall!usize {
+    const info_ptr = context.arg(.one);
     // Prefer virtio-gpu backing store when the driver is up.
     if (innigkeit.drivers.virtio.gpu.state) |gpu| {
-        return syscallFramebufferMapGpu(info_ptr, current_task, gpu);
+        return framebufferMapGpu(context, gpu);
     }
 
     const info = innigkeit.init.Output.framebuffer.getPhysInfo() orelse {
         log.debug("framebuffer_map: no framebuffer available", .{});
-        return errCode(e.ENODEV);
+        return Error.Syscall.NoDevice;
     };
 
-    if (!validateUserBuffer(info_ptr, @sizeOf(FramebufferInfo))) {
-        return errCode(e.EFAULT);
+    if (!validate.validateUserBuffer(info_ptr, @sizeOf(FramebufferInfo))) {
+        return Error.Syscall.BadAddress;
     }
 
-    const process = innigkeit.user.Process.from(current_task.task);
+    const process = context.process();
     const page_size = architecture.paging.standard_page_size;
 
     const total_bytes: usize = @as(usize, info.pitch) * @as(usize, info.height);
     const aligned_bytes = std.mem.alignForward(usize, total_bytes, page_size.value);
-    const aligned_size = core.Size.from(aligned_bytes, .byte);
     const n_pages = aligned_bytes / page_size.value;
 
     // Reserve a contiguous VA range.
     const virt_range = process.address_space.map(.{
-        .size = aligned_size,
+        .size = .from(aligned_bytes, .byte),
         .protection = .{ .read = true, .write = true },
         .max_protection = .all,
         .type = .zero_fill,
     }) catch |err| {
         log.debug("framebuffer_map: address_space.map failed: {t}", .{err});
-        return errCode(e.ENOMEM);
+        return Error.Syscall.OutOfMemory;
     };
 
     // Wire each physical page into the page table with write-combining.
@@ -94,13 +78,13 @@ pub fn syscallFramebufferMap(info_ptr: usize, current_task: innigkeit.Task.Curre
         if (phys_offset / page_size.value != i) {
             process.address_space.page_table_lock.unlock();
             process.address_space.unmap(virt_range) catch {};
-            return errCode(e.EINVAL);
+            return Error.Syscall.InvalidArgument;
         }
         const phys_val = info.phys_base.value +| phys_offset;
         if (phys_val < info.phys_base.value) {
             process.address_space.page_table_lock.unlock();
             process.address_space.unmap(virt_range) catch {};
-            return errCode(e.EINVAL);
+            return Error.Syscall.InvalidArgument;
         }
         const phys_addr = innigkeit.PhysicalAddress.from(phys_val);
         const phys_idx = innigkeit.mem.PhysicalPage.Index.fromAddress(phys_addr);
@@ -115,7 +99,7 @@ pub fn syscallFramebufferMap(info_ptr: usize, current_task: innigkeit.Task.Curre
             process.address_space.page_table_lock.unlock();
             process.address_space.unmap(virt_range) catch {};
             log.debug("framebuffer_map: mapSinglePage failed at page {}", .{i});
-            return errCode(e.ENOMEM);
+            return Error.Syscall.OutOfMemory;
         };
     }
     process.address_space.page_table_lock.unlock();
@@ -126,7 +110,7 @@ pub fn syscallFramebufferMap(info_ptr: usize, current_task: innigkeit.Task.Curre
         .height = info.height,
         .pitch = info.pitch,
         .bpp = info.bpp,
-    }) catch return errCode(e.EFAULT); // unreachable: validated above
+    }) catch return Error.Syscall.BadAddress; // unreachable: validated above
 
     return virt_range.address.value;
 }
@@ -144,55 +128,52 @@ const InitfsReadSpec = extern struct {
 ///
 /// arg1 = pointer to InitfsReadSpec in user memory.
 /// Returns bytes copied, or file size if buf_len==0 (stat mode).
-pub fn syscallInitfsRead(spec_ptr: usize, current_task: innigkeit.Task.Current) usize {
-    _ = current_task;
-
-    const spec = validate.readUser(InitfsReadSpec, spec_ptr) catch return errCode(e.EFAULT);
+pub fn initfsRead(context: Context) Error.Syscall!usize {
+    const spec_ptr = context.arg(.one);
+    const spec = validate.readUser(InitfsReadSpec, spec_ptr) catch
+        return Error.Syscall.BadAddress;
 
     const name_len = spec.name_len;
-    if (name_len == 0 or name_len > 255) return errCode(e.EINVAL);
-    if (!validateUserBuffer(spec.name_ptr, name_len)) return errCode(e.EFAULT);
-    // Validate the destination up front so a bad buffer faults before the
-    // file lookup.
-    if (spec.buf_len > 0 and !validateUserBuffer(spec.buf_ptr, spec.buf_len)) {
-        return errCode(e.EFAULT);
-    }
+    if (name_len == 0 or name_len > 255) return Error.Syscall.InvalidArgument;
+    if (!validate.validateUserBuffer(spec.name_ptr, name_len)) return Error.Syscall.BadAddress;
+    if (spec.buf_len > 0 and !validate.validateUserBuffer(spec.buf_ptr, spec.buf_len)) return Error.Syscall.BadAddress;
 
     var name_buf: [256]u8 = undefined;
-    validate.copyFromUser(name_buf[0..name_len], spec.name_ptr) catch return errCode(e.EFAULT);
+    validate.copyFromUser(name_buf[0..name_len], spec.name_ptr) catch return Error.Syscall.BadAddress;
     const name = name_buf[0..name_len];
 
-    const file_data = innigkeit.fs.initfs.findFile(name) orelse return errCode(e.ENOENT);
+    const file_data = innigkeit.fs.initfs.findFile(name) orelse return Error.Syscall.NotFound;
 
     if (spec.buf_len == 0) return file_data.len;
 
     const copy_len = @min(file_data.len, spec.buf_len);
-    validate.copyToUser(spec.buf_ptr, file_data[0..copy_len]) catch return errCode(e.EFAULT);
+    validate.copyToUser(spec.buf_ptr, file_data[0..copy_len]) catch return Error.Syscall.BadAddress;
 
     return copy_len;
 }
 
 /// Return milliseconds since kernel boot.
-pub fn syscallUptimeMs() usize {
+pub fn uptimeMs(_: Context) Error.Syscall!usize {
     return @intCast(innigkeit.time.init.getUptimeMs());
 }
 
 /// Non-blocking drain of raw PS/2 bytes into a user buffer.
 ///
 /// Returns the number of bytes copied (0 if no key events pending).
-pub fn syscallKbdRead(buf_ptr: usize, buf_len: usize, current_task: innigkeit.Task.Current) usize {
-    _ = current_task;
+pub fn kbdRead(context: Context) Error.Syscall!usize {
+    const buf_ptr = context.arg(.one);
+    const buf_len = context.arg(.two);
     if (buf_len == 0) return 0;
     // Validate up front so a bad buffer faults before draining (and losing)
     // pending key events.
-    if (!validateUserBuffer(buf_ptr, buf_len)) return errCode(e.EFAULT);
+    if (!validate.validateUserBuffer(buf_ptr, buf_len)) return Error.Syscall.BadAddress;
 
     var tmp: [64]u8 = undefined;
     const to_read = @min(buf_len, tmp.len);
     const n = innigkeit.drivers.input.ps2.raw_kb.drain(tmp[0..to_read]);
     if (n == 0) return 0;
 
-    validate.copyToUser(buf_ptr, tmp[0..n]) catch return errCode(e.EFAULT);
+    validate.copyToUser(buf_ptr, tmp[0..n]) catch return Error.Syscall.BadAddress; // unreachable: validated above
 
     return n;
 }
@@ -202,13 +183,15 @@ const MouseEvent = innigkeit.drivers.input.ps2_mouse.MouseEvent;
 /// Non-blocking drain of PS/2 mouse events.
 /// buf_ptr points to a []MouseEvent; buf_len is the number of events (not bytes).
 /// Returns the number of events written.
-pub fn syscallMouseRead(buf_ptr: usize, buf_len: usize, current_task: innigkeit.Task.Current) usize {
-    _ = current_task;
+pub fn mouseRead(context: Context) Error.Syscall!usize {
+    const buf_ptr = context.arg(.one);
+    const buf_len = context.arg(.two);
+
     if (buf_len == 0) return 0;
     // Validate up front so a bad buffer faults before draining (and losing)
     // pending mouse events.
     const byte_len = buf_len *| @sizeOf(MouseEvent);
-    if (!validateUserBuffer(buf_ptr, byte_len)) return errCode(e.EFAULT);
+    if (!validate.validateUserBuffer(buf_ptr, byte_len)) return Error.Syscall.BadAddress;
 
     var tmp: [16]MouseEvent = undefined;
     const to_read = @min(buf_len, tmp.len);
@@ -216,31 +199,28 @@ pub fn syscallMouseRead(buf_ptr: usize, buf_len: usize, current_task: innigkeit.
     if (n == 0) return 0;
 
     validate.copyToUser(buf_ptr, std.mem.sliceAsBytes(tmp[0..n])) catch
-        return errCode(e.EFAULT); // unreachable: validated above
+        return Error.Syscall.BadAddress; // unreachable: validated above
 
     return n;
 }
 
 /// Map the virtio-gpu backing-store pages into the calling process's address space.
-fn syscallFramebufferMapGpu(
-    info_ptr: usize,
-    current_task: innigkeit.Task.Current,
-    gpu: *innigkeit.drivers.virtio.gpu.GpuState,
-) usize {
-    if (!validateUserBuffer(info_ptr, @sizeOf(FramebufferInfo))) return errCode(e.EFAULT);
+fn framebufferMapGpu(context: Context, gpu: *innigkeit.drivers.virtio.gpu.GpuState) Error.Syscall!usize {
+    const info_ptr = context.arg(.one);
+    if (!validate.validateUserBuffer(info_ptr, @sizeOf(FramebufferInfo))) return Error.Syscall.BadAddress;
 
-    const process = innigkeit.user.Process.from(current_task.task);
     const page_size = architecture.paging.standard_page_size;
     const n_pages = gpu.fb_pages.len;
     const total_bytes = n_pages * page_size.value;
 
+    const process = context.process();
     const virt_range = process.address_space.map(.{
-        .size = core.Size.from(total_bytes, .byte),
+        .size = .from(total_bytes, .byte),
         .protection = .{ .read = true, .write = true },
         .max_protection = .all,
         .type = .zero_fill,
     }) catch {
-        return errCode(e.ENOMEM);
+        return Error.Syscall.OutOfMemory;
     };
 
     const map_type: innigkeit.mem.MapType = .{
@@ -261,7 +241,7 @@ fn syscallFramebufferMapGpu(
         ) catch {
             process.address_space.page_table_lock.unlock();
             process.address_space.unmap(virt_range) catch {};
-            return errCode(e.ENOMEM);
+            return Error.Syscall.OutOfMemory;
         };
     }
     process.address_space.page_table_lock.unlock();
@@ -271,7 +251,7 @@ fn syscallFramebufferMapGpu(
         .height = gpu.fb_height,
         .pitch = gpu.fb_width * 4,
         .bpp = 32,
-    }) catch return errCode(e.EFAULT); // unreachable: validated above
+    }) catch return Error.Syscall.BadAddress; // unreachable: validated above
 
     return virt_range.address.value;
 }
@@ -286,15 +266,13 @@ pub const BlkReadSpec = extern struct {
 /// Read bytes from the data disk (device 1) into a user buffer.
 ///
 /// Returns bytes read, or 0 if no data disk is present.
-pub fn syscallBlkRead(spec_ptr: usize, current_task: innigkeit.Task.Current) usize {
-    _ = current_task;
-
-    const spec = validate.readUser(BlkReadSpec, spec_ptr) catch return errCode(e.EFAULT);
+pub fn blkRead(context: Context) Error.Syscall!usize {
+    const spec_ptr = context.arg(.one);
+    const spec = validate.readUser(BlkReadSpec, spec_ptr) catch return Error.Syscall.BadAddress;
 
     if (spec.buf_len == 0) return 0;
-    if (!validateUserBuffer(spec.buf_ptr, spec.buf_len)) return errCode(e.EFAULT);
-
-    if (!innigkeit.drivers.virtio.blk.isDataReady()) return errCode(e.ENODEV);
+    if (!validate.validateUserBuffer(spec.buf_ptr, spec.buf_len)) return Error.Syscall.BadAddress;
+    if (!innigkeit.drivers.virtio.blk.isDataReady()) return Error.Syscall.NoDevice;
 
     // Read in chunks through a kernel-side bounce buffer.
     var out_pos: usize = 0;
@@ -312,12 +290,12 @@ pub fn syscallBlkRead(spec_ptr: usize, current_task: innigkeit.Task.Current) usi
         const dev_idx = innigkeit.drivers.virtio.blk.dataDeviceIndex();
         innigkeit.drivers.virtio.blk.readSectors(dev_idx, sector, tmp[0..chunk_bytes], sectors_needed) catch |err| {
             log.debug("blk_read: readSectors failed: {t}", .{err});
-            return errCode(e.EIO);
+            return Error.Syscall.IoError;
         };
 
         const copy_len: usize = @min(remaining, chunk_bytes - off_in_sector);
         validate.copyToUser(spec.buf_ptr + out_pos, tmp[off_in_sector..][0..copy_len]) catch
-            return errCode(e.EFAULT); // unreachable: whole buffer validated above
+            return Error.Syscall.BadAddress; // unreachable: whole buffer validated above
 
         out_pos += copy_len;
         remaining -= copy_len;
@@ -331,18 +309,14 @@ pub fn syscallBlkRead(spec_ptr: usize, current_task: innigkeit.Task.Current) usi
 ///
 /// Offset and length must be multiples of 512 (sector size).
 /// Returns 0 on success.
-pub fn syscallBlkWrite(spec_ptr: usize, current_task: innigkeit.Task.Current) usize {
-    _ = current_task;
-
-    const spec = validate.readUser(BlkReadSpec, spec_ptr) catch return errCode(e.EFAULT);
+pub fn blkWrite(context: Context) Error.Syscall!usize {
+    const spec_ptr = context.arg(.one);
+    const spec = validate.readUser(BlkReadSpec, spec_ptr) catch return Error.Syscall.BadAddress;
 
     if (spec.buf_len == 0) return 0;
-    if (!validateUserBuffer(spec.buf_ptr, spec.buf_len)) return errCode(e.EFAULT);
-
-    // Offset and length must be sector-aligned.
-    if (spec.byte_offset % 512 != 0 or spec.buf_len % 512 != 0) return errCode(e.EINVAL);
-
-    if (!innigkeit.drivers.virtio.blk.isDataReady()) return errCode(e.ENODEV);
+    if (!validate.validateUserBuffer(spec.buf_ptr, spec.buf_len)) return Error.Syscall.BadAddress;
+    if (spec.byte_offset % 512 != 0 or spec.buf_len % 512 != 0) return Error.Syscall.InvalidArgument;
+    if (!innigkeit.drivers.virtio.blk.isDataReady()) return Error.Syscall.NoDevice;
 
     // Copy in chunks through a kernel-side bounce buffer.
     var in_pos: usize = 0;
@@ -356,12 +330,12 @@ pub fn syscallBlkWrite(spec_ptr: usize, current_task: innigkeit.Task.Current) us
         const sector: u64 = byte_offset / 512;
 
         validate.copyFromUser(tmp[0..chunk_bytes], spec.buf_ptr + in_pos) catch
-            return errCode(e.EFAULT); // unreachable: whole buffer validated above
+            return Error.Syscall.BadAddress; // unreachable: whole buffer validated above
 
         const dev_idx = innigkeit.drivers.virtio.blk.dataDeviceIndex();
         innigkeit.drivers.virtio.blk.writeSectors(dev_idx, sector, tmp[0..chunk_bytes], sectors_now) catch |err| {
             log.debug("blk_write: writeSectors failed: {t}", .{err});
-            return errCode(e.EIO);
+            return Error.Syscall.IoError;
         };
 
         in_pos += chunk_bytes;

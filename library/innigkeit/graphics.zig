@@ -653,8 +653,8 @@ pub const Canvas = struct {
         if (fill_w < w) self.fillRect(x + fill_w, y, w - fill_w, h, bg);
     }
 
-    /// Draw text at `scale`× magnification using the 8×8 font.
-    /// `scale=1` is normal; `scale=2` produces 16×16 glyphs.
+    /// Draw text at `scale`x magnification using the 8x8 font.
+    /// `scale=1` is normal; `scale=2` produces 16x16 glyphs.
     pub fn drawTextScaled(self: Canvas, x: u32, y: u32, text: []const u8, scale: u32, fg: Color, bg: ?Color) void {
         if (scale <= 1) {
             self.drawText(x, y, text, fg, bg);
@@ -667,7 +667,7 @@ pub const Canvas = struct {
         }
     }
 
-    /// Draw a single character at `scale`× magnification.
+    /// Draw a single character at `scale`x magnification.
     pub fn drawCharScaled(self: Canvas, x: u32, y: u32, ch: u8, scale: u32, fg: Color, bg: ?Color) void {
         const glyph = font[ch];
         var row: u32 = 0;

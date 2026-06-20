@@ -14,8 +14,10 @@ pub const Stack = @import("Stack.zig");
 pub const internal = @import("core/internal.zig");
 pub const init = @import("core/init.zig");
 pub const Transition = @import("core/Transition.zig");
-const globals = @import("core/globals.zig");
 
+pub const Qos = Eevdf.Qos;
+
+const globals = @import("core/globals.zig");
 const SchedClass = @import("SchedClass.zig");
 const Eevdf = @import("sched/Eevdf.zig");
 const Rt = @import("sched/Rt.zig");
@@ -76,6 +78,11 @@ migration_disable_count: std.atomic.Value(u32),
 
 /// Tracks nested enables of access to user memory.
 enable_access_to_user_memory_count: std.atomic.Value(u32) = .init(0),
+
+/// Non-null while a `mem.safe.memcpy` is in progress on this task. The
+/// page-fault handler reads it to convert an otherwise-unhandleable fault into
+/// a copy failure (and redirect the faulting instruction) instead of panicking.
+safe_result_slot: std.atomic.Value(?*innigkeit.mem.safe.ResultSlot) = .init(null),
 
 spinlocks_held: u32,
 scheduler_locked: bool,
@@ -155,6 +162,14 @@ pub const State = union(enum) {
 
 pub fn incrementReferenceCount(task: *Task) void {
     _ = task.reference_count.fetchAdd(1, .acq_rel);
+}
+
+/// Apply a QoS class to this task (fair-class weight + slice). The caller must
+/// hold the scheduler lock, and `task` must be the running task (not enqueued), and
+/// `thread_set_qos` targets the caller, which is always `curr`. See `Eevdf.setQos`
+/// for the consistency rationale.
+pub fn setQos(task: *Task, qos: Eevdf.Qos) void {
+    Eevdf.setQos(&task.sched, qos);
 }
 
 /// Decrements the reference count of the task.

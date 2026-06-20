@@ -9,50 +9,33 @@
 //!   Unmaps the region [addr, addr+size) from the calling process's address space.
 //!   addr and size must be page-aligned.
 
-const std = @import("std");
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
-const core = @import("core");
-
 const log = innigkeit.debug.log.scoped(.vmem);
 
-/// Negated POSIX errno values used as syscall return codes.
-const e = struct {
-    const EPERM: i64 = -1;
-    const EIO: i64 = -5;
-    const EBADF: i64 = -9;
-    const ENOMEM: i64 = -12;
-    const EFAULT: i64 = -14;
-    const EINVAL: i64 = -22;
-};
-
-inline fn errCode(code: i64) usize {
-    return @bitCast(code);
-}
+const Context = @import("../Context.zig");
+const Error = @import("libinnigkeit").Error;
 
 /// Execute the `vmem_map` syscall.
 ///
 /// arg1 = frame capability handle
-/// Returns the virtual base address on success, or a negated errno on failure.
-pub fn syscallVmemMap(handle: u32, current_task: innigkeit.Task.Current) usize {
-    const process = innigkeit.user.Process.from(current_task.task);
+/// Returns the virtual base address on success.
+pub fn vmemMap(context: Context) Error.Syscall!usize {
+    const handle = context.arg32(.one);
+    const process = context.process();
     const cap_table = process.cap_table;
 
     // Look up the Frame capability.
     cap_table.lock.lock();
     const slot_info = cap_table.getAndRefLocked(handle) orelse {
         cap_table.lock.unlock();
-        return errCode(e.EBADF);
+        return Error.Syscall.BadHandle;
     };
     cap_table.lock.unlock();
     defer innigkeit.capabilities.CapabilityTable.unrefObject(slot_info.cap_type, slot_info.ptr);
 
-    if (slot_info.cap_type != .frame) {
-        return errCode(e.EBADF);
-    }
-    if (!slot_info.rights.read) {
-        return errCode(e.EPERM);
-    }
+    if (slot_info.cap_type != .frame) return Error.Syscall.BadHandle;
+    if (!slot_info.rights.read) return Error.Syscall.PermissionDenied;
 
     const frame: *innigkeit.capabilities.Frame = @ptrCast(@alignCast(slot_info.ptr));
     const phys_page = frame.page;
@@ -75,8 +58,8 @@ pub fn syscallVmemMap(handle: u32, current_task: innigkeit.Task.Current) usize {
     }) catch |err| {
         log.debug("vmem_map: address_space.map failed: {t}", .{err});
         return switch (err) {
-            error.OutOfMemory, error.RequestedRangeUnavailable => errCode(e.ENOMEM),
-            else => errCode(e.EINVAL),
+            error.OutOfMemory, error.RequestedRangeUnavailable => Error.Syscall.OutOfMemory,
+            else => Error.Syscall.InvalidArgument,
         };
     };
 
@@ -100,7 +83,7 @@ pub fn syscallVmemMap(handle: u32, current_task: innigkeit.Task.Current) usize {
         // Unmap the VA we just reserved since we can't back it.
         process.address_space.unmap(virt_range) catch {};
         log.debug("vmem_map: mapSinglePage failed: {t}", .{err});
-        return errCode(e.ENOMEM);
+        return Error.Syscall.OutOfMemory;
     };
     process.address_space.page_table_lock.unlock();
 
@@ -111,24 +94,20 @@ pub fn syscallVmemMap(handle: u32, current_task: innigkeit.Task.Current) usize {
 ///
 /// arg1 = virtual address (must be page-aligned)
 /// arg2 = size in bytes (must be page-aligned)
-/// Returns 0 on success or a negated errno on failure.
-pub fn syscallVmemUnmap(
-    addr_raw: usize,
-    size_bytes: usize,
-    current_task: innigkeit.Task.Current,
-) usize {
-    if (size_bytes == 0 or addr_raw == 0) {
-        return errCode(e.EINVAL);
-    }
+/// Returns 0 on success.
+pub fn vmemUnmap(context: Context) Error.Syscall!usize {
+    const addr_raw = context.arg(.one);
+    const size_bytes = context.arg(.two);
+
+    if (size_bytes == 0 or addr_raw == 0) return Error.Syscall.InvalidArgument;
 
     const page_align = architecture.paging.standard_page_size_alignment;
-    if (!page_align.check(addr_raw) or !page_align.check(size_bytes)) {
-        return errCode(e.EINVAL);
-    }
+    if (!page_align.check(addr_raw) or !page_align.check(size_bytes)) return Error.Syscall.InvalidArgument;
 
     const vaddr: innigkeit.VirtualAddress = .from(addr_raw);
-    if (vaddr.getType() != .user) {
-        return errCode(e.EFAULT);
+    switch (vaddr.tagged()) {
+        .user => {},
+        else => return Error.Syscall.BadAddress,
     }
 
     const range: innigkeit.VirtualRange = .{
@@ -136,12 +115,9 @@ pub fn syscallVmemUnmap(
         .size = .from(size_bytes, .byte),
     };
 
-    const process = innigkeit.user.Process.from(current_task.task);
-    process.address_space.unmap(range) catch |err| {
-        return switch (err) {
-            error.OutOfMemory => errCode(e.ENOMEM),
-            error.RangeNotPageAligned => errCode(e.EINVAL),
-        };
+    context.process().address_space.unmap(range) catch |err| return switch (err) {
+        error.OutOfMemory => Error.Syscall.OutOfMemory,
+        error.RangeNotPageAligned => Error.Syscall.InvalidArgument,
     };
 
     return 0;

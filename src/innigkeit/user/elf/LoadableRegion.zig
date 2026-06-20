@@ -31,29 +31,32 @@ pub const Iterator = struct {
     pub fn next(it: *Iterator) !?LoadableRegion {
         while (it.program_header_iterator.next()) |program_header| {
             if (program_header.type != .load) continue;
-            if (program_header.memory_size == 0) continue; // can this even happen with a loadable segment?
+            if (program_header.memory_size.equal(.zero)) continue; // can this even happen with a loadable segment?
 
-            if (program_header.file_size > program_header.memory_size) {
+            if (program_header.file_size.greaterThan(program_header.memory_size)) {
                 log.warn("PT_LOAD segment has file_size > memory_size: {f}", .{program_header});
                 return error.ProgramHeaderInvalidSize;
             }
 
             const address, const offset_due_to_alignment = blk: {
-                const unaligned_address: innigkeit.VirtualAddress = .from(program_header.virtual_address);
+                const unaligned_address = program_header.virtual_address;
                 const aligned_address = unaligned_address.pageAlignBackward();
                 break :blk .{ aligned_address, aligned_address.difference(unaligned_address) };
             };
 
             const range_size: core.Size = offset_due_to_alignment
-                .add(.from(program_header.memory_size, .byte))
+                .add(program_header.memory_size)
                 .alignForward(architecture.paging.standard_page_size_alignment);
 
             const virtual_range: innigkeit.VirtualRange = .from(address, range_size);
             if (core.is_debug) std.debug.assert(virtual_range.pageAligned());
 
-            if (virtual_range.getType() != .user) {
-                log.warn("program header has invalid user virtual address range: {f}", .{program_header});
-                return error.ProgramHeaderInvalidVirtualAddress;
+            switch (virtual_range.tagged()) {
+                .user => {},
+                else => {
+                    log.warn("program header has invalid user virtual address range: {f}", .{program_header});
+                    return error.ProgramHeaderInvalidVirtualAddress;
+                },
             }
 
             const new_protection = blk: {
@@ -79,8 +82,8 @@ pub const Iterator = struct {
             return .{
                 .virtual_range = virtual_range.toUser(),
                 .destination_offset = offset_due_to_alignment.value,
-                .source_base = program_header.offset,
-                .source_length = program_header.file_size,
+                .source_base = program_header.offset.value,
+                .source_length = program_header.file_size.value,
                 .protection = new_protection,
             };
         }

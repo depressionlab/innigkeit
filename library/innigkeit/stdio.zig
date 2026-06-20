@@ -77,6 +77,7 @@ const std = @import("std");
 const innigkeit = @import("innigkeit");
 const Io = std.Io;
 const Syscall = innigkeit.Syscall;
+const Error = innigkeit.Error;
 
 // TODO: N/AI
 
@@ -228,27 +229,27 @@ const stdout_fd: usize = 1;
 /// Map a kernel syscall error onto `Operation.FileReadStreaming`'s error set
 /// (closest semantic match; anything without a counterpart is
 /// `error.Unexpected`).
-fn mapReadError(err: Syscall.Error) Io.Operation.FileReadStreaming.UnendingError {
+fn mapReadError(err: Error.Syscall) Io.Operation.FileReadStreaming.UnendingError {
     return switch (err) {
-        error.PermissionDenied => error.AccessDenied,
-        error.BadFileDescriptor => error.NotOpenForReading,
-        error.WouldBlock => error.WouldBlock,
-        error.OutOfMemory => error.SystemResources,
-        error.IoError => error.InputOutput,
+        Error.Syscall.PermissionDenied => error.AccessDenied,
+        Error.Syscall.BadHandle => error.NotOpenForReading,
+        Error.Syscall.WouldBlock => error.WouldBlock,
+        Error.Syscall.OutOfMemory => error.SystemResources,
+        Error.Syscall.IoError => error.InputOutput,
         else => error.Unexpected,
     };
 }
 
 /// Map a kernel syscall error onto `Operation.FileWriteStreaming`'s error set.
-fn mapWriteError(err: Syscall.Error) Io.Operation.FileWriteStreaming.Error {
+fn mapWriteError(err: Error.Syscall) Io.Operation.FileWriteStreaming.Error {
     return switch (err) {
-        error.PermissionDenied => error.PermissionDenied,
-        error.BadFileDescriptor => error.NotOpenForWriting,
-        error.WouldBlock => error.WouldBlock,
-        error.OutOfMemory => error.SystemResources,
-        error.NoSpace => error.NoSpaceLeft,
-        error.NoDevice => error.NoDevice,
-        error.IoError => error.InputOutput,
+        Error.Syscall.PermissionDenied => error.PermissionDenied,
+        Error.Syscall.BadHandle => error.NotOpenForWriting,
+        Error.Syscall.WouldBlock => error.WouldBlock,
+        Error.Syscall.OutOfMemory => error.SystemResources,
+        Error.Syscall.NoSpace => error.NoSpaceLeft,
+        Error.Syscall.NoDevice => error.NoDevice,
+        Error.Syscall.IoError => error.InputOutput,
         else => error.Unexpected,
     };
 }
@@ -636,11 +637,11 @@ test "timeoutDeadlineMs resolves none, duration, and deadline" {
 }
 
 test "syscall errors map onto std.Io operation error sets" {
-    try std.testing.expectEqual(error.NotOpenForReading, mapReadError(error.BadFileDescriptor));
+    try std.testing.expectEqual(error.NotOpenForReading, mapReadError(error.BadHandle));
     try std.testing.expectEqual(error.AccessDenied, mapReadError(error.PermissionDenied));
     try std.testing.expectEqual(error.Unexpected, mapReadError(error.NotFound));
     try std.testing.expectEqual(error.NoSpaceLeft, mapWriteError(error.NoSpace));
-    try std.testing.expectEqual(error.NotOpenForWriting, mapWriteError(error.BadFileDescriptor));
+    try std.testing.expectEqual(error.NotOpenForWriting, mapWriteError(error.BadHandle));
     try std.testing.expectEqual(error.Unexpected, mapWriteError(error.Unknown));
 }
 

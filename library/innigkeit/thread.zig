@@ -1,5 +1,6 @@
 const std = @import("std");
 const innigkeit = @import("innigkeit");
+const Error = @import("Error.zig");
 
 /// The required signature for a spawned thread entry point.
 ///
@@ -31,11 +32,26 @@ pub fn setCoreHint(hint: CoreHint) void {
     _ = innigkeit.Syscall.invoke(.thread_set_hint, .{@as(usize, @intFromEnum(hint))});
 }
 
+/// Quality-of-Service class for `setQos`. Maps to scheduler weight + slice:
+/// `interactive` favours latency, `background` favors throughput.
+pub const Qos = enum(u8) {
+    interactive = 0,
+    default = 1,
+    background = 2,
+};
+
+/// Set the calling thread's QoS class. Affects only this thread, raising or
+/// lowering one's own QoS is always permitted.
+pub fn setQos(qos: Qos) void {
+    // TODO: is this type conversion necessary?
+    _ = innigkeit.Syscall.invoke(.thread_set_qos, .{@as(usize, @intFromEnum(qos))});
+}
+
 /// Spawn a new thread in the current process.
 ///
 /// The kernel creates a thread that begins executing `entry(arg)`.
 /// The new thread shares the process address space.
-pub fn spawn(entry: EntryFn, arg: usize) innigkeit.Syscall.Error!void {
+pub fn spawn(entry: EntryFn, arg: usize) Error.Syscall!void {
     const result = innigkeit.Syscall.invoke(
         .spawn_thread,
         .{ @intFromPtr(entry), arg },

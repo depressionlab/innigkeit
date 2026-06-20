@@ -59,6 +59,53 @@ run_x64_suite() { # $1 = smp count
     rm -f "$log"
 }
 
+# Run the (already-built) arm test image and judge by the serial verdict.
+#
+# QEMU selection is environment-dependent and we try both: in the cloud
+# container the bundled .tools QEMU 11 crashes the arm boot under TCG (wedges at
+# configurePerExecutorSystemFeatures) and the host QEMU 8.2 works; on the
+# original dev box the reverse was true (8.2 too old, .tools 11 needed). So we
+# try the host QEMU first, then .tools, and accept whichever produces the
+# "ALL N TEST(S) PASSED" line. The arm exit code is never trusted (flaky), only
+# the serial verdict.
+run_arm_suite() {
+    # Host distro AAVMF is preferred (the vendored EDK2 aarch64 build wedges in
+    # SEC, see build/QEMU.zig). Bail clearly if it is absent.
+    if [ ! -f /usr/share/AAVMF/AAVMF_CODE.fd ]; then
+        note FAIL "arm suite: host AAVMF firmware missing (/usr/share/AAVMF/AAVMF_CODE.fd)"
+        FAILED=1
+        return
+    fi
+
+    local qemu log verdict
+    for qemu in qemu-system-aarch64 "$PWD/.tools/qemu/bin/qemu-system-aarch64"; do
+        case "$qemu" in
+            /*) [ -x "$qemu" ] || continue ;;
+            *)  command -v "$qemu" >/dev/null 2>&1 || continue ;;
+        esac
+        log=$(mktemp)
+        timeout 600 "$qemu" -nodefaults -no-user-config -boot menu=off \
+            -m 256 -smp 1 \
+            -device virtio-blk-pci,drive=drive0,bootindex=0,disable-modern=on,disable-legacy=off \
+            -drive file=zig-out/arm/innigkeit_test_arm.hdd,format=raw,if=none,id=drive0 \
+            -netdev user,id=net0 \
+            -device virtio-net-pci,netdev=net0,disable-modern=on,disable-legacy=off,romfile= \
+            -serial "file:$log" -display none -cpu max -machine virt,acpi=on -accel tcg \
+            -drive if=pflash,format=raw,unit=0,readonly=on,file=/usr/share/AAVMF/AAVMF_CODE.fd \
+            -drive if=pflash,format=raw,unit=1,readonly=on,file=/usr/share/AAVMF/AAVMF_VARS.fd \
+            -semihosting -semihosting-config enable=on,target=native -no-reboot >/dev/null 2>&1
+        verdict=$(grep -aoE 'ALL [0-9]+ TEST\(S\) PASSED( \([0-9]+ skipped\))?' "$log" | tail -1)
+        if [ -n "$verdict" ]; then
+            note PASS "arm suite (-smp 1, $(basename "$qemu")): $verdict"
+            rm -f "$log"
+            return
+        fi
+        rm -f "$log"
+    done
+    note FAIL "arm suite: no PASSED verdict from any QEMU (tried host + .tools)"
+    FAILED=1
+}
+
 # 1. Compile check (all architectures, all apps, host tools).
 if timeout 600 "$ZIG" build check >/dev/null 2>&1; then
     note PASS "zig build check (x64+arm+riscv, apps, tools)"
@@ -76,21 +123,30 @@ else
     FAILED=1
 fi
 
-# 3. Build the x64 test image (the build's own QEMU run is ignored here; the
-#    explicit runs below produce the verdicts).
-timeout 900 "$ZIG" build test_x64 >/dev/null 2>&1
-[ -f zig-out/x64/innigkeit_test_x64.hdd ] || { note FAIL "test image build"; exit 1; }
+# 3. Build the x64 test image and run it. Use `image_test_x64` (image only) not
+#    `test_x64`: the latter also runs the bundled .tools QEMU, which cannot boot
+#    x64 here, so its exit code is always non-zero and would mask a real compile
+#    failure. `image_test_x64`'s exit code IS meaningful. Delete any stale image
+#    first so a failed rebuild can never be mistaken for a pass.
+rm -f zig-out/x64/innigkeit_test_x64.hdd
+if timeout 900 "$ZIG" build image_test_x64 >/dev/null 2>&1 && [ -f zig-out/x64/innigkeit_test_x64.hdd ]; then
+    run_x64_suite 4
+    [ "$SMP1" -eq 1 ] && run_x64_suite 1
+else
+    note FAIL "x64 test image build"
+    FAILED=1
+fi
 
-run_x64_suite 4
-[ "$SMP1" -eq 1 ] && run_x64_suite 1
-
-# 4. Optional ARM suite. Delegated to scripts/test_arm.sh, which boots QEMU 11
-#    itself and greps the serial verdict: `zig build test_arm`'s own exit code
-#    is unreliable on arm. The helper prints its own PASS/FAIL line.
+# 4. Optional ARM suite. Build the image with zig, then run it with an explicit
+#    QEMU (host-first, .tools fallback) and judge by the serial verdict. We do
+#    NOT use `zig build test_arm` here because it hard-wires the .tools QEMU 11,
+#    which crashes the arm boot in the cloud container (see run_arm_suite).
 if [ "$ARM" -eq 1 ]; then
-    if timeout 600 scripts/test_arm.sh; then
-        :
+    rm -f zig-out/arm/innigkeit_test_arm.hdd
+    if timeout 900 "$ZIG" build image_test_arm >/dev/null 2>&1 && [ -f zig-out/arm/innigkeit_test_arm.hdd ]; then
+        run_arm_suite
     else
+        note FAIL "arm test image build"
         FAILED=1
     fi
 fi

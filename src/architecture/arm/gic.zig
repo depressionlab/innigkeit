@@ -38,7 +38,7 @@ const GICC_EOIR: u64 = GICC_BASE + 0x010;
 /// GIC (at `0x0800_0000`) is reachable through the direct map. Note that this
 /// maps the device as normal cacheable memory; that works under QEMU but a
 /// proper device-memory (nGnRE) mapping should be installed once the kernel
-/// page tables own this region. See `docs/aarch64-port.md`.
+/// page tables own this region. See `docs/ARM-port.md`.
 inline fn gicdReg(offset: u64) *volatile u32 {
     const phys: innigkeit.PhysicalAddress = .from(GICD_BASE + offset);
     return phys.toDirectMap().toPtr(*volatile u32);
@@ -53,8 +53,8 @@ inline fn giccReg(offset: u64) *volatile u32 {
 /// whole system): call exactly once, on the bootstrap executor, after the MMU
 /// is on and the GIC physical range is direct-mapped.
 ///
-/// The CPU interface is a separate, per-executor concern — see
-/// `initCpuInterface`.
+/// The CPU interface is a separate, per-executor concern (see
+/// `initCpuInterface`).
 pub fn initDistributor() void {
     // Disable distributor while we configure it.
     gicdReg(0x000).* = 0;
