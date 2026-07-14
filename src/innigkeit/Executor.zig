@@ -3,8 +3,8 @@ const Executor = @This();
 const std = @import("std");
 
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 
 /// Unique identifier per executor.
 ///
@@ -17,7 +17,7 @@ scheduler: innigkeit.Task.Scheduler,
 
 arch_specific: architecture.PerExecutor,
 
-/// List of `innigkeit.mem.FlushRequest` objects that need to be actioned.
+/// List of `innigkeit.memory.FlushRequest` objects that need to be actioned.
 flush_requests: core.containers.AtomicSinglyLinkedList = .{},
 
 /// Intel Hybrid core classification detected at executor initialization.

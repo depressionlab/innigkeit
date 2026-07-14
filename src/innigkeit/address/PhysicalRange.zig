@@ -1,7 +1,8 @@
-const std = @import("std");
-const innigkeit = @import("innigkeit");
+const architecture = @import("architecture");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 const root = @import("root.zig");
+const std = @import("std");
 
 pub const PhysicalRange = struct {
     address: Address,
@@ -16,10 +17,10 @@ pub const PhysicalRange = struct {
     /// **REQUIREMENTS**:
     /// - `direct_map_range` must be fully contained within the direct map.
     pub inline fn fromDirectMap(direct_map_range: root.KernelVirtualRange) PhysicalRange {
-        if (core.is_debug) std.debug.assert(innigkeit.mem.globals.direct_map.fullyContains(direct_map_range));
+        if (core.is_debug) std.debug.assert(innigkeit.memory.globals.direct_map.fullyContains(direct_map_range));
         return .{
             .address = .{
-                .value = direct_map_range.address.value - innigkeit.mem.globals.direct_map.address.value,
+                .value = direct_map_range.address.value - innigkeit.memory.globals.direct_map.address.value,
             },
             .size = direct_map_range.size,
         };
@@ -31,10 +32,10 @@ pub const PhysicalRange = struct {
     /// - `range` must be fully covered by the direct map.
     pub inline fn toDirectMap(range: PhysicalRange) root.KernelVirtualRange {
         const direct_map_range: root.KernelVirtualRange = .{
-            .address = .{ .value = range.address.value + innigkeit.mem.globals.direct_map.address.value },
+            .address = .{ .value = range.address.value + innigkeit.memory.globals.direct_map.address.value },
             .size = range.size,
         };
-        if (core.is_debug) std.debug.assert(innigkeit.mem.globals.direct_map.fullyContains(direct_map_range));
+        if (core.is_debug) std.debug.assert(innigkeit.memory.globals.direct_map.fullyContains(direct_map_range));
         return direct_map_range;
     }
 
@@ -51,3 +52,16 @@ pub const PhysicalRange = struct {
     const Address = root.PhysicalAddress;
     const Mixin = root.RangeMixin(@This());
 };
+
+test "PhysicalRange: pageAlign covers the last byte even when it lands exactly on a page boundary" {
+    const page_size = architecture.paging.standard_page_size;
+
+    // One byte past a full page: the last byte (at offset page_size) sits
+    // exactly on the next page's boundary. pageAlign() must still cover it
+    // (2 pages), not silently truncate to 1 page (see RangeMixin.pageAlign()).
+    const range: PhysicalRange = .from(.zero, page_size.add(.one));
+    const aligned = range.pageAlign();
+
+    try std.testing.expectEqual(@as(u64, 0), aligned.address.value);
+    try std.testing.expectEqual(page_size.value * 2, aligned.size.value);
+}

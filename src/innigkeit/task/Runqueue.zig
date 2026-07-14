@@ -6,11 +6,11 @@
 //! The real-time class always takes precedence over the fair (EEVDF) class.
 const Runqueue = @This();
 
-const std = @import("std");
-const innigkeit = @import("innigkeit");
-const SchedClass = @import("SchedClass.zig");
 const Eevdf = @import("sched/Eevdf.zig");
+const innigkeit = @import("innigkeit");
 const Rt = @import("sched/Rt.zig");
+const SchedClass = @import("SchedClass.zig");
+const std = @import("std");
 const wallclock = innigkeit.time.wallclock;
 
 rt: Rt.RtRunqueue = .{},

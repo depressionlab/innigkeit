@@ -8,14 +8,14 @@ pub const ObjectType = enum(u16) {
     _,
 
     /// Beginning of OS-specific codes
-    pub const LOOS = 0xfe00;
+    pub const LOOS = 0xFE00;
 
     /// End of OS-specific codes
-    pub const HIOS = 0xfeff;
+    pub const HIOS = 0xFEFF;
 
     /// Beginning of processor-specific codes
-    pub const LOPROC = 0xff00;
+    pub const LOPROC = 0xFF00;
 
     /// End of processor-specific codes
-    pub const HIPROC = 0xffff;
+    pub const HIPROC = 0xFFFF;
 };

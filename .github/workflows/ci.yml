@@ -25,14 +25,26 @@ jobs:
   lint_and_test:
     runs-on: ubuntu-latest
     steps:
-      - name: checkout
+      - name: "git: checkout"
         uses: actions/checkout@v6
-      
-      - name: get zig
+
+      - name: "zig: setup"
         uses: mlugg/setup-zig@v2
-      
-      - name: lint
+
+      - name: "apt: install QEMU/AAVMF/swtpm"
+        run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 qemu-system-arm qemu-efi-aarch64 ovmf swtpm swtpm-tools
+
+      - name: "rust: bare-metal target"
+        run: rustup target add x86_64-unknown-none
+
+      - name: "zig: generate codesign keypair"
+        run: zig build codesign -- keygen
+
+      - name: "zig: lint"
         run: zig fmt --check --ast-check .
-      
-      - name: test
-        run: zig build test --summary all
+
+      - name: "zig: build_all"
+        run: zig build build_all --summary all
+
+      - name: "zig: verify"
+        run: zig build verify -Darm=true -Dtpm=true --summary all

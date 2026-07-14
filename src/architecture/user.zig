@@ -1,7 +1,7 @@
-const std = @import("std");
-const innigkeit = @import("innigkeit");
-const core = @import("core");
 const architecture = @import("architecture");
+const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 /// Architecture specific per-thread data.
 pub const PerThread = architecture.current_decls.user.PerThread;
@@ -19,43 +19,47 @@ comptime {
     std.debug.assert(!user_memory_range.containsAddress(.max));
 }
 
-/// Create the `PerThread` data of a thread.
-///
-/// Non-architecture specific creation has already been performed but no initialization.
-///
-/// This function is called in the `Thread` cache constructor.
-pub fn createThread(
-    thread: *innigkeit.user.Thread,
-) callconv(core.inline_in_non_debug) innigkeit.mem.cache.ConstructorError!void {
-    return architecture.getFunction(
-        architecture.current_functions.user,
-        "createThread",
-    )(thread);
-}
+/// Operations on a thread's `PerThread` arch-specific data. Grouped as a
+/// namespace (not a wrapper type like `SyscallFrame`) since `PerThread` lives
+/// embedded inside the caller-owned `innigkeit.user.Thread`, not as a
+/// separate handle these functions construct.
+pub const thread = struct {
+    /// Create the `PerThread` data of a thread.
+    ///
+    /// Non-architecture specific creation has already been performed but no initialization.
+    ///
+    /// This function is called in the `Thread` cache constructor.
+    pub fn create(thread_ptr: *innigkeit.user.Thread) callconv(core.inline_in_non_debug) innigkeit.memory.cache.ConstructorError!void {
+        return architecture.getFunction(
+            architecture.current_functions.user,
+            "createThread",
+        )(thread_ptr);
+    }
 
-/// Destroy the `PerThread` data of a thread.
-///
-/// Non-architecture specific destruction has not already been performed.
-///
-/// This function is called in the `Thread` cache destructor.
-pub fn destroyThread(thread: *innigkeit.user.Thread) callconv(core.inline_in_non_debug) void {
-    architecture.getFunction(
-        architecture.current_functions.user,
-        "destroyThread",
-    )(thread);
-}
+    /// Destroy the `PerThread` data of a thread.
+    ///
+    /// Non-architecture specific destruction has not already been performed.
+    ///
+    /// This function is called in the `Thread` cache destructor.
+    pub fn destroy(thread_ptr: *innigkeit.user.Thread) callconv(core.inline_in_non_debug) void {
+        architecture.getFunction(
+            architecture.current_functions.user,
+            "destroyThread",
+        )(thread_ptr);
+    }
 
-/// Initialize the `PerThread` data of a thread.
-///
-/// All non-architecture specific initialization has already been performed.
-///
-/// This function is called in `Thread.internal.create`.
-pub fn initializeThread(thread: *innigkeit.user.Thread) callconv(core.inline_in_non_debug) void {
-    architecture.getFunction(
-        architecture.current_functions.user,
-        "initializeThread",
-    )(thread);
-}
+    /// Initialize the `PerThread` data of a thread.
+    ///
+    /// All non-architecture specific initialization has already been performed.
+    ///
+    /// This function is called in `Thread.internal.create`.
+    pub fn initialize(thread_ptr: *innigkeit.user.Thread) callconv(core.inline_in_non_debug) void {
+        architecture.getFunction(
+            architecture.current_functions.user,
+            "initializeThread",
+        )(thread_ptr);
+    }
+};
 
 pub const SyscallFrame = struct {
     arch_specific: *architecture.current_decls.user.SyscallFrame,

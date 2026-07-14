@@ -1,6 +1,6 @@
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 
 pub const InitOptions = struct {
     name: innigkeit.Task.Name,

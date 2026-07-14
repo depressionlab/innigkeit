@@ -1,8 +1,6 @@
 const std = @import("std");
 
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
-const core = @import("core");
 const root = @import("root.zig");
 
 pub fn RangeMixin(comptime Range: type) type {
@@ -22,9 +20,16 @@ pub fn RangeMixin(comptime Range: type) type {
         /// The address is aligned backward and the size is aligned forward.
         pub inline fn pageAlign(range: Range) Range {
             const new_address = range.address.pageAlignBackward();
+            // `after()` (exclusive end), not `last()` (inclusive last byte):
+            // `pageAlignForward` is a no-op on an already-aligned value, so
+            // aligning the *inclusive* last byte forward silently fails to
+            // extend the range whenever that byte already sits exactly on a
+            // page boundary (e.g. address=0, size=4097 covers byte 0x1000,
+            // which needs a second page, but `last() == 0x1000` is already
+            // page-aligned and `pageAlignForward` would leave it there).
             return .{
                 .address = new_address,
-                .size = new_address.difference(range.last().pageAlignForward()),
+                .size = new_address.difference(range.after().pageAlignForward()),
             };
         }
 

@@ -12,6 +12,17 @@
 //!
 //!   codesign verify <elf_path> <sig_path>
 //!     Verify a .codesig blob against the ELF (uses the public key).
+//!
+//!   codesign sign-artifact <file> <out_sig_path>
+//!     Sign an arbitrary file (e.g. the kernel image) with the private key.
+//!     Unlike `sign`, this carries no manifest/entitlements, it's a
+//!     supply-chain provenance signature for release distribution, not
+//!     something the kernel checks before loading the file it covers (the
+//!     kernel itself is verified at boot by Limine's config-hash pinning
+//!     chain and TPM measured boot instead; see docs/secure-boot.md).
+//!
+//!   codesign verify-artifact <file> <sig_path>
+//!     Verify an artifact signature produced by `sign-artifact`.
 
 const std = @import("std");
 const toml = @import("toml");
@@ -20,6 +31,24 @@ const Ed25519 = std.crypto.sign.Ed25519;
 
 const magic: [8]u8 = "IKSIG\x01\x00\x00".*;
 const SigBlobSize = 144;
+
+const artifact_magic: [8]u8 = "IKASIG\x01\x00".*;
+
+/// Provenance signature for an arbitrary file (no manifest/entitlements since
+/// those are app-specific concepts `SigBlob` carries for the spawn-time
+/// verification gate). Deliberately a distinct, smaller format rather than
+/// `SigBlob` with `entitlements_raw = 0`: reusing the app format for a
+/// non-app artifact would make "is this an app's .codesig or a bare
+/// artifact signature?" a runtime ambiguity instead of a type distinction.
+const ArtifactSigBlob = extern struct {
+    magic: [8]u8,
+    file_hash: [32]u8,
+    signature: [64]u8,
+
+    comptime {
+        std.debug.assert(@sizeOf(ArtifactSigBlob) == 104);
+    }
+};
 
 const SigBlob = extern struct {
     magic: [8]u8,
@@ -98,6 +127,18 @@ pub fn main(init: std.process.Init) !void {
             std.process.exit(1);
         }
         try cmdVerify(init, args[2], args[3]);
+    } else if (std.mem.eql(u8, sub, "sign-artifact")) {
+        if (args.len != 4) {
+            std.debug.print("usage: codesign sign-artifact <file> <out_sig_path>\n", .{});
+            std.process.exit(1);
+        }
+        try cmdSignArtifact(init, args[2], args[3]);
+    } else if (std.mem.eql(u8, sub, "verify-artifact")) {
+        if (args.len != 4) {
+            std.debug.print("usage: codesign verify-artifact <file> <sig_path>\n", .{});
+            std.process.exit(1);
+        }
+        try cmdVerifyArtifact(init, args[2], args[3]);
     } else {
         usage();
         std.process.exit(1);
@@ -117,6 +158,13 @@ fn usage() void {
         \\  codesign verify <elf> <sig.codesig>
         \\      Verify a .codesig blob against an ELF (uses keys/codesign_public.key)
         \\
+        \\  codesign sign-artifact <file> <out_sig_path>
+        \\      Sign an arbitrary file (e.g. the kernel image) for supply-chain
+        \\      provenance; not part of the boot-time verification chain
+        \\
+        \\  codesign verify-artifact <file> <sig_path>
+        \\      Verify an artifact signature produced by sign-artifact
+        \\
     , .{});
 }
 
@@ -132,8 +180,8 @@ fn cmdKeygen(init: std.process.Init) !void {
         else => return err,
     };
 
-    const pub_path = try std.fs.path.join(arena, &.{ "keys", "codesign_public.key" });
-    const priv_path = try std.fs.path.join(arena, &.{ "keys", "codesign_private.key" });
+    const pub_path = try std.Io.Dir.path.join(arena, &.{ "keys", "codesign_public.key" });
+    const priv_path = try std.Io.Dir.path.join(arena, &.{ "keys", "codesign_private.key" });
 
     try writeFile(io, pub_path, &kp.public_key.bytes);
     try writeFile(io, priv_path, &kp.secret_key.bytes);
@@ -154,14 +202,7 @@ fn cmdSign(init: std.process.Init, elf_path: []const u8, manifest_path: []const 
     const entitlements_raw = manifest.toEntitlementsRaw();
 
     // Read private key.
-    const priv_key_path = try std.fs.path.join(arena, &.{ "keys", "codesign_private.key" });
-    const priv_bytes = try readFile(io, arena, priv_key_path);
-    if (priv_bytes.len != Ed25519.SecretKey.encoded_length) {
-        std.debug.print("error: private key must be {} bytes\n", .{Ed25519.SecretKey.encoded_length});
-        std.process.exit(1);
-    }
-    const secret_key = try Ed25519.SecretKey.fromBytes(priv_bytes[0..Ed25519.SecretKey.encoded_length].*);
-    const kp = try Ed25519.KeyPair.fromSecretKey(secret_key);
+    const kp = try loadPrivateKey(io, arena);
 
     // Hash ELF.
     var digest: [Blake3.digest_length]u8 = undefined;
@@ -188,7 +229,6 @@ fn cmdSign(init: std.process.Init, elf_path: []const u8, manifest_path: []const 
     std.debug.print("Signed '{s}' v{s}: {s} -> {s}  (entitlements: 0x{x:0>16})\n", .{
         manifest.name, manifest.version, elf_path, out_path, entitlements_raw,
     });
-    std.process.exit(0);
 }
 
 fn cmdVerify(init: std.process.Init, elf_path: []const u8, sig_path: []const u8) !void {
@@ -220,13 +260,7 @@ fn cmdVerify(init: std.process.Init, elf_path: []const u8, sig_path: []const u8)
     }
 
     // Read public key.
-    const pub_key_path = try std.fs.path.join(arena, &.{ "keys", "codesign_public.key" });
-    const pub_bytes = try readFile(io, arena, pub_key_path);
-    if (pub_bytes.len != Ed25519.PublicKey.encoded_length) {
-        std.debug.print("error: public key must be {} bytes\n", .{Ed25519.PublicKey.encoded_length});
-        std.process.exit(1);
-    }
-    const pub_key = try Ed25519.PublicKey.fromBytes(pub_bytes[0..Ed25519.PublicKey.encoded_length].*);
+    const pub_key = try loadPublicKey(io, arena);
 
     // Verify Ed25519 signature.
     var msg: [44]u8 = undefined;
@@ -242,6 +276,62 @@ fn cmdVerify(init: std.process.Init, elf_path: []const u8, sig_path: []const u8)
 
     std.debug.print("OK: signature valid\n", .{});
     printEntitlements(blob.entitlements_raw);
+}
+
+fn cmdSignArtifact(init: std.process.Init, file_path: []const u8, out_path: []const u8) !void {
+    const io = init.io;
+    const arena = init.arena.allocator();
+
+    const data = try readFile(io, arena, file_path);
+    const kp = try loadPrivateKey(io, arena);
+
+    var blob: ArtifactSigBlob = undefined;
+    @memcpy(&blob.magic, &artifact_magic);
+    Blake3.hash(data, &blob.file_hash, .{});
+
+    const sig = try kp.sign(&blob.file_hash, null);
+    blob.signature = sig.toBytes();
+
+    try writeFile(io, out_path, std.mem.asBytes(&blob));
+    std.debug.print("Signed artifact: {s} -> {s}\n", .{ file_path, out_path });
+}
+
+fn cmdVerifyArtifact(init: std.process.Init, file_path: []const u8, sig_path: []const u8) !void {
+    const io = init.io;
+    const arena = init.arena.allocator();
+
+    const data = try readFile(io, arena, file_path);
+    const sig_data = try readFile(io, arena, sig_path);
+
+    if (sig_data.len != @sizeOf(ArtifactSigBlob)) {
+        std.debug.print("error: sig file must be {} bytes\n", .{@sizeOf(ArtifactSigBlob)});
+        std.process.exit(1);
+    }
+
+    var blob: ArtifactSigBlob = undefined;
+    @memcpy(std.mem.asBytes(&blob), sig_data[0..@sizeOf(ArtifactSigBlob)]);
+
+    if (!std.mem.eql(u8, &blob.magic, &artifact_magic)) {
+        std.debug.print("error: bad magic (not an artifact signature -- did you mean 'verify'?)\n", .{});
+        std.process.exit(1);
+    }
+
+    var digest: [Blake3.digest_length]u8 = undefined;
+    Blake3.hash(data, &digest, .{});
+    if (!std.mem.eql(u8, &digest, &blob.file_hash)) {
+        std.debug.print("FAIL: file hash mismatch\n", .{});
+        std.process.exit(1);
+    }
+
+    const pub_key = try loadPublicKey(io, arena);
+
+    const sig = Ed25519.Signature.fromBytes(blob.signature);
+    sig.verify(&blob.file_hash, pub_key) catch {
+        std.debug.print("FAIL: Ed25519 signature mismatch\n", .{});
+        std.process.exit(1);
+    };
+
+    std.debug.print("OK: artifact signature valid\n", .{});
 }
 
 fn printEntitlements(raw: u64) void {
@@ -291,10 +381,17 @@ fn parseManifest(io: std.Io, arena: std.mem.Allocator, path: []const u8) !Manife
 }
 
 fn readFile(io: std.Io, arena: std.mem.Allocator, path: []const u8) ![]u8 {
+    return readFileWithHint(io, arena, path, null);
+}
+
+fn readFileWithHint(io: std.Io, arena: std.mem.Allocator, path: []const u8, not_found_hint: ?[]const u8) ![]u8 {
     var buf: [std.heap.page_size_min]u8 = undefined;
     const cwd = std.Io.Dir.cwd();
     const file = cwd.openFile(io, path, .{}) catch |err| {
         std.debug.print("error: cannot open '{s}': {s}\n", .{ path, @errorName(err) });
+        if (err == error.FileNotFound)
+            if (not_found_hint) |hint|
+                std.debug.print("hint: {s}\n", .{hint});
         std.process.exit(1);
     };
     defer file.close(io);
@@ -303,6 +400,27 @@ fn readFile(io: std.Io, arena: std.mem.Allocator, path: []const u8) ![]u8 {
         std.debug.print("error: cannot read '{s}': {s}\n", .{ path, @errorName(err) });
         std.process.exit(1);
     };
+}
+
+fn loadPrivateKey(io: std.Io, arena: std.mem.Allocator) !Ed25519.KeyPair {
+    const priv_key_path = try std.Io.Dir.path.join(arena, &.{ "keys", "codesign_private.key" });
+    const priv_bytes = try readFileWithHint(io, arena, priv_key_path, "run 'zig build codesign -- keygen' to generate keys/codesign_private.key and keys/codesign_public.key");
+    if (priv_bytes.len != Ed25519.SecretKey.encoded_length) {
+        std.debug.print("error: private key must be {} bytes\n", .{Ed25519.SecretKey.encoded_length});
+        std.process.exit(1);
+    }
+    const secret_key = try Ed25519.SecretKey.fromBytes(priv_bytes[0..Ed25519.SecretKey.encoded_length].*);
+    return Ed25519.KeyPair.fromSecretKey(secret_key);
+}
+
+fn loadPublicKey(io: std.Io, arena: std.mem.Allocator) !Ed25519.PublicKey {
+    const pub_key_path = try std.Io.Dir.path.join(arena, &.{ "keys", "codesign_public.key" });
+    const pub_bytes = try readFileWithHint(io, arena, pub_key_path, "run 'zig build codesign -- keygen' to generate keys/codesign_private.key and keys/codesign_public.key");
+    if (pub_bytes.len != Ed25519.PublicKey.encoded_length) {
+        std.debug.print("error: public key must be {} bytes\n", .{Ed25519.PublicKey.encoded_length});
+        std.process.exit(1);
+    }
+    return Ed25519.PublicKey.fromBytes(pub_bytes[0..Ed25519.PublicKey.encoded_length].*);
 }
 
 fn writeFile(io: std.Io, path: []const u8, data: []const u8) !void {

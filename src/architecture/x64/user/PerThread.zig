@@ -1,8 +1,8 @@
 const PerThread = @This();
 
+const globals = @import("globals.zig");
 const innigkeit = @import("innigkeit");
 const x64 = @import("../x64.zig");
-const globals = @import("globals.zig");
 
 extended_state: ExtendedState,
 
@@ -11,7 +11,7 @@ extended_state: ExtendedState,
 /// Non-architecture specific creation has already been performed but no initialization.
 ///
 /// This function is called in the `Thread` cache constructor.
-pub fn createThread(thread: *innigkeit.user.Thread) innigkeit.mem.cache.ConstructorError!void {
+pub fn createThread(thread: *innigkeit.user.Thread) innigkeit.memory.cache.ConstructorError!void {
     const per_thread: *x64.user.PerThread = .from(thread);
 
     per_thread.* = .{

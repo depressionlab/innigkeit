@@ -1,5 +1,5 @@
-const std = @import("std");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 const Color = innigkeit.graphics.Color;
 const Canvas = innigkeit.graphics.Canvas;
 const MouseEvent = innigkeit.display.MouseEvent;
@@ -12,7 +12,6 @@ const C_MB_FG: Color = .init(205, 208, 218);
 const C_MB_DIM: Color = .init(95, 98, 115);
 const C_DOCK_BG: Color = .init(20, 22, 35);
 const C_DOCK_SEP: Color = .init(45, 48, 65);
-const C_SEL: Color = .init(55, 110, 215);
 const C_SEL_RIM: Color = .init(80, 140, 240);
 const C_LABEL: Color = .init(190, 192, 205);
 const C_RUN_DOT: Color = .init(75, 185, 255);
@@ -253,12 +252,15 @@ pub fn main() void {
     const W = canvas.width;
     const H = canvas.height;
 
-    const buf_bytes = innigkeit.mem.mmap(
+    const buf_bytes = innigkeit.memory.mmap(
         @as(usize, W) * @as(usize, H) * 4,
         .{ .read = true, .write = true },
     ) catch return;
-    defer innigkeit.mem.munmap(buf_bytes) catch {};
+    // Best-effort: the process is exiting when this defer runs regardless.
+    // zlinter-disable-next-line no_swallow_error
+    defer innigkeit.memory.munmap(buf_bytes) catch {};
 
+    // mmap() always returns a page-aligned address, well past u32's 4-byte requirement.
     const buf_u32 = @as([*]u32, @ptrCast(@alignCast(buf_bytes.ptr)))[0 .. @as(usize, W) * @as(usize, H)];
     var back: innigkeit.graphics.Buffer = .{ .pixels = buf_u32, .width = W, .height = H, .stride = W };
 
@@ -279,6 +281,9 @@ pub fn main() void {
     while (true) {
         if (running_handle) |h| {
             if (innigkeit.process.waitProcessNb(h)) |_| {
+                // Best-effort: the child already exited; a failed handle
+                // cleanup just leaks this one capability slot.
+                // zlinter-disable-next-line no_swallow_error
                 innigkeit.capabilities.delete(h) catch {};
                 running_handle = null;
                 running_idx = null;
@@ -293,6 +298,9 @@ pub fn main() void {
                 var kbuf: [4]u8 = undefined;
                 const kn = innigkeit.display.kbdRead(&kbuf);
                 for (kbuf[0..kn]) |sc| {
+                    // Best-effort: if the process already died, there's
+                    // nothing more to do.
+                    // zlinter-disable-next-line no_swallow_error
                     if (sc == 0x01) innigkeit.process.killProcess(h) catch {};
                 }
                 innigkeit.sleep(200 * std.time.ns_per_ms);

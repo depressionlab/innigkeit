@@ -6,16 +6,29 @@
 //! Dependency graph wired at construction:
 //!
 //! ```
-//!   test --> kernel
-//!        --> library --> library_host --> library_host_{arch}...
-//!        --> app     --> app_host     --> app_host_{arch}...
-//!        --> internal_app             --> internal_app_{arch}...
-//!        --> tools   --> tools_build
-//!                    --> tools_test
+//!   build_all --> kernel
+//!             --> library --> library_host --> library_host_{arch}...
+//!             --> app     --> app_host     --> app_host_{arch}...
+//!             --> internal_app             --> internal_app_{arch}...
+//!             --> tools   --> tools_build
+//!                         --> tools_test
 //! ```
 //!
-//! Note: `image` is intentionally excluded from `test`. Building disk images
-//! in CI is expensive and does not affect correctness checks.
+//! `build_all` (formerly named `test`) is a link build for every
+//! architecture (including riscv, which has no QEMU test suite at all)
+//! plus host-side library/app/tool test execution: no QEMU boot, no images.
+//! `check` below uses -fno-emit-bin and does not validate assembly, and
+//! `verify` never touches riscv at all, so `build_all` is the only step
+//! that link-builds riscv or validates its inline asm. `verify` DOES
+//! already real-link-build and boot x64 (always) and arm (whenever
+//! `-Darm=true` is passed, which every CI invocation of `verify` does);
+//! `build_all`'s x64/arm passes are redundant with that in CI, not unique
+//! coverage. See `docs/verification-and-ci.md` for the full build-step
+//! hierarchy and this known overlap.
+//!
+//! Note: `image` is intentionally excluded from `build_all`. Building disk
+//! images in CI is expensive and does not affect correctness checks.
+// zlinter-disable require_errdefer_dealloc - every allocation here goes through b.allocator, an arena for the whole build graph's lifetime; there is no per-allocation free to add.
 const Wrapper = @This();
 
 const std = @import("std");
@@ -50,7 +63,7 @@ check_step: *Step,
 
 pub fn create(b: *std.Build, architectures: []const Bundle.Architecture) !Wrapper {
     const check_step = b.step("check", "Compile all code with -fno-emit-bin");
-    const test_step = b.step("test", "Run all tests and check all code");
+    const build_all_step = b.step("build_all", "Link build of kernel/library/app/tool for every architecture + host-side tests.");
     const kernel_step = b.step("kernel", "Build kernels for all targets");
     const image_step = b.step("image", "Build disk images for all targets");
     const library_step = b.step("library", "Build and run all library tests");
@@ -62,13 +75,13 @@ pub fn create(b: *std.Build, architectures: []const Bundle.Architecture) !Wrappe
     const tools_build_step = b.step("tools_build", "Build all host tools");
     const tools_test_step = b.step("tools_test", "Run all host tool tests");
 
-    test_step.dependOn(kernel_step);
-    test_step.dependOn(library_step);
+    build_all_step.dependOn(kernel_step);
+    build_all_step.dependOn(library_step);
     library_step.dependOn(library_host_step);
-    test_step.dependOn(app_step);
+    build_all_step.dependOn(app_step);
     app_step.dependOn(app_host_step);
-    test_step.dependOn(internal_app_step);
-    test_step.dependOn(tools_step);
+    build_all_step.dependOn(internal_app_step);
+    build_all_step.dependOn(tools_step);
     tools_step.dependOn(tools_build_step);
     tools_step.dependOn(tools_test_step);
 

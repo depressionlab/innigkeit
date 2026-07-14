@@ -1,6 +1,6 @@
-const std = @import("std");
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 pub const panic = innigkeit.debug.panic_interface;
 

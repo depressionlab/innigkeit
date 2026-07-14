@@ -1,8 +1,8 @@
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 
-const StageBarrier = @import("StageBarrier.zig");
 const stage3 = @import("stage3.zig");
+const StageBarrier = @import("StageBarrier.zig");
 
 const log = innigkeit.debug.log.scoped(.init);
 
@@ -18,7 +18,7 @@ pub fn start(executor: *innigkeit.Executor) !noreturn {
 
     architecture.interrupts.disable(); // some executors don't have interrupts disabled on load
 
-    innigkeit.mem.kernelPageTable().load();
+    innigkeit.memory.kernelPageTable().load();
     architecture.init.initExecutor(executor);
     executor.setCurrentTask(executor._current_task);
 

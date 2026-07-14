@@ -6,9 +6,9 @@
 
 const std = @import("std");
 
+const caps = @import("../capabilities.zig");
 const geometry = @import("geometry.zig");
 const protocol = @import("protocol.zig");
-const caps = @import("../capabilities.zig");
 const SyscallError = @import("../Error.zig").Syscall;
 const display = @import("../display.zig");
 
@@ -82,7 +82,7 @@ pub fn Compositor(comptime max_surfaces: usize) type {
         /// empty (0x0) and unmapped until its first buffer `commit`.
         pub fn createSurface(self: *Self, client: u32, x: i32, y: i32) Error!SurfaceId {
             const id: SurfaceId = @enumFromInt(self.next_id);
-            _ = self.stack.add(.{
+            _ = try self.stack.add(.{
                 .id = id,
                 .rect = .{ .x = x, .y = y, .w = 0, .h = 0 },
                 .mapped = false,
@@ -91,7 +91,7 @@ pub fn Compositor(comptime max_surfaces: usize) type {
                 .buf_height = 0,
                 .format = .bgrx8888,
                 .client = client,
-            }) catch return error.Full;
+            });
             self.next_id += 1;
             return id;
         }

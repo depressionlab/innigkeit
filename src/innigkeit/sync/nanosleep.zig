@@ -1,9 +1,8 @@
 //! Kernel sleep queue: blocks userspace tasks until a uptime_ms deadline passes.
 //!
 //! The per-executor periodic tick wakes any tasks whose deadline_ms <= now.
-const std = @import("std");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 
 var sleep_lock: innigkeit.sync.TicketSpinLock = .{};
 var sleep_queue: innigkeit.sync.WaitQueue = .{};

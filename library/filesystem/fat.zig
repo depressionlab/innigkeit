@@ -16,10 +16,10 @@ pub const FAT12Entry = enum(u12) {
     reserved_temporary_non_free_cluster_indicator = 0x1,
 
     /// Bad sector.
-    bad_sector = 0xff7,
+    bad_sector = 0xFF7,
 
     /// If the value is greater or equal to this, then this is the last cluster in chain.
-    end_of_chain = 0xff8,
+    end_of_chain = 0xFF8,
 
     _,
 };
@@ -37,10 +37,10 @@ pub const FAT16Entry = enum(u16) {
     reserved_temporary_non_free_cluster_indicator = 0x1,
 
     /// Bad sector.
-    bad_sector = 0xfff7,
+    bad_sector = 0xFFF7,
 
     /// If the value is greater or equal to this, then this is the last cluster in chain.
-    end_of_chain = 0xfff8,
+    end_of_chain = 0xFFF8,
 
     _,
 };
@@ -58,10 +58,10 @@ pub const FAT32Entry = enum(u32) {
     reserved_temporary_non_free_cluster_indicator = 0x1,
 
     /// Bad sector.
-    bad_sector = 0x0ffffff7,
+    bad_sector = 0x0FFFFFF7,
 
     /// If the value is greater or equal to this, then this is the last cluster in chain.
-    end_of_chain = 0x0ffffff8,
+    end_of_chain = 0x0FFFFFF8,
 
     _,
 };
@@ -79,10 +79,10 @@ pub const EXFATEntry = enum(u32) {
     reserved_temporary_non_free_cluster_indicator = 0x1,
 
     /// Bad sector.
-    bad_sector = 0xfffffff7,
+    bad_sector = 0xFFFFFFF7,
 
     /// If the value is greater or equal to this, then this is the last cluster in chain.
-    end_of_chain = 0xfffffff8,
+    end_of_chain = 0xFFFFFFF8,
 
     _,
 };
@@ -306,7 +306,7 @@ pub const DirectoryEntry = extern union {
         return directory_entry.standard.attributes.isLongFileNameEntry();
     }
 
-    const long_file_name_value: u8 = 0x0f;
+    const long_file_name_value: u8 = 0x0F;
 
     const unused_value: u8 = 0xE5;
 

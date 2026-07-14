@@ -8,12 +8,12 @@
 //! If a TPM is not available, or the firmware does not implement `EFI_TCG2_PROTOCOL`, or the event log retrieval fails, no response will be
 //! provided.
 
-const root = @import("root.zig");
 const core = @import("core");
 const innigkeit = @import("innigkeit");
+const root = @import("root.zig");
 
 pub const Request = extern struct {
-    id: [4]u64 = root.id(0x98e094fc7e76e979, 0xee8d8775c54e1d1f),
+    id: [4]u64 = root.id(0x98E094FC7E76E979, 0xEE8D8775C54E1D1F),
     revision: u64 = 0,
 
     response: ?*const Response = null,

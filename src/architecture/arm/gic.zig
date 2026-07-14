@@ -7,30 +7,16 @@
 //! Supports SGIs (0–15), PPIs (16–31) and SPIs (32–1019).
 //! IRQ 27 = virtual timer (PPI, per-CPU).
 
-const arm = @import("arm.zig");
 const architecture = @import("architecture");
+const arm = @import("arm.zig");
 const innigkeit = @import("innigkeit");
 
 const GICD_BASE: u64 = 0x0800_0000;
 const GICC_BASE: u64 = 0x0801_0000;
 
 // Distributor registers (word-wide)
-const GICD_CTLR: u64 = GICD_BASE + 0x000;
-const GICD_TYPER: u64 = GICD_BASE + 0x004;
-const GICD_IGROUPR0: u64 = GICD_BASE + 0x080; // +4*n for group n
-const GICD_ISENABLER0: u64 = GICD_BASE + 0x100; // +4*n
-const GICD_ICENABLER0: u64 = GICD_BASE + 0x180; // +4*n
-const GICD_ICPENDR0: u64 = GICD_BASE + 0x280; // +4*n
-const GICD_IPRIORITYR0: u64 = GICD_BASE + 0x400; // +4*n  (1 byte per irq)
-const GICD_ITARGETSR0: u64 = GICD_BASE + 0x800; // +4*n  (1 byte per irq)
-const GICD_ICFGR0: u64 = GICD_BASE + 0xC00; // +4*n  (2 bits per irq)
 
 // CPU interface registers
-const GICC_CTLR: u64 = GICC_BASE + 0x000;
-const GICC_PMR: u64 = GICC_BASE + 0x004;
-const GICC_BPR: u64 = GICC_BASE + 0x008;
-const GICC_IAR: u64 = GICC_BASE + 0x00C;
-const GICC_EOIR: u64 = GICC_BASE + 0x010;
 
 /// The GIC MMIO lives at low physical addresses (below RAM) which are not
 /// mapped at their identity address once the kernel runs in the higher half.
@@ -38,7 +24,7 @@ const GICC_EOIR: u64 = GICC_BASE + 0x010;
 /// GIC (at `0x0800_0000`) is reachable through the direct map. Note that this
 /// maps the device as normal cacheable memory; that works under QEMU but a
 /// proper device-memory (nGnRE) mapping should be installed once the kernel
-/// page tables own this region. See `docs/ARM-port.md`.
+/// page tables own this region.
 inline fn gicdReg(offset: u64) *volatile u32 {
     const phys: innigkeit.PhysicalAddress = .from(GICD_BASE + offset);
     return phys.toDirectMap().toPtr(*volatile u32);
@@ -90,8 +76,7 @@ pub fn initDistributor() void {
 
 /// Initialise THIS executor's GICv2 CPU interface. PER-EXECUTOR state (the
 /// GICC registers are banked per CPU): every executor must call this for itself
-/// after `initDistributor` has run. Idempotent (a plain re-write of the same
-/// values), so re-invocation on the single-core path is harmless.
+/// after `initDistributor` has run.
 pub fn initCpuInterface() void {
     giccReg(0x000).* = 1; // GICC_CTLR: enable
     giccReg(0x004).* = 0xFF; // GICC_PMR: lowest priority threshold (allow all)

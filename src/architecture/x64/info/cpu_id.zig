@@ -74,9 +74,9 @@ pub var max_07_subleaf: u32 = 0;
 /// CPUID.80000000H: EAX
 pub var max_extended_leaf: u32 = 0;
 
-/// The maximum supported extended sub-leaf for CPUID.80000001H.
+/// The maximum supported hypervisor leaf.
 ///
-/// CPUID.80000001H: ECX
+/// CPUID.40000000H: EAX
 pub var max_hypervisor_leaf: u32 = 0;
 
 /// Vendor identification string.
@@ -3746,7 +3746,7 @@ fn capture80000007H() void {
         if (vendor == .amd) amd_vid = bitjuggle.isBitSet(cpuid_result.edx, 2);
         if (vendor == .amd) amd_ttp = bitjuggle.isBitSet(cpuid_result.edx, 3);
         if (vendor == .amd) amd_tm = bitjuggle.isBitSet(cpuid_result.edx, 4);
-        // CPUID.80000001H: ECX[5] reserved
+        // CPUID.80000007H: EDX[5] reserved
         if (vendor == .amd) amd_100mhzsteps = bitjuggle.isBitSet(cpuid_result.edx, 6);
         if (vendor == .amd) amd_hwpstate = bitjuggle.isBitSet(cpuid_result.edx, 7);
         invariant_tsc = bitjuggle.isBitSet(cpuid_result.edx, 8);
@@ -3754,25 +3754,25 @@ fn capture80000007H() void {
         if (vendor == .amd) amd_efffreqro = bitjuggle.isBitSet(cpuid_result.edx, 10);
         if (vendor == .amd) amd_procfeedbackinterface = bitjuggle.isBitSet(cpuid_result.edx, 11);
         if (vendor == .amd) amd_procpowerreporting = bitjuggle.isBitSet(cpuid_result.edx, 12);
-        // CPUID.80000001H: ECX[13] reserved
-        // CPUID.80000001H: ECX[14] reserved
-        // CPUID.80000001H: ECX[15] reserved
-        // CPUID.80000001H: ECX[16] reserved
-        // CPUID.80000001H: ECX[17] reserved
-        // CPUID.80000001H: ECX[18] reserved
-        // CPUID.80000001H: ECX[19] reserved
-        // CPUID.80000001H: ECX[20] reserved
-        // CPUID.80000001H: ECX[21] reserved
-        // CPUID.80000001H: ECX[22] reserved
-        // CPUID.80000001H: ECX[23] reserved
-        // CPUID.80000001H: ECX[24] reserved
-        // CPUID.80000001H: ECX[25] reserved
-        // CPUID.80000001H: ECX[26] reserved
-        // CPUID.80000001H: ECX[27] reserved
-        // CPUID.80000001H: ECX[28] reserved
-        // CPUID.80000001H: ECX[29] reserved
-        // CPUID.80000001H: ECX[30] reserved
-        // CPUID.80000001H: ECX[31] reserved
+        // CPUID.80000007H: EDX[13] reserved
+        // CPUID.80000007H: EDX[14] reserved
+        // CPUID.80000007H: EDX[15] reserved
+        // CPUID.80000007H: EDX[16] reserved
+        // CPUID.80000007H: EDX[17] reserved
+        // CPUID.80000007H: EDX[18] reserved
+        // CPUID.80000007H: EDX[19] reserved
+        // CPUID.80000007H: EDX[20] reserved
+        // CPUID.80000007H: EDX[21] reserved
+        // CPUID.80000007H: EDX[22] reserved
+        // CPUID.80000007H: EDX[23] reserved
+        // CPUID.80000007H: EDX[24] reserved
+        // CPUID.80000007H: EDX[25] reserved
+        // CPUID.80000007H: EDX[26] reserved
+        // CPUID.80000007H: EDX[27] reserved
+        // CPUID.80000007H: EDX[28] reserved
+        // CPUID.80000007H: EDX[29] reserved
+        // CPUID.80000007H: EDX[30] reserved
+        // CPUID.80000007H: EDX[31] reserved
     }
 }
 

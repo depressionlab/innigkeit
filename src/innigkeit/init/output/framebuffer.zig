@@ -32,7 +32,7 @@ pub fn tryGetFramebufferOutput(memory_system_available: bool) ?Output {
 pub fn tryGetExtendedFramebuffer(memory_system_available: bool) !?boot.Framebuffer {
     if (!memory_system_available) return null;
     const framebuffer = boot.framebuffer() orelse return null;
-    const virtual_range = try innigkeit.mem.heap.allocateSpecial(
+    const virtual_range = try innigkeit.memory.heap.allocateSpecial(
         .{
             .physical_range = .from(
                 .fromDirectMap(.fromPtr(framebuffer.ptr)),
@@ -42,7 +42,7 @@ pub fn tryGetExtendedFramebuffer(memory_system_available: bool) !?boot.Framebuff
             .cache = .write_combining,
         },
     );
-    errdefer innigkeit.mem.heap.deallocateSpecial(virtual_range);
+    errdefer innigkeit.memory.heap.deallocateSpecial(virtual_range);
 
     var y: usize = 0;
 
@@ -74,7 +74,7 @@ fn tryGetFramebufferOutputInner(memory_system_available: bool) !?Output {
         .bpp = 32,
     };
 
-    const virtual_range = try innigkeit.mem.heap.allocateSpecial(
+    const virtual_range = try innigkeit.memory.heap.allocateSpecial(
         .{
             .physical_range = .from(
                 .fromDirectMap(.fromPtr(framebuffer.ptr)),
@@ -84,17 +84,17 @@ fn tryGetFramebufferOutputInner(memory_system_available: bool) !?Output {
             .cache = .write_combining,
         },
     );
-    errdefer innigkeit.mem.heap.deallocateSpecial(virtual_range);
+    errdefer innigkeit.memory.heap.deallocateSpecial(virtual_range);
 
     const flanterm_context = c.flanterm_fb_init(
         struct {
             fn flantermMalloc(size: usize) callconv(.c) ?*anyopaque {
-                return innigkeit.mem.heap.c.mallocWithSizedFree(size);
+                return innigkeit.memory.heap.c.mallocWithSizedFree(size);
             }
         }.flantermMalloc,
         struct {
             fn flantermFree(raw_ptr: ?*anyopaque, size: usize) callconv(.c) void {
-                innigkeit.mem.heap.c.sizedFree(@ptrCast(raw_ptr), size);
+                innigkeit.memory.heap.c.sizedFree(@ptrCast(raw_ptr), size);
             }
         }.flantermFree,
         virtual_range.address.toPtr([*]u32),

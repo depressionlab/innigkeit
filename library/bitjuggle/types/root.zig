@@ -2,8 +2,8 @@ const Bitfield = @import("bitjuggle").Bitfield;
 const getBit = @import("bitjuggle").getBit;
 const setBit = @import("bitjuggle").setBit;
 
-const std = @import("std");
 const builtin = @import("builtin");
+const std = @import("std");
 
 /// Defines a struct representing a single bit.
 fn BitType(

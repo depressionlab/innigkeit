@@ -3,9 +3,9 @@
 //! Enables the auxiliary interface on the 8042 controller, configures the
 //! PS/2 mouse for standard 3-byte streaming packets, and routes IRQ 12 to a
 //! handler that assembles packets and pushes decoded MouseEvents to `raw_mouse`.
-const std = @import("std");
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 const log = innigkeit.debug.log.scoped(.ps2_mouse);
 

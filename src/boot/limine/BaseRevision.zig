@@ -1,11 +1,11 @@
-const std = @import("std");
 const core = @import("core");
+const std = @import("std");
 
 /// Base protocol revisions change certain behaviours of the Limine boot protocol outside any specific feature.
 ///
 /// The specifics are going to be described as needed throughout this specification.
 pub const BaseRevison = extern struct {
-    id: [2]u64 = [_]u64{ 0xf9562b2d5c95a6c8, 0x6a7b384944536bdc },
+    id: [2]u64 = [_]u64{ 0xF9562B2D5C95A6C8, 0x6A7B384944536BDC },
 
     /// The Limine boot protocol comes in several base revisions; so far, 7 base revisions are specified: 0 through 6.
     ///
@@ -62,7 +62,7 @@ pub const BaseRevison = extern struct {
 
     /// Returns the revision that the bootloader is providing or `null` if the requested revision is unknown to the bootloader.
     pub fn loadedRevision(base_revision: *const BaseRevison) ?Revison {
-        if (base_revision.id[1] == 0x6a7b384944536bdc) return null;
+        if (base_revision.id[1] == 0x6A7B384944536BDC) return null;
         return @enumFromInt(base_revision.id[1]);
     }
 

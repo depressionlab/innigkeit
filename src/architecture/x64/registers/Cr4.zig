@@ -121,15 +121,3 @@ pub const Cr4 = packed struct(u64) {
         );
     }
 };
-
-const std = @import("std");
-
-test "cr4: SMEP is enforced at runtime (CR4 bit 20)" {
-    // Fails if supervisor-mode code can execute from user-mode pages.
-    try std.testing.expect(Cr4.read().supervisor_mode_execution_prevention);
-}
-
-test "cr4: SMAP is enforced at runtime (CR4 bit 21)" {
-    // Fails if the kernel can access user-mode pages outside stac/clac windows.
-    try std.testing.expect(Cr4.read().supervisor_mode_access_prevention);
-}

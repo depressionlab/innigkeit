@@ -1,10 +1,8 @@
 //! A simple UART input handler and ring buffer.
 const SerialInputBuffer = @This();
 
-const std = @import("std");
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
-const core = @import("core");
 
 buffer: [256]u8 = undefined,
 read_position: usize = 0,

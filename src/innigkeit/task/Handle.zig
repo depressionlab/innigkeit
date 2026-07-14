@@ -1,10 +1,10 @@
 const Handle = @This();
 
-const std = @import("std");
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 const SchedClass = @import("SchedClass.zig");
+const std = @import("std");
 const log = innigkeit.debug.log.scoped(.scheduler);
 
 scheduler: *innigkeit.Task.Scheduler,
@@ -429,7 +429,7 @@ fn beforeSwitchTask(
         .user_to_kernel => {
             if (core.is_debug) std.debug.assert(new_task_enable_access_to_user_memory_count == 0);
 
-            innigkeit.mem.kernelPageTable().load();
+            innigkeit.memory.kernelPageTable().load();
 
             if (old_task_enable_access_to_user_memory_count != 0) {
                 @branchHint(.unlikely); // we expect this to be 0 most of the time

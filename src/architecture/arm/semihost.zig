@@ -11,15 +11,12 @@
 //! Reference: "Semihosting for AArch32 and AArch64" (ARM DUI0003).
 //! https://github.com/ARM-software/abi-aa/blob/main/semihosting/semihosting.rst
 
-const std = @import("std");
-
 /// Whether semihosting calls may be issued. Defaults to true on QEMU-style
 /// boots (the only supported aarch64 target today); set to false before
 /// running on metal without a debug agent.
 pub var enabled: bool = true;
 
 const SYS_WRITEC: u64 = 0x03; // write one character (param: pointer to byte)
-const SYS_WRITE0: u64 = 0x04; // write NUL-terminated string (param: pointer)
 const SYS_EXIT: u64 = 0x18; // terminate (param: pointer to {reason, subcode})
 
 inline fn call(op: u64, param: u64) u64 {

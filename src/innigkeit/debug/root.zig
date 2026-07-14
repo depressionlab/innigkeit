@@ -104,7 +104,7 @@ fn earlyDebugWriteHex(value: usize) void {
     var i: usize = 0;
     while (i < 16) : (i += 1) {
         const shift: u6 = @intCast((15 - i) * 4);
-        buf[2 + i] = digits[(value >> shift) & 0xf];
+        buf[2 + i] = digits[(value >> shift) & 0xF];
     }
     architecture.earlyDebugWrite(&buf);
 }
@@ -196,10 +196,7 @@ pub fn setPanicMode(mode: PanicMode) void {
 }
 
 /// Entry point from the Zig language upon a panic.
-fn zigPanic(
-    msg: []const u8,
-    return_address_opt: ?usize,
-) noreturn {
+fn zigPanic(msg: []const u8, return_address_opt: ?usize) noreturn {
     @branchHint(.cold);
     panicDispatch(
         msg,

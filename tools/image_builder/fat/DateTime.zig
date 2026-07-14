@@ -1,7 +1,7 @@
 const FATDateTime = @This();
 
-const std = @import("std");
 const filesystem = @import("filesystem");
+const std = @import("std");
 
 date: filesystem.fat.Date,
 time: filesystem.fat.Time,
@@ -22,7 +22,10 @@ pub fn create(io: std.Io) FATDateTime {
         .date = .{
             .year = @intCast(year_day.year - 1980), // -10 to account for unix epoch vs dos epoch
             .month = @intCast(@intFromEnum(month_day.month)),
-            .day = @intCast(month_day.day_index),
+            // day_index is 0-based ("days into the month (0 to 30)", see
+            // std.time.epoch.MonthAndDay); the FAT/DOS date format's `day`
+            // field is 1-based (1-31, matching calendar day-of-month).
+            .day = @intCast(month_day.day_index + 1),
         },
 
         .time = .{

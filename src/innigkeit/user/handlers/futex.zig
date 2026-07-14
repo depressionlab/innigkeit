@@ -14,7 +14,7 @@ const Context = @import("../Context.zig");
 pub fn futexWait(context: Context) Error.Syscall!usize {
     const addr = context.arg(.one);
     const expected = context.arg32(.two);
-    if (!validate.validateUserBuffer(addr, @sizeOf(u32)))
+    if (!validate.userBuffer(addr, @sizeOf(u32)))
         return Error.Syscall.BadAddress;
     innigkeit.sync.futex.wait(addr, expected);
     return 0;
@@ -26,7 +26,7 @@ pub fn futexWaitTimeout(context: Context) Error.Syscall!usize {
     const addr = context.arg(.one);
     const expected = context.arg32(.two);
     const deadline_ms = context.arg64(.three);
-    if (!validate.validateUserBuffer(addr, @sizeOf(u32)))
+    if (!validate.userBuffer(addr, @sizeOf(u32)))
         return Error.Syscall.BadAddress;
     innigkeit.sync.futex.waitTimeout(addr, expected, deadline_ms);
     return 0;
@@ -37,7 +37,7 @@ pub fn futexWaitTimeout(context: Context) Error.Syscall!usize {
 pub fn futexWake(context: Context) Error.Syscall!usize {
     const addr = context.arg(.one);
     const max_wake = context.arg32(.two);
-    if (!validate.validateUserBuffer(addr, @sizeOf(u32)))
+    if (!validate.userBuffer(addr, @sizeOf(u32)))
         return Error.Syscall.BadAddress;
     const woken = innigkeit.sync.futex.wake(addr, max_wake);
     return @intCast(woken);

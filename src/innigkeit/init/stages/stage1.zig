@@ -1,8 +1,8 @@
-const std = @import("std");
 const architecture = @import("architecture");
 const boot = @import("boot");
-const innigkeit = @import("innigkeit");
 const builtin = @import("builtin");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 const log = innigkeit.debug.log.scoped(.init);
 
@@ -13,14 +13,19 @@ pub fn bootstrap() !noreturn {
     innigkeit.time.init.captureStartTime();
 
     // we need basic memory layout information to be able to panic
-    const early_memory_layout = innigkeit.mem.init.determineEarlyMemoryLayout();
+    const early_memory_layout = innigkeit.memory.init.determineEarlyMemoryLayout();
 
     try loadBootstrapExecutorAndTask();
 
     // now that we have an executor and task we can panic in a meaningful way
     innigkeit.debug.setPanicMode(.single_executor_init_panic);
 
-    innigkeit.mem.PhysicalPage.init.initializeBootstrapAllocator();
+    // Capture the firmware TCG event log into kernel memory now, while we are
+    // still on the bootloader's full HHDM mapping and before its reclaimable
+    // memory can be reused. No-op without a TPM/log.
+    innigkeit.drivers.tpm.eventlog.capture();
+
+    innigkeit.memory.PhysicalPage.init.initializeBootstrapAllocator();
 
     // initialize ACPI tables early to allow discovery of debug output mechanisms
     const acpi_tables = try innigkeit.acpi.init.earlyInitialize();
@@ -45,7 +50,7 @@ pub fn bootstrap() !noreturn {
     architecture.init.configurePerExecutorSystemFeatures();
 
     log.debug("initializing memory system", .{});
-    try innigkeit.mem.init.initializeMemorySystem();
+    try innigkeit.memory.init.initializeMemorySystem();
 
     // now the memory system is initialized we can attempt to register outputs again
     innigkeit.init.Output.registerOutputs(.full);
@@ -128,7 +133,7 @@ fn createExecutors() !struct { []innigkeit.Executor, *innigkeit.Executor } {
 
     log.debug("initializing {} executors", .{descriptors.count()});
 
-    const executors = try innigkeit.mem.heap.allocator.alloc(innigkeit.Executor, descriptors.count());
+    const executors = try innigkeit.memory.heap.allocator.alloc(innigkeit.Executor, descriptors.count());
 
     const bootstrap_architecture_processor_id = boot.bootstrapArchitectureProcessorId();
     var opt_bootstrap_executor: ?*innigkeit.Executor = null;

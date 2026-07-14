@@ -9,8 +9,8 @@
 //! `ID_AA64MMFR1_EL1.PAN` (bits [23:20]); on cores without it (or emulators
 //! configured without it) the toggles degrade to no-ops.
 
-const innigkeit = @import("innigkeit");
 const arm = @import("arm.zig");
+const innigkeit = @import("innigkeit");
 
 const log = innigkeit.debug.log.scoped(.arm_pan);
 

@@ -23,9 +23,9 @@
 const std = @import("std");
 
 const innigkeit = @import("innigkeit");
-const MapType = innigkeit.mem.MapType;
-const core = @import("core");
+const MapType = innigkeit.memory.MapType;
 const arm = @import("arm.zig");
+const core = @import("core");
 
 /// A single level of an AArch64 4 KiB-granule page table (512 * 8 bytes).
 pub const PageTable = extern struct {
@@ -79,7 +79,7 @@ pub const PageTable = extern struct {
     ///
     /// **REQUIREMENTS**:
     /// - The provided physical page must be accessible in the direct map.
-    pub fn create(physical_page: innigkeit.mem.PhysicalPage.Index) *PageTable {
+    pub fn create(physical_page: innigkeit.memory.PhysicalPage.Index) *PageTable {
         const page_table = physical_page.baseAddress().toDirectMap().toPtr(*PageTable);
         page_table.zero();
         return page_table;
@@ -101,13 +101,13 @@ pub const PageTable = extern struct {
     pub fn mapSinglePage(
         level0_table: *PageTable,
         virtual_address: innigkeit.VirtualAddress,
-        phys_page: innigkeit.mem.PhysicalPage.Index,
+        phys_page: innigkeit.memory.PhysicalPage.Index,
         map_type: MapType,
-        physical_page_allocator: innigkeit.mem.PhysicalPage.Allocator,
-    ) innigkeit.mem.MapError!void {
+        physical_page_allocator: innigkeit.memory.PhysicalPage.Allocator,
+    ) innigkeit.memory.MapError!void {
         if (core.is_debug) std.debug.assert(virtual_address.pageAligned());
 
-        var deallocate_page_list: innigkeit.mem.PhysicalPage.List = .{};
+        var deallocate_page_list: innigkeit.memory.PhysicalPage.List = .{};
         errdefer physical_page_allocator.deallocate(deallocate_page_list);
 
         const level0_entries = level0_table.entries();
@@ -178,8 +178,8 @@ pub const PageTable = extern struct {
         virtual_range: innigkeit.VirtualRange,
         backing_page_decision: core.CleanupDecision,
         top_level_decision: core.CleanupDecision,
-        flush_batch: *innigkeit.mem.VirtualRangeBatch,
-        deallocate_page_list: *innigkeit.mem.PhysicalPage.List,
+        flush_batch: *innigkeit.memory.VirtualRangeBatch,
+        deallocate_page_list: *innigkeit.memory.PhysicalPage.List,
     ) void {
         if (core.is_debug) std.debug.assert(virtual_range.pageAligned());
 
@@ -329,7 +329,7 @@ pub const PageTable = extern struct {
         virtual_range: innigkeit.VirtualRange,
         previous_map_type: MapType,
         new_map_type: MapType,
-        flush_batch: *innigkeit.mem.VirtualRangeBatch,
+        flush_batch: *innigkeit.memory.VirtualRangeBatch,
     ) void {
         if (core.is_debug) std.debug.assert(virtual_range.pageAligned());
 
@@ -500,7 +500,7 @@ pub const PageTable = extern struct {
 
         /// Output address occupies bits [47:12]; lower 12 are flags, upper are
         /// attributes. All our tables/pages are 4 KiB aligned.
-        const ADDRESS_MASK: u64 = 0x0000_ffff_ffff_f000;
+        const ADDRESS_MASK: u64 = 0x0000_FFFF_FFFF_F000;
 
         // Lower attributes (block/page descriptors).
         const ATTR_INDX_SHIFT: u6 = 2; // bits [4:2] MAIR index
@@ -674,7 +674,7 @@ pub const PageTable = extern struct {
         pub fn fillTopLevel(
             page_table: *PageTable,
             range: innigkeit.VirtualRange,
-            physical_page_allocator: innigkeit.mem.PhysicalPage.Allocator,
+            physical_page_allocator: innigkeit.memory.PhysicalPage.Allocator,
         ) !void {
             const size_of_top_level_entry = sizeOfTopLevelEntry();
             arm.semihost.write("[arm] fillTopLevel addr=");
@@ -716,7 +716,7 @@ pub const PageTable = extern struct {
             virtual_range: innigkeit.VirtualRange,
             physical_range: innigkeit.PhysicalRange,
             map_type: MapType,
-            physical_page_allocator: innigkeit.mem.PhysicalPage.Allocator,
+            physical_page_allocator: innigkeit.memory.PhysicalPage.Allocator,
         ) !void {
             if (core.is_debug) {
                 std.debug.assert(virtual_range.pageAligned());
@@ -869,7 +869,7 @@ pub const PageTable = extern struct {
 /// Returns the next table and whether it had to be created by this function or not.
 fn ensureNextTable(
     raw_entry: *volatile PageTable.Entry.Raw,
-    physical_page_allocator: innigkeit.mem.PhysicalPage.Allocator,
+    physical_page_allocator: innigkeit.memory.PhysicalPage.Allocator,
 ) !struct { *PageTable, bool } {
     var created_table = false;
 
@@ -1006,7 +1006,7 @@ const SCTLR_EL1_I: u64 = 1 << 12;
 /// replacing the bootloader's page tables with the kernel's own. The kernel
 /// is executing from high-half addresses that the generic builder has already
 /// mapped into this table, so the switch is safe.
-pub fn loadPageTableImpl(physical_page: innigkeit.mem.PhysicalPage.Index) void {
+pub fn loadPageTableImpl(physical_page: innigkeit.memory.PhysicalPage.Index) void {
     arm.semihost.write("[arm] loadPageTable enter\n");
     const root = physical_page.baseAddress().value;
 
@@ -1066,12 +1066,12 @@ var device_mmio_mapped: bool = false;
 
 /// Map the early device-MMIO regions Device-nGnRE into the direct map of the
 /// kernel page table rooted at `physical_page`.
-fn mapDeviceMmio(physical_page: innigkeit.mem.PhysicalPage.Index) void {
+fn mapDeviceMmio(physical_page: innigkeit.memory.PhysicalPage.Index) void {
     if (device_mmio_mapped) return;
     device_mmio_mapped = true;
 
     const root_table = physical_page.baseAddress().toDirectMap().toPtr(*PageTable);
-    const direct_map_base = innigkeit.mem.globals.direct_map.address;
+    const direct_map_base = innigkeit.memory.globals.direct_map.address;
 
     for (device_mmio_regions) |region| {
         const phys: innigkeit.PhysicalAddress = .from(region.base);
@@ -1090,13 +1090,13 @@ fn mapDeviceMmio(physical_page: innigkeit.mem.PhysicalPage.Index) void {
                 .protection = .{ .read = true, .write = true },
                 .cache = .uncached, // -> Device-nGnRE
             },
-            innigkeit.mem.PhysicalPage.init.bootstrap_allocator,
+            innigkeit.memory.PhysicalPage.init.bootstrap_allocator,
         ) catch |err| std.debug.panic("failed to map device MMIO {x}: {t}", .{ region.base, err });
     }
 }
 
 /// Install a user (low-half) address space root into TTBR0_EL1.
-pub fn loadUserPageTableImpl(physical_page: innigkeit.mem.PhysicalPage.Index) void {
+pub fn loadUserPageTableImpl(physical_page: innigkeit.memory.PhysicalPage.Index) void {
     arm.registers.TTBR0_EL1.write(physical_page.baseAddress().value);
     arm.instructions.isb();
     flushAllTlbImpl();
@@ -1146,10 +1146,10 @@ pub fn flushCacheImpl(virtual_range: innigkeit.VirtualRange) void {
 ///
 /// NOTE: currently a plain copy. The fault-fixup that makes this *safe* (return
 /// instead of panic on a bad pointer) needs the arm data-abort path to route to
-/// `innigkeit.mem.onPageFault`, which does not exist yet (data aborts hit the
+/// `innigkeit.memory.onPageFault`, which does not exist yet (data aborts hit the
 /// diagnostic panic handler in `vectors.zig`). Until that routing lands, a fault
 /// here panics exactly as a direct access would today (no regression), so valid
-/// copies work and `mem.safe.memcpy` is usable on arm; the DoS-hardening only
+/// copies work and `memory.safe.memcpy` is usable on arm; the DoS-hardening only
 /// takes effect on x64 for now. `target` is unused until then.
 pub fn safeMemcpyImpl(
     destination: innigkeit.VirtualRange,
@@ -1158,8 +1158,11 @@ pub fn safeMemcpyImpl(
 ) void {
     target.* = .{ .value = 0 };
     const len = source.size.value;
+    // both addresses are already-typed VirtualAddress values, not raw
+    // integers (see the doc comment above for why fault-safety isn't
+    // wired up on arm yet).
     const dst: [*]u8 = @ptrFromInt(destination.address.value);
-    const src: [*]const u8 = @ptrFromInt(source.address.value);
+    const src: [*]const u8 = @ptrFromInt(source.address.value); // see comment above
     @memcpy(dst[0..len], src[0..len]);
 }
 
@@ -1167,7 +1170,7 @@ pub fn safeMemcpyImpl(
 ///
 /// Like `safeMemcpyImpl`, the fault recovery is a no-op until arm data aborts
 /// route to `onPageFault`; `target` is unused and a fault on a bad address
-/// still panics (no regression). Valid loads work, so `mem.safe.atomicLoadU32`
+/// still panics (no regression). Valid loads work, so `memory.safe.atomicLoadU32`
 /// is usable on arm; the DoS-hardening only takes effect on x64 for now.
 pub fn safeAtomicLoad32Impl(
     address: innigkeit.VirtualAddress,
@@ -1175,6 +1178,7 @@ pub fn safeAtomicLoad32Impl(
     target: *innigkeit.KernelVirtualAddress,
 ) void {
     target.* = .{ .value = 0 };
+    // already a typed VirtualAddress (see the doc comment above).
     const ptr: *const u32 = @ptrFromInt(address.value);
     out.* = @atomicLoad(u32, ptr, .acquire);
 }

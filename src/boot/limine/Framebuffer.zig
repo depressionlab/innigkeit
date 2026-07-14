@@ -1,12 +1,12 @@
 //! Framebuffer Feature
 
-const root = @import("root.zig");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
+const root = @import("root.zig");
 const std = @import("std");
 
 pub const Request = extern struct {
-    id: [4]u64 = root.id(0x9d5827dcd881dd75, 0xa3148604f6fab11b),
+    id: [4]u64 = root.id(0x9D5827DCD881DD75, 0xA3148604F6FAB11B),
     revision: u64 = 0,
 
     /// If no framebuffer is available, no response will be provided.
@@ -93,9 +93,39 @@ pub const LimineFramebuffer = extern struct {
     }
 
     pub inline fn format(self: *const LimineFramebuffer, writer: *std.Io.Writer) !void {
-        return self.print(self, writer, 0);
+        return self.print(writer, 0);
     }
 };
+
+test "LimineFramebuffer.format compiles and runs" {
+    // format() is never called by anything in the kernel itself; calling it
+    // here is what forces Zig to analyze its body (see the identical note
+    // in MP.zig's test). This file had the same self.print(self, ...)
+    // double-self-argument bug MP.zig and EFIMemoryMap.zig also had.
+    const fb: LimineFramebuffer = .{
+        .address = .{ .value = 0 },
+        .width = 0,
+        .height = 0,
+        .pitch = 0,
+        .bpp = 32,
+        .memory_model = .rgb,
+        .red_mask_size = 0,
+        .red_mask_shift = 0,
+        .green_mask_size = 0,
+        .green_mask_shift = 0,
+        .blue_mask_size = 0,
+        .blue_mask_shift = 0,
+        .unused = @splat(0),
+        ._edid_size = .{ .value = 0 },
+        ._edid = .{ .value = 0 },
+        ._video_mode_count = 0,
+        ._video_modes = &.{},
+    };
+
+    var buf: [256]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try writer.print("{f}", .{fb});
+}
 
 pub const VideoMode = extern struct {
     /// Pitch in bytes

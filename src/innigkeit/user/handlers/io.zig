@@ -8,7 +8,6 @@
 //! BadAddress instead of panicking, and no UserAccess window is held across a
 //! device or VFS call.
 
-const std = @import("std");
 const innigkeit = @import("innigkeit");
 const log = innigkeit.debug.log.scoped(.user_io);
 
@@ -30,7 +29,7 @@ pub fn write(context: Context) Error.Syscall!usize {
 
     switch (resolved.desc) {
         .terminal_out => {
-            if (!validate.validateUserBuffer(buf_ptr, buf_len))
+            if (!validate.userBuffer(buf_ptr, buf_len))
                 return Error.Syscall.BadAddress;
 
             const output = innigkeit.init.Output.terminal;
@@ -38,10 +37,10 @@ pub fn write(context: Context) Error.Syscall!usize {
             var offset: usize = 0;
             while (offset < buf_len) {
                 const chunk_len = @min(buf_len - offset, chunk_buffer.len);
-                validate.copyFromUser(
+                try validate.copyFromUser(
                     chunk_buffer[0..chunk_len],
                     buf_ptr + offset,
-                ) catch return Error.Syscall.BadAddress;
+                );
                 output.writer.writeAll(chunk_buffer[0..chunk_len]) catch |err| {
                     log.err("write: {t}", .{err});
                     return Error.Syscall.IoError;
@@ -73,17 +72,14 @@ pub fn read(context: Context) Error.Syscall!usize {
 
     switch (resolved.desc) {
         .keyboard_in => {
-            if (!validate.validateUserBuffer(buf_ptr, buf_len))
+            if (!validate.userBuffer(buf_ptr, buf_len))
                 return Error.Syscall.BadAddress;
 
             var line_buffer: [256]u8 = undefined;
             const capacity = @min(buf_len, line_buffer.len);
             const bytes_read = innigkeit.drivers.input.ps2.keyboard_buffer.readLine(line_buffer[0..capacity]);
 
-            validate.copyToUser(
-                buf_ptr,
-                line_buffer[0..bytes_read],
-            ) catch return Error.Syscall.BadAddress;
+            try validate.copyToUser(buf_ptr, line_buffer[0..bytes_read]);
             return @intCast(bytes_read);
         },
         .file => return file.readFile(context),

@@ -1,8 +1,8 @@
 const std = @import("std");
 
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 const root = @import("root.zig");
 
 pub const UserVirtualAddress = extern struct {
@@ -24,6 +24,7 @@ pub const UserVirtualAddress = extern struct {
     /// - The current task must have enabled access to user memory.
     pub inline fn ptr(address: UserVirtualAddress, comptime PtrT: type) PtrT {
         if (core.is_debug) std.debug.assert(innigkeit.Task.Current.get().task.enable_access_to_user_memory_count.load(.acquire) != 0);
+        // this is the sanctioned user-address-to-pointer convension.
         return @ptrFromInt(address.value);
     }
 

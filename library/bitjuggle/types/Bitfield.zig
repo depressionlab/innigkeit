@@ -1,5 +1,5 @@
-const std = @import("std");
 const builtin = @import("builtin");
+const std = @import("std");
 
 /// Defines a bitfield.
 pub fn Bitfield(
@@ -14,7 +14,7 @@ pub fn Bitfield(
         @compileError("bitfield doesn't fit!");
 
     const mask: FieldType = ((1 << num_bits) - 1) << shift_amount;
-    const ValueType: type = std.meta.Int(.unsigned, num_bits);
+    const ValueType = @Int(.unsigned, num_bits);
 
     return extern struct {
         dummy: FieldType,

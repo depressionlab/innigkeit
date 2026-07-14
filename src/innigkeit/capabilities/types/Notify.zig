@@ -5,8 +5,8 @@
 //! This is the lowest-overhead IPC primitive. Signalling never blocks.
 const Notify = @This();
 
-const std = @import("std");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 /// Revocation generation counter. Incremented by `cap_revoke`; checked on every
 /// capability lookup. All slots whose stored generation differs from this value
@@ -18,7 +18,7 @@ pending: u64 = 0,
 wait_queue: innigkeit.sync.WaitQueue = .{},
 
 pub fn create() error{OutOfMemory}!*Notify {
-    const self = innigkeit.mem.heap.allocator.create(Notify) catch return error.OutOfMemory;
+    const self = try innigkeit.memory.heap.allocator.create(Notify);
     self.* = .{};
     return self;
 }
@@ -29,7 +29,7 @@ pub fn ref(self: *Notify) void {
 
 pub fn unref(self: *Notify) void {
     if (self.refcount.fetchSub(1, .acq_rel) != 1) return;
-    innigkeit.mem.heap.allocator.destroy(self);
+    innigkeit.memory.heap.allocator.destroy(self);
 }
 
 /// Set bits in the pending mask and wake one waiter if any.

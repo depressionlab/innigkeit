@@ -10,8 +10,8 @@
 //! is never stuck forever.
 const Reply = @This();
 
-const std = @import("std");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 const Message = @import("../Message.zig").Message;
 
 /// Revocation generation counter. See `Notify.generation` for semantics.
@@ -26,7 +26,7 @@ refcount: std.atomic.Value(usize) = .init(1),
 sender: std.atomic.Value(usize),
 
 pub fn create(sender_task: *innigkeit.Task) error{OutOfMemory}!*Reply {
-    const self = innigkeit.mem.heap.allocator.create(Reply) catch return error.OutOfMemory;
+    const self = try innigkeit.memory.heap.allocator.create(Reply);
     self.* = .{
         .refcount = .init(1),
         .sender = .init(@intFromPtr(sender_task)),
@@ -43,11 +43,13 @@ pub fn unref(self: *Reply) void {
     // Deliver a zero message to any still-waiting sender so it is never stuck.
     const ptr = self.sender.swap(0, .acq_rel);
     if (ptr != 0) {
+        // safe: sender is only ever 0 or `@intFromPtr` of a real task.
+        // set once in `create()`, see the field's doc comment.
         const task: *innigkeit.Task = @ptrFromInt(ptr);
         task.ipc_message = .{};
         task.wakeFromBlocked();
     }
-    innigkeit.mem.heap.allocator.destroy(self);
+    innigkeit.memory.heap.allocator.destroy(self);
 }
 
 /// Deliver `msg` to the waiting caller and unblock them.
@@ -57,6 +59,7 @@ pub fn unref(self: *Reply) void {
 pub fn send(self: *Reply, msg: Message) error{AlreadyReplied}!void {
     const ptr = self.sender.swap(0, .acq_rel);
     if (ptr == 0) return error.AlreadyReplied;
+    // safe: sender is only ever 0 or `@intFromPtr` of a real task.
     const task: *innigkeit.Task = @ptrFromInt(ptr);
     const current_task: innigkeit.Task.Current = .get();
     var reply_msg = msg;

@@ -2,6 +2,7 @@
 //!
 //! Tools are host-native executables invoked during the build. They are
 //! constructed by `Tool.getTools` from declarations in `tools/root.zig`.
+// zlinter-disable require_errdefer_dealloc - every allocation here goes through b.allocator, an arena for the whole build graph's lifetime; there is no per-allocation free to add.
 const Tool = @This();
 
 const std = @import("std");

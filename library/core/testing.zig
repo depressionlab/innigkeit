@@ -1,5 +1,5 @@
-const std = @import("std");
 const core = @import("core");
+const std = @import("std");
 
 pub inline fn expectEqual(actual: anytype, expected: @TypeOf(actual)) !void {
     return std.testing.expectEqual(expected, actual);

@@ -1,0 +1,405 @@
+//! A virtual address space entry.
+//!
+//! Called a `vm_map_entry` in uvm.
+//!
+//! Based on UVM:
+//!   * [Design and Implementation of the UVM Virtual Memory System](https://chuck.cranor.org/p/diss.pdf) by Charles D. Cranor
+//!   * [Zero-Copy Data Movement Mechanisms for UVM](https://citeseerx.ist.psu.edu/document?repid=rep1&type=pdf&doi=8961abccddf8ff24f7b494cd64d5cf62604b0018) by Charles D. Cranor and Gurudatta M. Parulkar
+//!   * [The UVM Virtual Memory System](https://www.usenix.org/legacy/publications/library/proceedings/usenix99/full_papers/cranor/cranor.pdf) by Charles D. Cranor and Gurudatta M. Parulkar
+//!
+//! Made with reference to [OpenBSD implementation of UVM](https://github.com/openbsd/src/tree/9222ee7ab44f0e3155b861a0c0a6dd8396d03df3/sys/uvm)
+//!
+
+const std = @import("std");
+
+const architecture = @import("architecture");
+const innigkeit = @import("innigkeit");
+const Cache = innigkeit.memory.cache.Cache;
+const Protection = innigkeit.memory.MapType.Protection;
+const core = @import("core");
+
+const AnonMap = @import("AnonMap.zig");
+const Object = @import("Object.zig");
+
+const log = innigkeit.debug.log.scoped(.address_space);
+
+const Entry = @This();
+
+range: innigkeit.VirtualRange,
+
+protection: Protection,
+max_protection: Protection,
+
+anonymous_map_reference: AnonMap.Reference,
+object_reference: Object.Reference,
+
+/// If `true` all writes must occur in anonymous memory.
+///
+/// If `false` then this is a shared mapping and writes should occur in the object's memory.
+copy_on_write: bool,
+
+/// If `true` this entry needs is own private `AnonymousMap` but it has not been created yet.
+///
+/// Either the entry has no anonymous map or it has a reference to an anonymous map that should be copied on first
+/// write.
+needs_copy: bool,
+
+wired_count: u32,
+
+pub fn create() !*Entry {
+    var entry: [1]*Entry = undefined;
+    try createMany(&entry);
+    return entry[0];
+}
+
+pub fn createMany(items: []*Entry) !void {
+    return globals.entry_cache.allocateMany(items) catch |err| switch (err) {
+        error.SlabAllocationFailed => return error.OutOfMemory,
+        error.ItemConstructionFailed => unreachable, // no constructor is provided
+        error.LargeItemAllocationFailed => unreachable, // `Entry` is not a large entry - checked in `global_init.initializeCaches`
+    };
+}
+
+pub fn destroy(self: *Entry) void {
+    globals.entry_cache.deallocate(self);
+}
+
+pub fn anyOverlap(self: *const Entry, other: *const Entry) bool {
+    return self.range.anyOverlap(other.range);
+}
+
+/// Determine if `second_entry` can be merged into `first_entry`.
+///
+/// This must be observed to be `true` before `merge` is called on the entries.
+///
+/// Can only be `true` when `second_entry` immediately follows `first_entry` in the address space.
+pub fn canMerge(first_entry: *const Entry, second_entry: *const Entry) bool {
+    if (!first_entry.protection.equal(second_entry.protection)) return false;
+    if (!first_entry.max_protection.equal(second_entry.max_protection)) return false;
+    if (first_entry.copy_on_write != second_entry.copy_on_write) return false;
+    if (first_entry.wired_count != second_entry.wired_count) return false;
+
+    if (!first_entry.range.after().equal(second_entry.range.address)) {
+        // `second_entry` does not immediately follow `first_entry`
+        return false;
+    }
+
+    object: {
+        const first_object = first_entry.object_reference.object orelse {
+            if (second_entry.object_reference.object != null) {
+                // `second_entry` has an object reference, `first_entry` has no object reference
+                return false;
+            }
+            // no objects to prevent merging
+            break :object;
+        };
+
+        const second_object = second_entry.object_reference.object orelse {
+            // `first_entry` has an object reference, `second_entry` has no object reference
+            return false;
+        };
+
+        if (first_object != second_object) {
+            // objects dont match
+            return false;
+        }
+
+        if (first_entry.object_reference.start_offset
+            .add(first_entry.range.size)
+            .notEqual(second_entry.object_reference.start_offset))
+        {
+            // `second_entry` object reference does not immediately follow `first_entry` object reference
+            return false;
+        }
+    }
+
+    anonymous_map: {
+        const first_anonymous_map = first_entry.anonymous_map_reference.anonymous_map orelse {
+            if (second_entry.anonymous_map_reference.anonymous_map != null) {
+                // cannot safely move `second_entry` anonymous map reference backwards to cover `first_entry`
+                return false;
+            }
+            // no anonymous maps to prevent merging
+            break :anonymous_map;
+        };
+
+        const second_anonymous_map = second_entry.anonymous_map_reference.anonymous_map orelse {
+            if (first_anonymous_map.number_of_pages.count !=
+                first_entry.anonymous_map_reference.start_offset
+                    .add(first_entry.range.size)
+                    .divide(architecture.paging.standard_page_size))
+            {
+                // `first_entry` anonymous map reference does not extend to the end of the anonymous map, so it is not
+                // safe to extend the anonymous map
+                return false;
+            }
+
+            // `first_entry` anonymous map reference extends to the end of the anonymous map, so it is safe to extend
+            // the anonymous map
+            break :anonymous_map;
+        };
+
+        if (first_anonymous_map != second_anonymous_map) {
+            // anonymous maps dont match
+            return false;
+        }
+
+        if (first_entry.anonymous_map_reference.start_offset
+            .add(first_entry.range.size)
+            .notEqual(second_entry.anonymous_map_reference.start_offset))
+        {
+            // `second_entry` anonymous map reference does not immediately follow `first_entry` anonymous map reference
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/// Merge `second_entry` into `first_entry`.
+///
+/// Caller must ensure:
+///  - the entries are mergable, see `canMerge`
+///  - the `second_entry` immediately follows` `first_entry` in the address space
+///  - after this function `second_entry` is no longer treated as valid
+pub fn merge(first_entry: *Entry, second_entry: *const Entry) void {
+    object: {
+        const object = first_entry.object_reference.object orelse {
+            if (core.is_debug) std.debug.assert(second_entry.object_reference.object == null);
+            break :object;
+        };
+
+        const second_entry_object = second_entry.object_reference.object.?;
+        if (core.is_debug) std.debug.assert(object == second_entry_object);
+
+        object.lock.writeLock();
+        defer object.lock.writeUnlock();
+        if (core.is_debug) std.debug.assert(object.reference_count >= 2);
+
+        object.reference_count -= 1;
+    }
+
+    anonymous_map: {
+        const anonymous_map = first_entry.anonymous_map_reference.anonymous_map orelse {
+            if (core.is_debug) std.debug.assert(second_entry.anonymous_map_reference.anonymous_map == null);
+            break :anonymous_map;
+        };
+
+        anonymous_map.lock.writeLock();
+        defer anonymous_map.lock.writeUnlock();
+
+        if (second_entry.anonymous_map_reference.anonymous_map) |second_entry_anonymous_map| {
+            if (core.is_debug) {
+                std.debug.assert(anonymous_map == second_entry_anonymous_map);
+                std.debug.assert(anonymous_map.reference_count >= 2);
+            }
+
+            anonymous_map.reference_count -= 1;
+        } else {
+            anonymous_map.number_of_pages.increaseBySize(second_entry.range.size);
+        }
+    }
+
+    first_entry.range.size.addInPlace(second_entry.range.size);
+}
+
+/// Split `first_entry` at `split_size` into its range.
+///
+/// `first_entry` is modified to cover the range before `split_size` and `new_second_entry` is filled in to cover the
+/// range after `split_size`.
+///
+/// Caller must ensure:
+///  - `first_entry` and `new_second_entry` are not the same entry
+///  - `split_size` is not `.zero`
+///  - `split_size` is less than or equal to `first_entry.range.size`
+///  - `split_size` is a multiple of the standard page size
+pub fn split(first_entry: *Entry, new_second_entry: *Entry, split_size: core.Size) void {
+    if (core.is_debug) {
+        std.debug.assert(first_entry != new_second_entry);
+        std.debug.assert(first_entry.range.size.notEqual(.zero));
+        std.debug.assert(split_size.lessThanOrEqual(first_entry.range.size));
+        std.debug.assert(split_size.aligned(architecture.paging.standard_page_size_alignment));
+    }
+
+    new_second_entry.* = .{
+        .range = .from(
+            first_entry.range.address.moveForward(split_size),
+            first_entry.range.size.subtract(split_size),
+        ),
+        .protection = first_entry.protection,
+        .max_protection = first_entry.max_protection,
+
+        .copy_on_write = first_entry.copy_on_write,
+        .needs_copy = first_entry.needs_copy,
+        .wired_count = first_entry.wired_count,
+
+        .anonymous_map_reference = first_entry.anonymous_map_reference,
+        .object_reference = first_entry.object_reference,
+    };
+
+    if (first_entry.anonymous_map_reference.anonymous_map) |anonymous_map| {
+        new_second_entry.anonymous_map_reference.start_offset.addInPlace(split_size);
+
+        anonymous_map.lock.writeLock();
+        defer anonymous_map.lock.writeUnlock();
+
+        anonymous_map.reference_count += 1;
+    }
+
+    if (first_entry.object_reference.object) |object| {
+        new_second_entry.object_reference.start_offset.addInPlace(split_size);
+
+        object.lock.writeLock();
+        defer object.lock.writeUnlock();
+
+        object.reference_count += 1;
+    }
+
+    first_entry.range.size = split_size;
+}
+
+const ShrinkDirection = enum {
+    beginning,
+    end,
+};
+
+/// Shrink the entry.
+///
+/// If `direction` is `.beginning` the entry is shrunk from the beginning.
+/// If `direction` is `.end` the entry is shrunk from the end.
+///
+/// Caller must ensure:
+///  - `new_size` is not `.zero`
+///  - `new_size` is less than the entry's size
+///  - `new_size` is a multiple of the standard page size
+pub fn shrink(self: *Entry, direction: ShrinkDirection, new_size: core.Size) void {
+    if (core.is_debug) {
+        std.debug.assert(new_size.notEqual(.zero));
+        std.debug.assert(new_size.lessThan(self.range.size));
+        std.debug.assert(new_size.aligned(architecture.paging.standard_page_size_alignment));
+    }
+
+    const size_change = self.range.size.subtract(new_size);
+
+    switch (direction) {
+        .beginning => {
+            self.range.address.moveForwardInPlace(size_change);
+
+            if (self.anonymous_map_reference.anonymous_map) |_| {
+                self.anonymous_map_reference.start_offset.addInPlace(size_change);
+            }
+            if (self.object_reference.object) |_| {
+                self.object_reference.start_offset.addInPlace(size_change);
+            }
+        },
+        .end => {},
+    }
+
+    self.range.size = new_size;
+}
+
+/// Prints the entry.
+pub fn print(self: *const Entry, writer: *std.Io.Writer, indent: usize) !void {
+    const new_indent = indent + 2;
+
+    try writer.writeAll("Entry{\n");
+
+    try writer.splatByteAll(' ', new_indent);
+    try writer.print("range: {f},\n", .{self.range});
+
+    try writer.splatByteAll(' ', new_indent);
+    try writer.print("protection: {f},\n", .{self.protection});
+
+    try writer.splatByteAll(' ', new_indent);
+    try writer.print("max_protection: {f},\n", .{self.max_protection});
+
+    try writer.splatByteAll(' ', new_indent);
+    try writer.print("copy_on_write: {},\n", .{self.copy_on_write});
+
+    try writer.splatByteAll(' ', new_indent);
+    try writer.print("needs_copy: {},\n", .{self.needs_copy});
+
+    try writer.splatByteAll(' ', new_indent);
+    try writer.print("wired_count: {},\n", .{self.wired_count});
+
+    try writer.splatByteAll(' ', new_indent);
+    if (self.anonymous_map_reference.anonymous_map != null) {
+        try writer.writeAll("anonymous_map: ");
+        try self.anonymous_map_reference.print(
+            writer,
+            new_indent,
+        );
+        try writer.writeAll(",\n");
+    } else {
+        try writer.writeAll("anonymous_map: null,\n");
+    }
+
+    try writer.splatByteAll(' ', new_indent);
+    if (self.object_reference.object != null) {
+        try writer.writeAll("object: ");
+        try self.object_reference.print(
+            writer,
+            new_indent,
+        );
+        try writer.writeAll(",\n");
+    } else {
+        try writer.writeAll("object: null,\n");
+    }
+
+    try writer.splatByteAll(' ', indent);
+    try writer.writeAll("}");
+}
+
+pub inline fn format(self: *const Entry, writer: *std.Io.Writer) !void {
+    return self.print(.current(), writer, 0);
+}
+
+const globals = struct {
+    /// Initialized during `init.initializeCaches`.
+    var entry_cache: Cache(Entry, null) = undefined;
+};
+
+pub const init = struct {
+    pub fn initializeCaches() !void {
+        log.debug("initializing address space entry cache", .{});
+
+        globals.entry_cache.init(.{
+            .name = try .fromSlice("address space entry"),
+        });
+    }
+};
+
+comptime {
+    if (!innigkeit.memory.cache.isSmallItem(.of(Entry), .of(Entry))) {
+        @compileError("`Entry` is a large cache item");
+    }
+}
+
+test "address space entry: shrink from beginning and from end" {
+    const page = architecture.paging.standard_page_size;
+    const base: innigkeit.VirtualAddress = .from(0x4000_0000);
+
+    // A bare entry with no object/anonymous map; shrink only manipulates the
+    // range (and offsets, which stay untouched with null references).
+    var entry: Entry = .{
+        .range = .from(base, page.multiplyScalar(4)),
+        .protection = .{ .read = true, .write = true },
+        .max_protection = .all,
+        .anonymous_map_reference = .{ .anonymous_map = null, .start_offset = .zero },
+        .object_reference = .{ .object = null, .start_offset = .zero },
+        .copy_on_write = false,
+        .needs_copy = false,
+        .wired_count = 0,
+    };
+
+    // Shrinking from the beginning moves the address forward by the amount
+    // removed and reduces the size to `new_size`.
+    entry.shrink(.beginning, page.multiplyScalar(3));
+    try std.testing.expectEqual(base.value + page.value, entry.range.address.value);
+    try std.testing.expectEqual(page.multiplyScalar(3).value, entry.range.size.value);
+
+    // Shrinking from the end keeps the address and reduces only the size.
+    entry.shrink(.end, page.multiplyScalar(1));
+    try std.testing.expectEqual(base.value + page.value, entry.range.address.value);
+    try std.testing.expectEqual(page.value, entry.range.size.value);
+}

@@ -1,7 +1,7 @@
-const std = @import("std");
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 const HPETAcpiTable = innigkeit.acpi.init.AcpiTable(innigkeit.acpi.tables.HPET);
 const init_log = innigkeit.debug.log.scoped(.hpet_init);
@@ -83,7 +83,7 @@ fn getHpetBase() ![*]volatile u64 {
 
     if (hpet.base_address.address_space != .memory) @panic("HPET base address is not memory mapped!");
 
-    const register_region_range = try innigkeit.mem.heap.allocateSpecial(
+    const register_region_range = try innigkeit.memory.heap.allocateSpecial(
         .{
             .physical_range = .from(
                 .from(hpet.base_address.address),

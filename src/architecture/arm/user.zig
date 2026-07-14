@@ -1,11 +1,9 @@
 //! AArch64 userspace support: per-thread FP/SIMD state, thread lifecycle, and
 //! first entry into EL0.
 
-const std = @import("std");
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
-const core = @import("core");
 const arm = @import("arm.zig");
+const innigkeit = @import("innigkeit");
 
 pub const PerThread = @import("PerThread.zig");
 pub const SyscallFrame = @import("SyscallFrame.zig").SyscallFrame;
@@ -24,7 +22,7 @@ pub const init = struct {
 ///
 /// The AArch64 `PerThread` is an embedded fixed-size struct (no out-of-line
 /// allocations), so creation just zero-initializes it.
-pub fn createThread(thread: *innigkeit.user.Thread) innigkeit.mem.cache.ConstructorError!void {
+pub fn createThread(thread: *innigkeit.user.Thread) innigkeit.memory.cache.ConstructorError!void {
     const per_thread: *PerThread = .from(thread);
     per_thread.* = .{};
 }
@@ -51,7 +49,10 @@ pub fn enterUserspace(options: architecture.user.EnterUserspaceOptions) noreturn
     arm.instructions.disableInterrupts();
 
     const per_thread: *PerThread = .from(.from(innigkeit.Task.Current.get().task));
-    // Restore the user thread's FP/SIMD control + thread pointer registers.
+    // Restore the user thread's thread-pointer register. FP/SIMD control
+    // (fpsr/fpcr) is not restored here: a freshly created thread's
+    // `fpsimd_state` defaults to zero, matching the CPU's own reset state, so
+    // first entry needs no explicit FP/SIMD restore.
     arm.registers.TPIDR_EL0.write(per_thread.tpidr_el0);
 
     // SPSR_EL1 for an EL0t target: M[3:0] = 0b0000 (EL0, SP_EL0), DAIF clear

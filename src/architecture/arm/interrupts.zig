@@ -17,11 +17,10 @@
 //! 35..38); the PCI config "Interrupt Line" register is not meaningful, so the
 //! caller passes the resolved GSI directly.
 
-const std = @import("std");
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const arm = @import("arm.zig");
 const gic = @import("gic.zig");
+const innigkeit = @import("innigkeit");
 
 const Handler = architecture.interrupts.Interrupt.Handler;
 const ArchInterrupt = arm.Interrupt;

@@ -1,7 +1,7 @@
 const innigkeit = @import("innigkeit");
 
-pub const PL011 = @import("PL011.zig");
 pub const Baud = @import("Baud.zig");
+pub const PL011 = @import("PL011.zig");
 const Uart16X50 = @import("Uart16X50.zig").Uart16X50;
 
 pub const Uart = union(enum) {
@@ -50,7 +50,7 @@ pub fn tryGetSerialOutput16X50(
                 .@"16550" => Memory16550,
             };
 
-            const register_range = try innigkeit.mem.heap.allocateSpecial(
+            const register_range = try innigkeit.memory.heap.allocateSpecial(
                 .{
                     .physical_range = .from(
                         .from(base_address),
@@ -60,7 +60,7 @@ pub fn tryGetSerialOutput16X50(
                     .cache = .uncached,
                 },
             );
-            errdefer innigkeit.mem.heap.deallocateSpecial(register_range);
+            errdefer innigkeit.memory.heap.deallocateSpecial(register_range);
 
             const device = try UartT.create(
                 register_range.address.toPtr([*]volatile u8),
@@ -103,7 +103,7 @@ pub fn tryGetSerialOutputPL011(
         .baud_rate = br,
     } else null;
 
-    const register_range = try innigkeit.mem.heap.allocateSpecial(
+    const register_range = try innigkeit.memory.heap.allocateSpecial(
         .{
             .physical_range = .from(
                 .from(base_address),
@@ -113,7 +113,7 @@ pub fn tryGetSerialOutputPL011(
             .cache = .uncached,
         },
     );
-    errdefer innigkeit.mem.heap.deallocateSpecial(register_range);
+    errdefer innigkeit.memory.heap.deallocateSpecial(register_range);
 
     const device = try PL011.create(
         register_range.address.toPtr([*]volatile u32),

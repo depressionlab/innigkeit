@@ -1,8 +1,8 @@
 const Name = @This();
 
-const std = @import("std");
 const core = @import("core");
 const filesystem = @import("filesystem");
+const std = @import("std");
 
 allocator: std.mem.Allocator,
 short_name: filesystem.fat.ShortFileName,
@@ -15,8 +15,8 @@ pub fn deinit(self: Name) void {
 }
 
 pub fn create(allocator: std.mem.Allocator, name: []const u8) !Name {
-    const filename = std.fs.path.stem(name);
-    const extension = std.fs.path.extension(name);
+    const filename = std.Io.Dir.path.stem(name);
+    const extension = std.Io.Dir.path.extension(name);
 
     var needs_long_name = false;
 

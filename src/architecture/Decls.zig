@@ -1,8 +1,7 @@
 //! This contains the declarations that the architecture specific code must export.
 
-const innigkeit = @import("innigkeit");
 const core = @import("core");
-const architecture = @import("architecture");
+const innigkeit = @import("innigkeit");
 
 /// Architecture specific per-executor data.
 PerExecutor: type,
@@ -54,6 +53,13 @@ user: struct {
     /// Usually the lower half of the address space.
     ///
     /// This must not include either the zero, undefined nor max addresses.
+    ///
+    /// Must exclude the last valid page of the canonical/non-canonical
+    /// boundary, not just the null page at the bottom: on x86-64, a
+    /// user-mapped `syscall` whose saved post-syscall return address lands
+    /// exactly on that boundary would fault the CPU into `#GP` during
+    /// `sysret`, before the privilege level actually drops to CPL3 (see
+    /// e.g. CVE-2012-0217/CVE-2012-0056).
     user_memory_range: innigkeit.VirtualRange,
 },
 

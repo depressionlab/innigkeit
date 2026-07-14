@@ -82,5 +82,7 @@ pub fn framebufferMap() innigkeit.Error.Syscall!struct { pixels: [*]volatile u32
     var info: FramebufferInfo = undefined;
     const result = innigkeit.Syscall.invoke(.framebuffer_map, .{@intFromPtr(&info)});
     const va = try innigkeit.Syscall.decode(result);
+    // `va` is the virtual address the kernel itself just mapped into this
+    // process's own address space for `framebuffer_map` (not user-provided).
     return .{ .pixels = @ptrFromInt(va), .info = info };
 }

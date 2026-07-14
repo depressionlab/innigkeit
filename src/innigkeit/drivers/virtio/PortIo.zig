@@ -11,8 +11,8 @@
 //! they were written directly in each driver.
 const PortIo = @This();
 
-const builtin = @import("builtin");
 const architecture = @import("architecture");
+const builtin = @import("builtin");
 const innigkeit = @import("innigkeit");
 
 /// Register-window base. On x86-64 this is the 16-bit I/O port base (only the
@@ -36,32 +36,32 @@ inline fn mmioAddress(self: PortIo, offset: u16) innigkeit.KernelVirtualAddress 
 }
 
 pub inline fn r8(self: PortIo, offset: u16) u8 {
-    if (is_mmio) return architecture.io.readPci(u8, self.mmioAddress(offset));
+    if (is_mmio) return architecture.io.pci.read(u8, self.mmioAddress(offset));
     const p = architecture.io.Port.from(self.portBase() + offset) catch unreachable;
     return p.read(u8);
 }
 pub inline fn r16(self: PortIo, offset: u16) u16 {
-    if (is_mmio) return architecture.io.readPci(u16, self.mmioAddress(offset));
+    if (is_mmio) return architecture.io.pci.read(u16, self.mmioAddress(offset));
     const p = architecture.io.Port.from(self.portBase() + offset) catch unreachable;
     return p.read(u16);
 }
 pub inline fn r32(self: PortIo, offset: u16) u32 {
-    if (is_mmio) return architecture.io.readPci(u32, self.mmioAddress(offset));
+    if (is_mmio) return architecture.io.pci.read(u32, self.mmioAddress(offset));
     const p = architecture.io.Port.from(self.portBase() + offset) catch unreachable;
     return p.read(u32);
 }
 pub inline fn w8(self: PortIo, offset: u16, v: u8) void {
-    if (is_mmio) return architecture.io.writePci(u8, self.mmioAddress(offset), v);
+    if (is_mmio) return architecture.io.pci.write(u8, self.mmioAddress(offset), v);
     const p = architecture.io.Port.from(self.portBase() + offset) catch unreachable;
     p.write(u8, v);
 }
 pub inline fn w16(self: PortIo, offset: u16, v: u16) void {
-    if (is_mmio) return architecture.io.writePci(u16, self.mmioAddress(offset), v);
+    if (is_mmio) return architecture.io.pci.write(u16, self.mmioAddress(offset), v);
     const p = architecture.io.Port.from(self.portBase() + offset) catch unreachable;
     p.write(u16, v);
 }
 pub inline fn w32(self: PortIo, offset: u16, v: u32) void {
-    if (is_mmio) return architecture.io.writePci(u32, self.mmioAddress(offset), v);
+    if (is_mmio) return architecture.io.pci.write(u32, self.mmioAddress(offset), v);
     const p = architecture.io.Port.from(self.portBase() + offset) catch unreachable;
     p.write(u32, v);
 }

@@ -1,8 +1,8 @@
 // Automatically-injected root module for Innigkeit userspace apps.
 // The build system uses this as the actual root_source_file; each app's
 // main.zig is imported as "app" so it only needs to define pub fn main.
-const innigkeit = @import("innigkeit");
 const app = @import("app");
+const innigkeit = @import("innigkeit");
 
 comptime {
     innigkeit.exportEntry();

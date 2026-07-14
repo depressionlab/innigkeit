@@ -8,13 +8,12 @@
 //! (the requesting task blocks until the IRQ handler wakes it); otherwise the
 //! driver falls back to the original bounded-spin poll mode.
 
-const std = @import("std");
+const architecture = @import("architecture");
 const builtin = @import("builtin");
 const innigkeit = @import("innigkeit");
-const architecture = @import("architecture");
-const core = @import("core");
-const PortIo = @import("PortIo.zig");
 const legacy = @import("legacy.zig");
+const PortIo = @import("PortIo.zig");
+const std = @import("std");
 
 const log = innigkeit.debug.log.scoped(.virtio_blk);
 
@@ -49,9 +48,9 @@ const Device = struct {
     queue: legacy.LegacyQueue,
 
     /// Pre-allocated page for the block request header + status byte.
-    req_page: innigkeit.mem.PhysicalPage.Index,
+    req_page: innigkeit.memory.PhysicalPage.Index,
     /// Pre-allocated page for the data bounce buffer (up to 8 sectors = 4 KiB).
-    scratch_page: innigkeit.mem.PhysicalPage.Index,
+    scratch_page: innigkeit.memory.PhysicalPage.Index,
 
     /// Serializes whole requests: the request/scratch bounce pages and the
     /// single descriptor chain are shared, so exactly one request may be in
@@ -96,6 +95,11 @@ pub fn irqFireCount(dev_idx: usize) u64 {
     return irq_count[dev_idx].load(.monotonic);
 }
 
+/// Number of initialized virtio-blk devices.
+pub fn deviceCount() usize {
+    return device_count;
+}
+
 pub fn init() void {
     innigkeit.pci.forEachFunction(tryInit);
 }
@@ -136,7 +140,7 @@ fn onInterrupt(
 /// describes it (`<0x01000000 0 0  0 0x3eff0000  0 0x10000>`). Derived at
 /// runtime from the DTB in `resolveBar0`; this constant is the documented
 /// QEMU-virt default for when no device tree is available.
-const VIRT_PCI_IO_FALLBACK_BASE: u64 = 0x3eff_0000;
+const VIRT_PCI_IO_FALLBACK_BASE: u64 = 0x3EFF_0000;
 
 /// Resolve the legacy register window base for `func` into a `PortIo.base`.
 ///
@@ -202,7 +206,7 @@ fn resolveBar0(func: *innigkeit.pci.Function) ?u64 {
     // Map one page Device-nGnRE (`.uncached` -> Device-nGnRE on aarch64). The
     // legacy register block (offsets 0x00..0x14) plus block config fits well
     // within a page.
-    const mapping = innigkeit.mem.heap.allocateSpecial(.{
+    const mapping = innigkeit.memory.heap.allocateSpecial(.{
         .physical_range = .from(.from(phys_base), .from(4096, .byte)),
         .protection = .{ .read = true, .write = true },
         .cache = .uncached,
@@ -263,16 +267,16 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
     // Pre-allocate the bounce buffers used on every I/O request. Requests
     // are serialized by `request_mutex`, so these pages can be reused across
     // operations, eliminating per-request allocation.
-    dev.req_page = innigkeit.mem.PhysicalPage.allocator.allocate() catch {
+    dev.req_page = innigkeit.memory.PhysicalPage.allocator.allocate() catch {
         log.err("virtio-blk[{}]: OOM allocating req_page", .{device_count});
         dev.iow8(legacy.REG_DEVICE_STATUS, 0);
         dev.queue.destroy();
         return;
     };
-    dev.scratch_page = innigkeit.mem.PhysicalPage.allocator.allocate() catch {
-        var list: innigkeit.mem.PhysicalPage.List = .{};
+    dev.scratch_page = innigkeit.memory.PhysicalPage.allocator.allocate() catch {
+        var list: innigkeit.memory.PhysicalPage.List = .{};
         list.prepend(dev.req_page);
-        innigkeit.mem.PhysicalPage.allocator.deallocate(list);
+        innigkeit.memory.PhysicalPage.allocator.deallocate(list);
         log.err("virtio-blk[{}]: OOM allocating scratch_page", .{device_count});
         dev.iow8(legacy.REG_DEVICE_STATUS, 0);
         dev.queue.destroy();
@@ -379,7 +383,7 @@ fn submitRequest(
 pub fn readSectors(dev_idx: usize, lba: u64, buf: []u8, count: u32) ReadError!void {
     if (count == 0 or count > 8) return error.OutOfRange;
     const dev: *Device = if (devices[dev_idx]) |*d| d else return error.NotInitialized;
-    if (lba + count > dev.capacity_sectors) return error.OutOfRange;
+    if (lba > dev.capacity_sectors or count > dev.capacity_sectors - lba) return error.OutOfRange;
     if (buf.len < @as(usize, count) * 512) return error.OutOfRange;
 
     dev.request_mutex.lock();
@@ -418,7 +422,7 @@ pub fn readBytes(dev_idx: usize, byte_offset: u64, buf: []u8) ReadError!void {
 pub fn writeSectors(dev_idx: usize, lba: u64, buf: []const u8, count: u32) WriteError!void {
     if (count == 0 or count > 8) return error.OutOfRange;
     const dev: *Device = if (devices[dev_idx]) |*d| d else return error.NotInitialized;
-    if (lba + count > dev.capacity_sectors) return error.OutOfRange;
+    if (lba > dev.capacity_sectors or count > dev.capacity_sectors - lba) return error.OutOfRange;
     if (buf.len < @as(usize, count) * 512) return error.OutOfRange;
 
     dev.request_mutex.lock();

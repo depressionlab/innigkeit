@@ -1,11 +1,11 @@
-const std = @import("std");
 const architecture = @import("architecture");
+const std = @import("std");
 const x64 = @import("../x64.zig");
 
-const SourceOverride = @import("SourceOverride.zig");
 const globals = @import("globals.zig");
 pub const init = @import("init.zig");
 const IOAPIC = @import("IOAPIC.zig");
+const SourceOverride = @import("SourceOverride.zig");
 
 /// Get the EOI type for the given external interrupt if known.
 pub fn eoiType(external_interrupt: u32) ?architecture.interrupts.Interrupt.Handler.EOI {

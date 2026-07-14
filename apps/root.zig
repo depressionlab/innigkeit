@@ -16,4 +16,14 @@ pub const apps: []const AppDescription = &.{
         .configuration = .{ .custom = @import("doom/custom.zig").custom },
         .use_llvm = true,
     },
+    .{
+        .name = "itest_spawn_wait",
+        .root_dir = "testing/fixtures",
+        .test_only = true,
+    },
+    .{
+        .name = "itest_illegal_instruction",
+        .root_dir = "testing/fixtures",
+        .test_only = true,
+    },
 };

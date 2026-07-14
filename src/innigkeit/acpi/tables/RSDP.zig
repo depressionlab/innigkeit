@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 
 /// [ACPI 6.5 Specification Link](https://uefi.org/specs/ACPI/6.5/05_ACPI_Software_Programming_Model.html#root-system-description-pointer-rsdp-structure)
 pub const RSDP = extern struct {
@@ -73,8 +73,10 @@ pub const RSDP = extern struct {
         // Before the RSDP is relied upon you should check that the checksum is valid.
         // For ACPI 1.0 you add up every byte in the structure and make sure the lowest byte of the result is equal
         // to zero.
-        // For ACPI 2.0 and later you'd do exactly the same thing for the original (ACPI 1.0) part of the
-        // structure, and then do it again for the fields that are part of the ACPI 2.0 extension.
+        // For ACPI 2.0 and later, the spec separately defines an ExtendedChecksum covering every byte of the
+        // table (bytes 0 to Length-1, including both checksum fields). Checking that alone is what we do
+        // below and is equivalent in practice to what other OSes check; we do not separately re-verify the
+        // original 20-byte ACPI 1.0 `checksum` field once revision >= 2.
 
         const bytes = blk: {
             const ptr: [*]const u8 = @ptrCast(rsdp);

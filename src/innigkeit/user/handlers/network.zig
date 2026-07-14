@@ -18,9 +18,9 @@
 //!         work; the current 4-argument layout is preserved.
 //!   46  net_udp_close(sock_id: u32) -> 0
 
-const std = @import("std");
 const innigkeit = @import("innigkeit");
-const socket = innigkeit.net.socket;
+const std = @import("std");
+const socket = innigkeit.network.socket;
 
 const Error = @import("libinnigkeit").Error;
 const Context = @import("../Context.zig");
@@ -49,8 +49,7 @@ pub fn netGetMac(context: Context) Error.Syscall!usize {
     const buf_ptr = context.arg(.one);
     const mac = innigkeit.drivers.virtio.net.getMac() orelse
         return Error.Syscall.NoDevice;
-    validate.copyToUser(buf_ptr, mac[0..6]) catch
-        return Error.Syscall.BadAddress;
+    try validate.copyToUser(buf_ptr, mac[0..6]);
     return 0;
 }
 
@@ -76,7 +75,7 @@ pub fn netUdpSend(context: Context) Error.Syscall!usize {
 
     if (buf_len > socket.MAX_PAYLOAD) return Error.Syscall.InvalidArgument;
     var bounce: [socket.MAX_PAYLOAD]u8 = undefined;
-    validate.copyFromUser(bounce[0..buf_len], buf_ptr) catch return Error.Syscall.BadAddress;
+    try validate.copyFromUser(bounce[0..buf_len], buf_ptr);
 
     const ok = socket.sendUdp(id, dst_ip, dst_port, bounce[0..buf_len]);
     return if (ok) 0 else Error.Syscall.NoDevice;
@@ -91,8 +90,8 @@ pub fn netUdpRecv(context: Context) Error.Syscall!usize {
 
     // Validate both destinations up front so a bad buffer faults before the
     // task blocks or a datagram is consumed from the socket.
-    if (!validate.validateUserBuffer(from_ptr, @sizeOf(NetFrom))) return Error.Syscall.BadAddress;
-    if (!validate.validateUserBuffer(buf_ptr, buf_len)) return Error.Syscall.BadAddress;
+    if (!validate.userBuffer(from_ptr, @sizeOf(NetFrom))) return Error.Syscall.BadAddress;
+    if (!validate.userBuffer(buf_ptr, buf_len)) return Error.Syscall.BadAddress;
 
     // Block until a datagram arrives, dequeuing into a kernel bounce buffer.
     // No UserAccess window is held here: the user copies happen strictly
@@ -104,13 +103,12 @@ pub fn netUdpRecv(context: Context) Error.Syscall!usize {
     const bytes = socket.recvUdpBlocking(id, bounce[0..recv_len], &from) orelse
         return Error.Syscall.WouldBlock; // invalid id or socket closed
 
-    validate.copyToUser(buf_ptr, bounce[0..bytes]) catch
-        return Error.Syscall.BadAddress;
-    validate.writeUser(from_ptr, NetFrom{
+    try validate.copyToUser(buf_ptr, bounce[0..bytes]);
+    try validate.writeUser(from_ptr, NetFrom{
         .ip = from.ip,
         .port = from.port,
         ._pad = 0,
-    }) catch return Error.Syscall.BadAddress;
+    });
 
     return bytes;
 }
@@ -131,8 +129,8 @@ pub fn netUdpRecvNb(context: Context) Error.Syscall!usize {
     const buf_len = context.arg(.four);
     const id: u8 = @intCast(sock_id & 0xFF);
 
-    if (!validate.validateUserBuffer(from_ptr, @sizeOf(NetFrom))) return Error.Syscall.BadAddress;
-    if (!validate.validateUserBuffer(buf_ptr, buf_len)) return Error.Syscall.BadAddress;
+    if (!validate.userBuffer(from_ptr, @sizeOf(NetFrom))) return Error.Syscall.BadAddress;
+    if (!validate.userBuffer(buf_ptr, buf_len)) return Error.Syscall.BadAddress;
 
     var bounce: [socket.MAX_PAYLOAD]u8 = undefined;
     const recv_len = @min(buf_len, socket.MAX_PAYLOAD);
@@ -140,13 +138,12 @@ pub fn netUdpRecvNb(context: Context) Error.Syscall!usize {
     const bytes = socket.recvUdp(id, bounce[0..recv_len], &from) orelse
         return Error.Syscall.WouldBlock;
 
-    validate.copyToUser(buf_ptr, bounce[0..bytes]) catch
-        return Error.Syscall.BadAddress;
-    validate.writeUser(from_ptr, NetFrom{
+    try validate.copyToUser(buf_ptr, bounce[0..bytes]);
+    try validate.writeUser(from_ptr, NetFrom{
         .ip = from.ip,
         .port = from.port,
         ._pad = 0,
-    }) catch return Error.Syscall.BadAddress;
+    });
 
     return bytes;
 }
@@ -195,12 +192,11 @@ pub fn netTcpSend(context: Context) Error.Syscall!usize {
     const buf_len = context.arg(.three);
     // tcpSend transmits at most one MSS and touches the buffer under a spinlock,
     // so copy that much through a fault-safe kernel bounce buffer.
-    if (!validate.validateUserBuffer(buf_ptr, buf_len))
+    if (!validate.userBuffer(buf_ptr, buf_len))
         return Error.Syscall.BadAddress;
     var send_buffer: [1460]u8 = undefined; // one TCP MSS
     const to_send = @min(buf_len, send_buffer.len);
-    validate.copyFromUser(send_buffer[0..to_send], buf_ptr) catch
-        return Error.Syscall.BadAddress;
+    try validate.copyFromUser(send_buffer[0..to_send], buf_ptr);
     return socket.tcpSend(sock_id, send_buffer[0..to_send]);
 }
 
@@ -209,14 +205,13 @@ pub fn netTcpRecv(context: Context) Error.Syscall!usize {
     const sock_id: u8 = @truncate(context.arg(.one));
     const buf_ptr = context.arg(.two);
     const buf_len = context.arg(.three);
-    if (!validate.validateUserBuffer(buf_ptr, buf_len))
+    if (!validate.userBuffer(buf_ptr, buf_len))
         return Error.Syscall.BadAddress;
     var recv_buffer: [1460]u8 = undefined; // one TCP MSS
     const recv_capacity = @min(buf_len, recv_buffer.len);
     const n = socket.tcpRecv(sock_id, recv_buffer[0..recv_capacity]);
     if (n == 0) return Error.Syscall.WouldBlock;
-    validate.copyToUser(buf_ptr, recv_buffer[0..n]) catch
-        return Error.Syscall.BadAddress;
+    try validate.copyToUser(buf_ptr, recv_buffer[0..n]);
     return n;
 }
 

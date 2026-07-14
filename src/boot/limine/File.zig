@@ -1,6 +1,6 @@
-const std = @import("std");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 const UUID = @import("uuid").UUID;
 
 pub const File = extern struct {
@@ -91,7 +91,7 @@ pub const File = extern struct {
         try writer.splatByteAll(' ', new_indent);
         try writer.print("media_type: {t}\n", .{self.media_type});
 
-        if (self.tftp_ipv4 != 0) {
+        if (!std.mem.allEqual(u8, &self.tftp_ipv4, 0)) {
             try writer.splatByteAll(' ', new_indent);
             try writer.writeAll("tftp: ");
             try formatIP(self.tftp_ipv4, self.tftp_port, writer);
@@ -142,6 +142,33 @@ pub const File = extern struct {
         _,
     };
 };
+
+test "File.format compiles and runs" {
+    // format() is never called by anything in the kernel itself; calling it
+    // here is what forces Zig to analyze its body. `print()`'s
+    // `self.tftp_ipv4 != 0` (comparing a [4]u8 array against a scalar
+    // integer, not valid Zig) was a real compile error hidden this way.
+    const file: File = .{
+        .revision = 0,
+        .address = .{ .value = 0 },
+        .size = .{ .value = 0 },
+        ._path = "/test",
+        ._string = null,
+        .media_type = .generic,
+        .unused = 0,
+        .tftp_ipv4 = .{ 0, 0, 0, 0 },
+        .tftp_port = 0,
+        .partition_index = 0,
+        .mbr_disk_id = 0,
+        .gpt_disk_uuid = .nil,
+        .gpt_part_uuid = .nil,
+        .part_uuid = .nil,
+    };
+
+    var buf: [256]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try writer.print("{f}", .{file});
+}
 
 comptime {
     std.testing.refAllDecls(@This());

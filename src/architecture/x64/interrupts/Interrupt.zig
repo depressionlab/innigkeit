@@ -1,8 +1,8 @@
 const architecture = @import("architecture");
 const Handler = architecture.interrupts.Interrupt.Handler;
-const x64 = @import("../x64.zig");
-const interrupt_handlers = @import("handlers.zig");
 const globals = @import("globals.zig");
+const interrupt_handlers = @import("handlers.zig");
+const x64 = @import("../x64.zig");
 
 const log = @import("innigkeit").debug.log.scoped(.interrupt);
 
@@ -328,28 +328,97 @@ pub const Interrupt = enum(u8) {
     pub const last_available_interrupt = @intFromEnum(Interrupt.reschedule) - 1;
 
     /// Checks if the given interrupt vector pushes an error code.
+    ///
+    /// Must agree with `asm/interruptHandlers.S`'s `.HasError`/`.NoError`
+    /// classification for each `INTERRUPT_HANDLER` invocation.
     pub fn hasErrorCode(vector: Interrupt) bool {
         return switch (@intFromEnum(vector)) {
-            0...7 => false,
-            8 => true,
-            9 => false,
-            10...14 => true,
-            15...16 => false,
-            17 => true,
-            18...20 => false,
-            21...29 => unreachable,
-            30 => true,
-            31 => unreachable,
+            21...29, 31 => unreachable,
+            8, 10...14, 17, 30 => true,
             else => false,
         };
     }
 
     /// Checks if the given interrupt vector is an exception.
     pub fn isException(vector: Interrupt) bool {
-        if (@intFromEnum(vector) <= @intFromEnum(Interrupt._reserved8)) {
+        if (@intFromEnum(vector) <= @intFromEnum(Interrupt._reserved8))
             return vector != Interrupt.non_maskable_interrupt;
-        }
         return false;
+    }
+
+    /// Determines what `unhandledException` should do when this vector
+    /// fires and no dedicated handler (`page_fault`, `non_maskable_interrupt`)
+    /// claimed it firs.t
+    pub const ExceptionDisposition = union(enum) {
+        /// Terminate only the calling thread with this exit status.
+        /// Safe for any exception raised from user mode: whatever caused
+        /// it is confined to the process that triggered it.
+        ///
+        /// See `user.Process.ExitStatus` (128 + POSIX signal)
+        isolate: u8,
+
+        /// The CPU detected a failure severe enough that it cannot reliably
+        /// keep running *any* code, including this kernel's own isolation.
+        ///
+        /// Panics regardless of which privilege level was executing.
+        /// Reserved for `double_fault` (the CPU failed to deliver a
+        /// prior/nexted exception) and `machine_check` (hardware-
+        /// detected corruption). Any other vector can be isolated,
+        /// even ones we don't expect user mode to ever trigger.
+        ///
+        /// TODO: use virtualization (HyperV/a la Apple's Virtualization
+        /// to isolate even these).
+        always_fatal,
+    };
+
+    /// Returns this interrupt vector's `ExceptionDisposition`
+    ///
+    /// Every named exception vector (0-31, exclusing `page_fault` and
+    /// `non_maskable_interrupt`, which have their own dedicated handlers
+    /// and never reach `unhandledException`) is listed explicitly so the
+    /// choice is visible per-vector rather than inferred from a range.
+    ///
+    /// The `else` arm exists only because `x64.Interrupt` is a non-exhaustive
+    /// `enum` (it must represent arbitrary raw vector numbers via `@enumFromInt`).
+    /// Zig cannot make this switch a compile error for a future named vector the
+    /// way an exhausive `enum` would, so the fallback itself has to be the safe
+    /// choice: `.isolate` with `sigsegv`, never `.always_fatal` and never
+    /// `unreachable`.
+    ///
+    /// Containing a surprising exception to one process is always safe; assuming
+    /// a vector "can't happen" and panicking the kernel when it turns out to be
+    /// reachable is what this table exists to prevent.
+    pub fn exceptionDisposition(self: Interrupt) ExceptionDisposition {
+        const ExitStatus = @import("innigkeit").user.Process.ExitStatus;
+
+        return switch (self) {
+            .division_error => .{ .isolate = ExitStatus.sigfpe }, // #DE: divide-by-zero / divide overflow
+            .debug => .{ .isolate = ExitStatus.sigtrap }, // #DB: no debugger wired up yet; placeholder until one exists
+            .breakpoint => .{ .isolate = ExitStatus.sigtrap }, // #BP: `int3`, same placeholder as #DB
+            .overflow => .{ .isolate = ExitStatus.sigfpe }, // #OF: `into`, closest POSIX analogue is arithmetic
+            .bound_range_exceeded => .{ .isolate = ExitStatus.sigsegv }, // #BR: `bound`, out-of-range access
+            .invalid_opcode => .{ .isolate = ExitStatus.sigill }, // #UD
+            .device_not_available => .{ .isolate = ExitStatus.sigfpe }, // #NM: shouldn't fire given eager SSE save/restore, but isolate if it ever does
+            .double_fault => .always_fatal, // #DF
+            .coprocessor_segment_overrun => .{ .isolate = ExitStatus.sigsegv }, // legacy/unreachable on x86-64 in practice
+            .invalid_tss => .{ .isolate = ExitStatus.sigsegv }, // #TS: this kernel never uses hardware task-switching, but isolate defensively
+            .segment_not_present => .{ .isolate = ExitStatus.sigsegv }, // #NP: this kernel doesn't use segmentation, but isolate defensively
+            .stack_segment_fault => .{ .isolate = ExitStatus.sigsegv }, // #SS
+            .general_protection_fault => .{ .isolate = ExitStatus.sigsegv }, // #GP: the common case (bad instruction/privilege/memory access)
+            ._reserved1 => .{ .isolate = ExitStatus.sigsegv },
+            .x87_floating_point => .{ .isolate = ExitStatus.sigfpe }, // #MF
+            .alignment_check => .{ .isolate = ExitStatus.sigbus }, // #AC
+            .machine_check => .always_fatal, // #MC
+            .simd_floating_point => .{ .isolate = ExitStatus.sigfpe }, // #XM/#XF
+            .virtualization => .{ .isolate = ExitStatus.sigsegv }, // #VE: not reachable without nested virtualization this kernel doesn't use
+            .control_protection => .{ .isolate = ExitStatus.sigsegv }, // #CP: CET shadow-stack; not enabled yet, but future-proofed
+            ._reserved2, ._reserved3, ._reserved4, ._reserved5, ._reserved6, ._reserved7 => .{ .isolate = ExitStatus.sigsegv },
+            .hypervisor_injection => .{ .isolate = ExitStatus.sigsegv }, // #HV: AMD SEV-SNP specific
+            .vmm_communication => .{ .isolate = ExitStatus.sigsegv }, // #VC: AMD SEV-ES specific
+            .security => .{ .isolate = ExitStatus.sigsegv }, // #SX
+            ._reserved8 => .{ .isolate = ExitStatus.sigsegv },
+            else => .{ .isolate = ExitStatus.sigsegv }, // non-exhaustive-enum fallback; see doc comment above
+        };
     }
 
     pub fn allocate(interrupt_handler: Handler) architecture.interrupts.Interrupt.AllocateError!Interrupt {

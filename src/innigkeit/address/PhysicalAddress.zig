@@ -1,7 +1,7 @@
-const std = @import("std");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 const root = @import("root.zig");
+const std = @import("std");
 
 pub const PhysicalAddress = extern struct {
     value: usize,
@@ -17,8 +17,8 @@ pub const PhysicalAddress = extern struct {
     /// **REQUIREMENTS**:
     /// - The provided `address` is in the direct map.
     pub inline fn fromDirectMap(direct_map_address: root.KernelVirtualAddress) PhysicalAddress {
-        if (core.is_debug) std.debug.assert(innigkeit.mem.globals.direct_map.containsAddress(direct_map_address));
-        return .{ .value = direct_map_address.value - innigkeit.mem.globals.direct_map.address.value };
+        if (core.is_debug) std.debug.assert(innigkeit.memory.globals.direct_map.containsAddress(direct_map_address));
+        return .{ .value = direct_map_address.value - innigkeit.memory.globals.direct_map.address.value };
     }
 
     /// Returns the direct map virtual address corresponding to this physical address.
@@ -26,8 +26,8 @@ pub const PhysicalAddress = extern struct {
     /// **REQUIREMENTS**:
     /// - The provided `address` is covered by the direct map.
     pub inline fn toDirectMap(physical_address: PhysicalAddress) root.KernelVirtualAddress {
-        const direct_map_address: root.KernelVirtualAddress = .{ .value = physical_address.value + innigkeit.mem.globals.direct_map.address.value };
-        if (core.is_debug) std.debug.assert(innigkeit.mem.globals.direct_map.containsAddress(direct_map_address));
+        const direct_map_address: root.KernelVirtualAddress = .{ .value = physical_address.value + innigkeit.memory.globals.direct_map.address.value };
+        if (core.is_debug) std.debug.assert(innigkeit.memory.globals.direct_map.containsAddress(direct_map_address));
         return direct_map_address;
     }
 

@@ -22,6 +22,11 @@ pub fn start() !void {
                 log.warn("test setup: PCI ECAM init failed: {t}", .{err});
             innigkeit.drivers.virtio.blk.init();
         }
+        // Probe firmware so the EFI System Table tests see the cached table.
+        innigkeit.firmware.init();
+        // Run the encrypted-volume boot scan so every test boot proves it is
+        // safe on a disk with no INNIKVOL header (the GPT boot disk).
+        innigkeit.filesystem.EncryptedVolume.mountAtBoot();
         const failed = innigkeit.testing.runner.runAll();
         switch (comptime builtin.cpu.arch) {
             .x86_64 => {
@@ -31,7 +36,7 @@ pub fn start() !void {
                 asm volatile ("outb %[val], %[port]"
                     :
                     : [val] "{al}" (exit_val),
-                      [port] "{dx}" (@as(u16, 0xf4)),
+                      [port] "{dx}" (@as(u16, 0xF4)),
                 );
                 while (true) asm volatile ("hlt");
             },
@@ -59,6 +64,12 @@ pub fn start() !void {
     log.debug("initializing ACPI", .{});
     try innigkeit.acpi.init.initialize();
 
+    log.debug("probing firmware (EFI)", .{});
+    innigkeit.firmware.init();
+
+    log.debug("probing for TPM 2.0", .{});
+    innigkeit.drivers.tpm.init();
+
     log.debug("initializing virtio-blk driver", .{});
     innigkeit.drivers.virtio.blk.init();
 
@@ -76,6 +87,9 @@ pub fn start() !void {
     } else {
         log.warn("virtio-blk not ready", .{});
     }
+
+    log.debug("probing for an encrypted data volume", .{});
+    innigkeit.filesystem.EncryptedVolume.mountAtBoot();
 
     try innigkeit.time.init.printInitializationTime();
 
@@ -123,7 +137,7 @@ fn netPollLoop() !void {
         // Blocks until the IRQ handler signals received frames; returns
         // false immediately when running in poll-fallback mode.
         const irq_mode = innigkeit.drivers.virtio.net.waitRx();
-        innigkeit.drivers.virtio.net.pollRx(innigkeit.net.socket.handleFrame);
+        innigkeit.drivers.virtio.net.pollRx(innigkeit.network.socket.handleFrame);
         if (!irq_mode) {
             // Poll fallback: yield so a missing IRQ does not busy-spin.
             const h: innigkeit.Task.Scheduler.Handle = .get();
@@ -142,96 +156,16 @@ fn loadShell() !void {
 }
 
 fn loadElfFromInitfs(name: []const u8) !noreturn {
-    const elf_data = innigkeit.fs.initfs.findFile(name) orelse {
+    const elf_data = innigkeit.filesystem.initfs.findFile(name) orelse {
         log.err("'{s}' not found in initfs", .{name});
         return error.FileNotFound;
     };
 
     const current_task: innigkeit.Task.Current = .get();
     const thread: *innigkeit.user.Thread = .from(current_task.task);
-    const address_space = &thread.process.address_space;
-
-    const header = try innigkeit.user.elf.Header.parse(elf_data);
-
-    const entry_point = switch (header.entry.tagged()) {
-        .user => |user| user,
-        else => return error.InvalidEntryPoint,
-    };
-
-    const program_header_table: []const u8 = blk: {
-        const loc = header.programHeaderTableLocation();
-        break :blk elf_data[loc.offset.value..][0..loc.size.value];
-    };
-
-    // Map all loadable segments read-write so the address space can merge entries.
-    {
-        var iter = header.loadableRegionIterator(program_header_table);
-
-        while (try iter.next()) |region| {
-            _ = try address_space.map(.{
-                .base = region.virtual_range.address.toVirtualAddress(),
-                .size = region.virtual_range.size,
-                .protection = .{ .read = true, .write = true },
-                .max_protection = .all,
-                .type = .zero_fill,
-            });
-        }
-    }
-
-    // Copy ELF segments into the mapped address space.
-    {
-        current_task.incrementEnableAccessToUserMemory();
-        defer current_task.decrementEnableAccessToUserMemory();
-
-        var iter = header.loadableRegionIterator(program_header_table);
-
-        while (try iter.next()) |region| {
-            if (region.source_length == 0) continue;
-            const mapped_slice = region.virtual_range.byteSlice();
-
-            @memcpy(
-                mapped_slice[region.destination_offset..][0..region.source_length],
-                elf_data[region.source_base..][0..region.source_length],
-            );
-        }
-    }
-
-    // Apply correct protections as specified by the ELF program headers.
-    {
-        var iter = header.loadableRegionIterator(program_header_table);
-
-        while (try iter.next()) |region| {
-            try address_space.changeProtection(
-                region.virtual_range.toVirtualRange(),
-                .{
-                    .both = .{
-                        .protection = region.protection,
-                        .max_protection = region.protection,
-                    },
-                },
-            );
-        }
-    }
-
-    // Compute AT_PHDR: the virtual address of the phdr table in the loaded image.
-    const phdr_vaddr: usize = blk: {
-        var iter = header.iterateProgramHeaders(program_header_table);
-        while (iter.next()) |phdr| {
-            if (phdr.type != .load) continue;
-            if (phdr.offset.value <= header.program_header_offset.value and
-                header.program_header_offset.value < phdr.offset.value + phdr.file_size.value)
-            {
-                break :blk @intCast(phdr.virtual_address.value +
-                    (header.program_header_offset.value - phdr.offset.value));
-            }
-        }
-        break :blk 0;
-    };
-
-    try thread.startProcess(entry_point, .{
-        .phdr_vaddr = phdr_vaddr,
-        .phnum = header.program_header_entry_count,
-        .entry = header.entry.value,
-    });
+    // No codesign check: the initfs itself is the boot-time trust root for
+    // the initial shell/WM process (unlike `spawn`, which verifies a
+    // `.codesig` sidecar prior to reaching this same load sequence).
+    try innigkeit.user.elf.loader.loadAndJump(thread, elf_data, &.{});
     unreachable;
 }

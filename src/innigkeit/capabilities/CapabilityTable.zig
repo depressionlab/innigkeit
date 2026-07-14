@@ -1,8 +1,8 @@
 const CapabilityTable = @This();
 
-const std = @import("std");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 const Message = @import("Message.zig").Message;
 const ObjectType = @import("ObjectType.zig").ObjectType;
@@ -76,6 +76,7 @@ pub fn copyLocked(
     if (core.is_debug) std.debug.assert(self.lock.isLockedByCurrent());
     const src = self.getLocked(src_idx) orelse return error.NotFound;
     if (!rightsSubset(new_rights, src.rights)) return error.RightsEscalation;
+    // ptr_or_next does hold a real pointer (see Slot.zig: type != .null).
     const ptr: *anyopaque = @ptrFromInt(src.ptr_or_next);
     refObject(src.type, ptr);
     return self.insertLocked(src.type, ptr, new_rights) catch |e| {
@@ -95,6 +96,7 @@ pub fn removeLocked(self: *CapabilityTable, idx: u32) error{NotFound}!void {
     slot.type = .null;
     slot.rights = .{};
     self.free_head = idx;
+    // ptr_or_next does hold a real pointer (see Slot.zig: type != .null).
     unrefObject(removed.type, @ptrFromInt(removed.ptr_or_next));
 }
 
@@ -105,6 +107,7 @@ pub fn deinitAll(self: *CapabilityTable) void {
     for (&self.slots, 0..) |*slot, i| {
         if (slot.type == .null) continue;
         const t = slot.type;
+        // ptr_or_next does hold a real pointer (see Slot.zig: type != .null).
         const ptr: *anyopaque = @ptrFromInt(slot.ptr_or_next);
         slot.ptr_or_next = self.free_head;
         slot.type = .null;
@@ -132,6 +135,7 @@ pub const SlotInfo = struct {
 pub fn getAndRefLocked(self: *CapabilityTable, idx: u32) ?SlotInfo {
     if (core.is_debug) std.debug.assert(self.lock.isLockedByCurrent());
     const slot = self.getLocked(idx) orelse return null;
+    // ptr_or_next does hold a real pointer (see Slot.zig: type != .null).
     const ptr: *anyopaque = @ptrFromInt(slot.ptr_or_next);
     if (slot.generation != objectGeneration(slot.type, ptr)) return null;
     const info = SlotInfo{ .cap_type = slot.type, .ptr = ptr, .rights = slot.rights };
@@ -152,6 +156,7 @@ pub fn revokeLocked(self: *CapabilityTable, idx: u32) error{ NotFound, NoRevokeR
     if (core.is_debug) std.debug.assert(self.lock.isLockedByCurrent());
     const slot = self.getLocked(idx) orelse return error.NotFound;
     if (!slot.rights.revoke) return error.NoRevokeRight;
+    // ptr_or_next does hold a real pointer (see Slot.zig: type != .null).
     incrementObjectGeneration(slot.type, @ptrFromInt(slot.ptr_or_next));
 }
 
@@ -247,8 +252,8 @@ pub fn transferCaps(msg: *Message, sender_task: *innigkeit.Task, receiver_task: 
     if (!same) dst_table.lock.unlock();
 }
 
-const Notify = @import("types/Notify.zig");
 const Frame = @import("types/Frame.zig");
+const Notify = @import("types/Notify.zig");
 
 test "capability: fresh slot passes generation check" {
     const notify = try Notify.create();
@@ -261,10 +266,8 @@ test "capability: fresh slot passes generation check" {
 
     notify.ref();
     const slot_idx = try table.insertLocked(.notify, notify, .all);
-
-    const info = table.getAndRefLocked(slot_idx);
-    try std.testing.expect(info != null);
-    unrefObject(info.?.cap_type, info.?.ptr);
+    const info = table.getAndRefLocked(slot_idx).?;
+    unrefObject(info.cap_type, info.ptr);
 }
 
 test "capability: Frame sharing transfers backing zero-copy and can restrict rights" {
@@ -336,12 +339,10 @@ test "capability: revoke invalidates all slots pointing to the same object" {
 
     // Both valid before revocation.
     {
-        const a = table.getAndRefLocked(slot_a);
-        try std.testing.expect(a != null);
-        unrefObject(a.?.cap_type, a.?.ptr);
-        const b = table.getAndRefLocked(slot_b);
-        try std.testing.expect(b != null);
-        unrefObject(b.?.cap_type, b.?.ptr);
+        const a = table.getAndRefLocked(slot_a).?;
+        unrefObject(a.cap_type, a.ptr);
+        const b = table.getAndRefLocked(slot_b).?;
+        unrefObject(b.cap_type, b.ptr);
     }
 
     // Revoke via slot_a (has .revoke right).
@@ -366,9 +367,8 @@ test "capability: revoke requires revoke right" {
 
     try std.testing.expectError(error.NoRevokeRight, table.revokeLocked(slot));
     // Slot still valid after a failed revoke attempt.
-    const info = table.getAndRefLocked(slot);
-    try std.testing.expect(info != null);
-    unrefObject(info.?.cap_type, info.?.ptr);
+    const info = table.getAndRefLocked(slot).?;
+    unrefObject(info.cap_type, info.ptr);
 }
 
 test "capability: double revoke uses the new generation (second revoke works)" {
@@ -388,9 +388,8 @@ test "capability: double revoke uses the new generation (second revoke works)" {
     // It picks up the current generation.
     notify.ref();
     const slot_b = try table.insertLocked(.notify, notify, .all);
-    const info_b = table.getAndRefLocked(slot_b);
-    try std.testing.expect(info_b != null);
-    unrefObject(info_b.?.cap_type, info_b.?.ptr);
+    const info_b = table.getAndRefLocked(slot_b).?;
+    unrefObject(info_b.cap_type, info_b.ptr);
 
     // Revoke again through slot_b.
     try table.revokeLocked(slot_b);

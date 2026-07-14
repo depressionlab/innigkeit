@@ -16,9 +16,9 @@
 
 const std = @import("std");
 
+const caps = @import("../capabilities.zig");
 const geometry = @import("geometry.zig");
 const protocol = @import("protocol.zig");
-const caps = @import("../capabilities.zig");
 const Syscall = @import("../syscall.zig").Syscall;
 const SyscallError = @import("../Error.zig").Syscall;
 

@@ -1,7 +1,7 @@
-const std = @import("std");
+const boot = @import("boot");
 const innigkeit = @import("innigkeit");
 const limine = @import("limine/interface.zig");
-const boot = @import("boot");
+const std = @import("std");
 
 pub const MemoryMap = union {
     unknown: void,

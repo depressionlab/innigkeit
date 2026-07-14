@@ -24,6 +24,8 @@ pub fn next(self: *UsableRangeIterator) ?innigkeit.PhysicalRange {
         };
 
         if (current_range.after().equal(entry_range.address)) {
+            // Known non-null: `current_range` above was just derived from this
+            // same field via `orelse continue`.
             self.opt_current_range.?.size.addInPlace(entry_range.size);
             continue;
         }

@@ -5,25 +5,19 @@
 .set .HasError, 1
 .set .NoError, 2
 
-.macro INTERRUPT_HANDLER type, number
-
+// Shared body for all 256 vectors. Entered via `jmp` from a per-vector
+// trampoline (see INTERRUPT_HANDLER below) that has already pushed the
+// error code (real or a $0 placeholder) and the vector number, so the CFA
+// here already accounts for those two pushed words.
 .section .text
-.global _interrupt_handler_\number
-.type _interrupt_handler_\number, @function
-_interrupt_handler_\number:
+.global _common_interrupt_handler
+.type _common_interrupt_handler, @function
+_common_interrupt_handler:
 	.cfi_startproc simple
 	.cfi_signal_frame
 
     .cfi_undefined %rip
-	.cfi_def_cfa %rsp, 0
-
-.if \type != .HasError
-    push $0
-    .cfi_adjust_cfa_offset 8
-.endif
-
-    push $\number
-    .cfi_adjust_cfa_offset 8
+	.cfi_def_cfa %rsp, 16
 
     // if we interrupted userspace then swapgs
     testl $3, 24(%rsp)
@@ -57,6 +51,24 @@ _interrupt_handler_\number:
     iretq
     .cfi_endproc
 
+.size _common_interrupt_handler, . - _common_interrupt_handler
+
+// Per-vector trampoline: push the (real or placeholder) error code and the
+// vector number, then jump into the shared body. Keeping these tiny (instead
+// of each fully duplicating the body above) is the entire point. 256
+// duplicated copies of the body cost far more code size than 256 four-
+// instruction trampolines plus one shared body.
+.macro INTERRUPT_HANDLER type, number
+
+.section .text
+.global _interrupt_handler_\number
+.type _interrupt_handler_\number, @function
+_interrupt_handler_\number:
+.if \type != .HasError
+    push $0
+.endif
+    push $\number
+    jmp _common_interrupt_handler
 .size _interrupt_handler_\number, . - _interrupt_handler_\number
 .endm
 

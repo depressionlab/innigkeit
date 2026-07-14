@@ -3,6 +3,7 @@
     .version = "0.1.0",
     .fingerprint = 0x4da44fad2a9b58be,
     .minimum_zig_version = "0.16.0",
+    .license = "EUPL-1.2",
     .dependencies = .{
         .limine_bin = .{
             .url = "https://github.com/Limine-Bootloader/Limine/releases/download/v12.3.3/limine-binary.tar.xz",
@@ -35,6 +36,10 @@
         .toml = .{
             .url = "git+https://github.com/sam701/zig-toml.git#24e0deeceaad1b7f1b12027ebae1c65ff1d86e33",
             .hash = "toml-0.3.0-bV14BVqIAQANb68hDuVPZ72hrcIhT-fv_fcIbetQIAyg",
+        },
+        .zlinter = .{
+            .url = "git+https://github.com/kurtwagner/zlinter?ref=0.16.x#8b10b45d33c684be4f869baf95a37c282e9db750",
+            .hash = "zlinter-0.0.1-OjQ08doQDADkvkcRq2ONICvDheGl2onZzS5upWDxFNnA",
         },
     },
     .paths = .{

@@ -1,5 +1,5 @@
-const std = @import("std");
 const Bundle = @import("../../build/Bundle.zig");
+const std = @import("std");
 
 pub fn custom(b: *std.Build, bundle: Bundle, module: *std.Build.Module) anyerror!void {
     if (bundle.context != .internal) return;

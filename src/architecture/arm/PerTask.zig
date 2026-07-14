@@ -1,5 +1,5 @@
-const innigkeit = @import("innigkeit");
 const arm = @import("arm.zig");
+const innigkeit = @import("innigkeit");
 
 const PerTask = @This();
 
@@ -25,6 +25,9 @@ pub fn initializeTaskArchSpecific(task: *innigkeit.Task) void {
 
 /// Get the current task via TPIDR_EL1.
 pub inline fn getCurrentTask() *innigkeit.Task {
+    // safe: setCurrentTask (below) is the only writer, and always writes
+    // a real *innigkeit.Task (same per-CPU thread-pointer pattern as x64's
+    // GS_BASE).
     return @ptrFromInt(arm.registers.TPIDR_EL1.read());
 }
 

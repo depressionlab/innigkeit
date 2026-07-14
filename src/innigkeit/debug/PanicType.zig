@@ -1,5 +1,5 @@
-const std = @import("std");
 const architecture = @import("architecture");
+const std = @import("std");
 
 pub const PanicType = union(enum) {
     normal: struct {

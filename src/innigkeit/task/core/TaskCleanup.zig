@@ -1,9 +1,9 @@
 const TaskCleanup = @This();
 
-const std = @import("std");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
 const globals = @import("globals.zig");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 const log = innigkeit.debug.log.scoped(.task);
 

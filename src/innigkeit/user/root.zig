@@ -1,16 +1,16 @@
 const std = @import("std");
 
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 
 pub const codesign = @import("codesign/root.zig");
 pub const elf = @import("elf/root.zig");
 pub const FdTable = @import("FdTable.zig");
-pub const Process = @import("Process.zig");
-pub const Thread = @import("Thread.zig");
 pub const handlers = @import("handlers/root.zig");
+pub const Process = @import("Process.zig");
 pub const syscalls = @import("syscalls.zig");
+pub const Thread = @import("Thread.zig");
 pub const validate = @import("validate.zig");
 
 const log = innigkeit.debug.log.scoped(.user);
@@ -51,13 +51,6 @@ fn dispatch(syscall_frame: architecture.user.SyscallFrame) usize {
 
 /// Kernel-side entry for threads spawned via the spawn_thread syscall.
 /// Runs in the new thread's context; calls `Thread.start` to enter userspace.
-fn spawnThreadEntry(entry_point: innigkeit.UserVirtualAddress, arg: usize) !noreturn {
-    const current_task: innigkeit.Task.Current = .get();
-    const thread: *Thread = .from(current_task.task);
-    try thread.start(entry_point, arg);
-    unreachable;
-}
-
 pub const init = struct {
     pub fn initialize() !void {
         try Process.init.initializeProcesses();

@@ -2,6 +2,8 @@
 //!
 //! Maps the bootloader framebuffer, draws a gradient + a white border,
 //! then prints dimensions and exits.
+// zlinter-disable no_swallow_error - every catch here is a console print
+// with no meaningful recovery path in this smoke-test app.
 const innigkeit = @import("innigkeit");
 
 pub fn main() void {

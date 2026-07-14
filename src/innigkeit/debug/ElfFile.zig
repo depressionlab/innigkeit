@@ -82,10 +82,8 @@ pub const DebugInfoSearchPaths = struct {
                 }
                 break :p null;
             },
-            .global_debug = &.{
-                "/usr/lib/debug",
-            },
-            .exe_dir = std.fs.path.dirname(exe_path) orelse ".",
+            .global_debug = &.{"/usr/lib/debug"},
+            .exe_dir = std.Io.Dir.path.dirname(exe_path) orelse ".",
         };
         @compileError("std.Options.elf_debug_info_search_paths must be provided");
     }
@@ -201,12 +199,13 @@ pub fn searchSymtab(ef: *ElfFile, gpa: Allocator, vaddr: u64) error{
 
     switch (ef.is_64) {
         inline true, false => |is_64| {
-            const Sym = if (is_64) elf.Elf64_Sym else elf.Elf32_Sym;
+            const Sym = if (is_64) elf.Elf64.Sym else elf.Elf32.Sym;
             if (symtab.entry_size != @sizeOf(Sym)) return error.BadSymtab;
             const symbols: []align(1) const Sym = @ptrCast(symtab.bytes);
             if (ef.symbol_search_table == null) {
                 ef.symbol_search_table = try buildSymbolSearchTable(gpa, ef.endian, Sym, symbols);
             }
+            // Non-null: either already set, or the block above just set it.
             const search_table = ef.symbol_search_table.?;
             const SearchContext = struct {
                 swap_endian: bool,
@@ -219,7 +218,7 @@ pub fn searchSymtab(ef: *ElfFile, gpa: Allocator, vaddr: u64) error{
                     // the logic in `buildSymbolSearchTable` which sorts by *end* address.
                     var sym = ctx.symbols[sym_index];
                     if (ctx.swap_endian) std.mem.byteSwapAllFields(Sym, &sym);
-                    const sym_end = sym.st_value + sym.st_size;
+                    const sym_end = sym.value + sym.size;
                     return ctx.target >= sym_end;
                 }
             };
@@ -231,9 +230,9 @@ pub fn searchSymtab(ef: *ElfFile, gpa: Allocator, vaddr: u64) error{
             if (sym_index_index == search_table.len) return .unknown;
             var sym = symbols[search_table[sym_index_index]];
             if (swap_endian) std.mem.byteSwapAllFields(Sym, &sym);
-            if (vaddr < sym.st_value or vaddr >= sym.st_value + sym.st_size) return .unknown;
+            if (vaddr < sym.value or vaddr >= sym.value + sym.size) return .unknown;
             return .{
-                .name = std.mem.sliceTo(strtab[sym.st_name..], 0),
+                .name = std.mem.sliceTo(strtab[sym.name..], 0),
                 .compile_unit_name = null,
                 .source_location = null,
             };
@@ -253,8 +252,8 @@ fn buildSymbolSearchTable(gpa: Allocator, endian: Endian, comptime Sym: type, sy
     for (symbols, 0..) |sym_orig, sym_index| {
         var sym = sym_orig;
         if (swap_endian) std.mem.byteSwapAllFields(Sym, &sym);
-        if (sym.st_name == 0) continue;
-        if (sym.st_shndx == elf.SHN_UNDEF) continue;
+        if (sym.name == 0) continue;
+        if (sym.shndx == elf.SHN_UNDEF) continue;
         try result.append(gpa, sym_index);
     }
 
@@ -269,8 +268,8 @@ fn buildSymbolSearchTable(gpa: Allocator, endian: Endian, comptime Sym: type, sy
                 std.mem.byteSwapAllFields(Sym, &lhs_sym);
                 std.mem.byteSwapAllFields(Sym, &rhs_sym);
             }
-            const lhs_val = lhs_sym.st_value + lhs_sym.st_size;
-            const rhs_val = rhs_sym.st_value + rhs_sym.st_size;
+            const lhs_val = lhs_sym.value + lhs_sym.size;
+            const rhs_val = rhs_sym.value + rhs_sym.size;
             return lhs_val < rhs_val;
         }
     };
@@ -284,6 +283,10 @@ fn buildSymbolSearchTable(gpa: Allocator, endian: Endian, comptime Sym: type, sy
 
 /// Only used locally, during `load`.
 const Section = struct {
+    // `elf.Elf64_Shdr`, not `elf.Elf64.Shdr` which matches what
+    // `SectionHeaderBufferIterator.next()` actually yields (std hasn't
+    // migrated that iterator's return type yet).
+    // zlinter-disable-next-line no_deprecated
     header: elf.Elf64_Shdr,
     bytes: []const u8,
     const Id = enum {
@@ -349,20 +352,20 @@ fn loadInner(
     );
     fr.seek = std.math.cast(usize, shstrtab_shdr_off) orelse return error.Overflow;
     const shstrtab: []const u8 = if (header.is_64) shstrtab: {
-        const shdr = fr.takeStruct(elf.Elf64_Shdr, endian) catch return error.TruncatedElfFile;
-        if (shdr.sh_offset + shdr.sh_size > mapped_mem.len) return error.TruncatedElfFile;
-        break :shstrtab mapped_mem[@intCast(shdr.sh_offset)..][0..@intCast(shdr.sh_size)];
+        const shdr = fr.takeStruct(elf.Elf64.Shdr, endian) catch return error.TruncatedElfFile;
+        if (shdr.offset + shdr.size > mapped_mem.len) return error.TruncatedElfFile;
+        break :shstrtab mapped_mem[@intCast(shdr.offset)..][0..@intCast(shdr.size)];
     } else shstrtab: {
-        const shdr = fr.takeStruct(elf.Elf32_Shdr, endian) catch return error.TruncatedElfFile;
-        if (shdr.sh_offset + shdr.sh_size > mapped_mem.len) return error.TruncatedElfFile;
-        break :shstrtab mapped_mem[@intCast(shdr.sh_offset)..][0..@intCast(shdr.sh_size)];
+        const shdr = fr.takeStruct(elf.Elf32.Shdr, endian) catch return error.TruncatedElfFile;
+        if (shdr.offset + shdr.size > mapped_mem.len) return error.TruncatedElfFile;
+        break :shstrtab mapped_mem[@intCast(shdr.offset)..][0..@intCast(shdr.size)];
     };
 
     var sections: Section.Array = .initFill(null);
 
     var it = header.iterateSectionHeadersBuffer(mapped_mem);
     while (it.next() catch return error.TruncatedElfFile) |shdr| {
-        if (shdr.sh_type == elf.SHT_NULL or shdr.sh_type == elf.SHT_NOBITS) continue;
+        if (shdr.sh_type == @intFromEnum(std.elf.SHT.NULL) or shdr.sh_type == @intFromEnum(std.elf.SHT.NOBITS)) continue;
         if (shdr.sh_name > shstrtab.len) return error.TruncatedElfFile;
         const name = std.mem.sliceTo(shstrtab[@intCast(shdr.sh_name)..], 0);
 
@@ -381,11 +384,11 @@ fn loadInner(
 
             var section_reader: std.Io.Reader = .fixed(raw_section_bytes);
             const ch_type: elf.COMPRESS, const ch_size: u64 = if (header.is_64) ch: {
-                const chdr = section_reader.takeStruct(elf.Elf64_Chdr, endian) catch return error.InvalidCompressedSection;
-                break :ch .{ chdr.ch_type, chdr.ch_size };
+                const chdr = section_reader.takeStruct(elf.Elf64.Chdr, endian) catch return error.InvalidCompressedSection;
+                break :ch .{ chdr.type, chdr.size };
             } else ch: {
-                const chdr = section_reader.takeStruct(elf.Elf32_Chdr, endian) catch return error.InvalidCompressedSection;
-                break :ch .{ chdr.ch_type, chdr.ch_size };
+                const chdr = section_reader.takeStruct(elf.Elf32.Chdr, endian) catch return error.InvalidCompressedSection;
+                break :ch .{ chdr.type, chdr.size };
             };
             if (ch_type != .ZLIB) {
                 // The compression algorithm is unsupported, but don't make that a hard error; the

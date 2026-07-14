@@ -11,11 +11,11 @@
 //! (see src/innigkeit/user/validate.zig).
 
 const innigkeit = @import("innigkeit");
-const vfs = innigkeit.fs.vfs;
+const vfs = innigkeit.filesystem.vfs;
 const log = innigkeit.debug.log.scoped(.user_file);
 
-const validate = @import("../validate.zig");
 const FdTable = @import("../FdTable.zig");
+const validate = @import("../validate.zig");
 const Error = @import("libinnigkeit").Error;
 const Context = @import("../Context.zig");
 
@@ -44,7 +44,7 @@ pub fn open(context: Context) Error.Syscall!usize {
 
     if (want_write and !context.entitled("storage")) return Error.Syscall.PermissionDenied;
     var path_buf: [max_path_len + 1]u8 = undefined;
-    validate.copyFromUser(path_buf[0..path_len], path_ptr) catch return Error.Syscall.BadAddress;
+    try validate.copyFromUser(path_buf[0..path_len], path_ptr);
 
     // The VFS roots everything at "/"; accept and strip a leading slash.
     var path: []const u8 = path_buf[0..path_len];
@@ -103,7 +103,7 @@ pub fn fstat(context: Context) Error.Syscall!usize {
     const stat_ptr = context.arg(.two);
 
     const stat = context.process().fd_table.statFd(fd) catch |err| return mapFdError(err);
-    validate.writeUser(stat_ptr, stat) catch return Error.Syscall.BadAddress;
+    try validate.writeUser(stat_ptr, stat);
     return 0;
 }
 
@@ -116,16 +116,13 @@ pub fn readFile(context: Context) Error.Syscall!usize {
 
     // The whole user range must be valid even though at most tmp.len bytes
     // are returned per call.
-    if (!validate.validateUserBuffer(buf_ptr, buf_len))
+    if (!validate.userBuffer(buf_ptr, buf_len))
         return Error.Syscall.BadAddress;
 
     var tmp: [4096]u8 = undefined;
     const to_read: usize = @min(buf_len, tmp.len);
     const n = context.process().fd_table.readFile(fd, tmp[0..to_read]) catch |err| return mapFdError(err);
-    if (n > 0) {
-        validate.copyToUser(buf_ptr, tmp[0..n]) catch
-            return Error.Syscall.BadAddress; // unreachable: validated above
-    }
+    if (n > 0) try validate.copyToUser(buf_ptr, tmp[0..n]);
     return n;
 }
 
@@ -136,7 +133,7 @@ pub fn writeFile(context: Context) Error.Syscall!usize {
     const buf_ptr = context.arg(.two);
     const buf_len = context.arg(.three);
 
-    if (!validate.validateUserBuffer(buf_ptr, buf_len))
+    if (!validate.userBuffer(buf_ptr, buf_len))
         return Error.Syscall.BadAddress;
 
     var tmp: [4096]u8 = undefined;
@@ -144,7 +141,7 @@ pub fn writeFile(context: Context) Error.Syscall!usize {
     while (done < buf_len) {
         const chunk: usize = @min(buf_len - done, tmp.len);
         // Copy from user memory first; the VFS write below may block.
-        validate.copyFromUser(tmp[0..chunk], buf_ptr + done) catch return Error.Syscall.BadAddress;
+        try validate.copyFromUser(tmp[0..chunk], buf_ptr + done);
         const n = context.process().fd_table.writeFile(fd, tmp[0..chunk]) catch |err| {
             // Report bytes already written rather than an error mid-stream.
             if (done > 0) return done;

@@ -1,44 +1,49 @@
-const innigkeit = @import("innigkeit");
-const core = @import("core");
 const architecture = @import("architecture");
+const core = @import("core");
+const innigkeit = @import("innigkeit");
 
-/// Read a value from PCI enhanced configuration space.
-pub fn readPci(comptime T: type, address: innigkeit.KernelVirtualAddress) callconv(core.inline_in_non_debug) T {
-    return switch (T) {
-        u8 => architecture.getFunction(
-            architecture.current_functions.io,
-            "readPciU8",
-        )(address),
-        u16 => architecture.getFunction(
-            architecture.current_functions.io,
-            "readPciU16",
-        )(address),
-        u32 => architecture.getFunction(
-            architecture.current_functions.io,
-            "readPciU32",
-        )(address),
-        else => @compileError("unsupported pci read size"),
-    };
-}
-
-/// Write a value to PCI enhanced configuration space.
-pub fn writePci(comptime T: type, address: innigkeit.KernelVirtualAddress, value: T) callconv(core.inline_in_non_debug) void {
-    switch (T) {
-        u8 => architecture.getFunction(
-            architecture.current_functions.io,
-            "writePciU8",
-        )(address, value),
-        u16 => architecture.getFunction(
-            architecture.current_functions.io,
-            "writePciU16",
-        )(address, value),
-        u32 => architecture.getFunction(
-            architecture.current_functions.io,
-            "writePciU32",
-        )(address, value),
-        else => @compileError("unsupported pci write size"),
+/// PCI enhanced configuration space access. Grouped as a namespace (not a
+/// wrapper type like `Port`) since PCI config space is addressed directly,
+/// with no per-instance handle to hold.
+pub const pci = struct {
+    /// Read a value from PCI enhanced configuration space.
+    pub fn read(comptime T: type, address: innigkeit.KernelVirtualAddress) callconv(core.inline_in_non_debug) T {
+        return switch (T) {
+            u8 => architecture.getFunction(
+                architecture.current_functions.io,
+                "readPciU8",
+            )(address),
+            u16 => architecture.getFunction(
+                architecture.current_functions.io,
+                "readPciU16",
+            )(address),
+            u32 => architecture.getFunction(
+                architecture.current_functions.io,
+                "readPciU32",
+            )(address),
+            else => @compileError("unsupported pci read size"),
+        };
     }
-}
+
+    /// Write a value to PCI enhanced configuration space.
+    pub fn write(comptime T: type, address: innigkeit.KernelVirtualAddress, value: T) callconv(core.inline_in_non_debug) void {
+        switch (T) {
+            u8 => architecture.getFunction(
+                architecture.current_functions.io,
+                "writePciU8",
+            )(address, value),
+            u16 => architecture.getFunction(
+                architecture.current_functions.io,
+                "writePciU16",
+            )(address, value),
+            u32 => architecture.getFunction(
+                architecture.current_functions.io,
+                "writePciU32",
+            )(address, value),
+            else => @compileError("unsupported pci write size"),
+        }
+    }
+};
 
 pub const Port = struct {
     arch_specific: architecture.current_decls.io.Port,

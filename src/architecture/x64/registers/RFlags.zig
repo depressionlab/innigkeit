@@ -1,5 +1,5 @@
-const std = @import("std");
 const core = @import("core");
+const std = @import("std");
 const x64 = @import("../x64.zig");
 
 pub const RFlags = packed struct(u64) {

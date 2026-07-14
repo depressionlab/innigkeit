@@ -54,7 +54,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         step.result_duration_ns = @intCast(start_time.durationTo(.now(io, .real)).toNanoseconds());
     }
 
-    const kernel_path = self.kernel.kernel_binary.getPath3(b, step);
+    const kernel_path = try self.kernel.kernel_binary.getPath4(b, step);
     const input = try kernel_path.root_dir.handle.openFile(b.graph.io, kernel_path.sub_path, .{});
     defer input.close(b.graph.io);
 
@@ -73,12 +73,12 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
     // Content-address the limine.conf so unchanged images are a cache hit.
     var hash = b.graph.cache.hash;
-    hash.add(@as(u32, 0xde92a821)); // bump this if the limine conf changes
+    hash.add(@as(u32, 0xDE92A822)); // bump this if the limine conf changes
     hash.addBytes(limine_bytes);
     const sub_path =
-        "innigkeit" ++ std.fs.path.sep_str ++
-        "limine" ++ std.fs.path.sep_str ++
-        hash.final() ++ std.fs.path.sep_str ++
+        "innigkeit" ++ std.Io.Dir.path.sep_str ++
+        "limine" ++ std.Io.Dir.path.sep_str ++
+        hash.final() ++ std.Io.Dir.path.sep_str ++
         "limine.conf";
 
     self.generated_limine_conf.path = try b.cache_root.join(b.allocator, &.{sub_path});
@@ -88,14 +88,14 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         return;
     } else |outer_err| switch (outer_err) {
         std.Io.Dir.AccessError.FileNotFound => {
-            const sub_dir = std.fs.path.dirname(sub_path).?;
+            const sub_dir = std.Io.Dir.path.dirname(sub_path).?;
             b.cache_root.handle.createDirPath(io, sub_dir) catch |e|
                 return step.fail("unable to create cache directory '{f}{s}': {t}", .{ b.cache_root, sub_dir, e });
 
             var rand: u64 = undefined;
             io.random(std.mem.asBytes(&rand));
-            const tmp = "tmp" ++ std.fs.path.sep_str ++ std.fmt.hex(rand) ++ std.fs.path.sep_str ++ "limine.conf";
-            const tmp_dir = std.fs.path.dirname(tmp).?;
+            const tmp = "tmp" ++ std.Io.Dir.path.sep_str ++ std.fmt.hex(rand) ++ std.Io.Dir.path.sep_str ++ "limine.conf";
+            const tmp_dir = std.Io.Dir.path.dirname(tmp).?;
 
             b.cache_root.handle.createDirPath(io, tmp_dir) catch |e|
                 return step.fail("unable to create temp directory '{f}{s}': {t}", .{ b.cache_root, tmp_dir, e });
@@ -120,16 +120,22 @@ fn generateLimineConfig(
     resolution: []const u8,
     kaslr: []const u8,
 ) []const u8 {
+    // Limine verifies a resource when its URI carries a `#<hash>` suffix, where
+    // the hash is the file's BLAKE2B-512 as 128 lowercase hex characters.
+    // Interpolating the raw digest bytes instead writes 64 non-printable bytes
+    // into the path, so Limine fails to open the kernel ("Failed to open
+    // executable with path `boot():/kernel...`") and panics before boot.
+    const hash_hex = std.fmt.bytesToHex(hash, .lower);
     return b.fmt(
         \\ default_entry: 1
         \\ timeout: 0
         \\
         \\ /Innigkeit
         \\     protocol: limine
-        \\     kernel_path: boot():/kernel{s}
+        \\     kernel_path: boot():/kernel#{s}
         \\     resolution: {s}
         \\     kaslr: {s}
     ,
-        .{ hash[0..], resolution, kaslr },
+        .{ hash_hex[0..], resolution, kaslr },
     );
 }

@@ -138,7 +138,7 @@ fn getSerialOutputFromNS16550a(dt: DeviceTree, node: DeviceTree.Node, memory_sys
         break :blk reg.address;
     };
 
-    const register_range = try innigkeit.mem.heap.allocateSpecial(
+    const register_range = try innigkeit.memory.heap.allocateSpecial(
         .{
             .physical_range = .from(
                 .from(address),
@@ -148,7 +148,7 @@ fn getSerialOutputFromNS16550a(dt: DeviceTree, node: DeviceTree.Node, memory_sys
             .cache = .uncached,
         },
     );
-    errdefer innigkeit.mem.heap.deallocateSpecial(register_range);
+    errdefer innigkeit.memory.heap.deallocateSpecial(register_range);
 
     const device = try uart.Memory16550.create(
         register_range.address.toPtr([*]volatile u8),
@@ -220,7 +220,7 @@ fn getSerialOutputFromPL011(dt: DeviceTree, node: DeviceTree.Node, memory_system
         break :blk reg.address;
     };
 
-    const register_range = try innigkeit.mem.heap.allocateSpecial(
+    const register_range = try innigkeit.memory.heap.allocateSpecial(
         .{
             .physical_range = .from(
                 .from(address),
@@ -230,7 +230,7 @@ fn getSerialOutputFromPL011(dt: DeviceTree, node: DeviceTree.Node, memory_system
             .cache = .uncached,
         },
     );
-    errdefer innigkeit.mem.heap.deallocateSpecial(register_range);
+    errdefer innigkeit.memory.heap.deallocateSpecial(register_range);
 
     const device = try uart.PL011.create(
         register_range.address.toPtr([*]volatile u32),
@@ -334,5 +334,5 @@ const compatible_lookup = std.StaticStringMap(GetSerialOutputFn).initComptime(.{
 const GetSerialOutputError = DeviceTree.IteratorError ||
     DeviceTree.Property.Value.ListIteratorError ||
     uart.CreateError ||
-    innigkeit.mem.heap.AllocateSpecialOptions.Error;
+    innigkeit.memory.heap.AllocateSpecialOptions.Error;
 const GetSerialOutputFn = *const fn (dt: DeviceTree, node: DeviceTree.Node, memory_system_available: bool) GetSerialOutputError!?uart.Uart;

@@ -7,8 +7,8 @@
 /// Architecture note: these tests use inline assembly that is only valid on x64.
 /// The test binary is only built for x64, so the `comptime` guard below is a
 /// belt-and-suspenders check rather than a functional branch.
-const std = @import("std");
 const builtin = @import("builtin");
+const std = @import("std");
 
 test "x64: SMEP is enforced at runtime (CR4 bit 20)" {
     if (comptime builtin.cpu.arch != .x86_64) return error.SkipZigTest;

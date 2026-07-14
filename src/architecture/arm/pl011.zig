@@ -31,6 +31,8 @@ const CR_TXE: u32 = 1 << 8; // TX enable
 const CR_RXE: u32 = 1 << 9; // RX enable
 
 inline fn reg(base: u64, offset: u64) *volatile u32 {
+    // `base` is always a real PL011 MMIO base (UART_BASE or a caller-supplied
+    // equivalent, mapped by PageTable.mapDeviceMmio).
     return @ptrFromInt(base + offset);
 }
 
@@ -120,6 +122,8 @@ pub fn getInitOutput(base: u64) architecture.init.InitOutput {
                 }
             }.writeFn,
             .splatFn = splatStr,
+            // `static.uart_base` was just removed from `base` above, the caller's
+            // real PL011 MMIO base reused here as an opaque state pointer.
             .state = @ptrFromInt(static.uart_base),
         },
         .preference = .use,

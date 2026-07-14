@@ -1,9 +1,9 @@
 const Current = @This();
 
-const std = @import("std");
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 const wallclock = innigkeit.time.wallclock;
 const log = innigkeit.debug.log.scoped(.task);
 

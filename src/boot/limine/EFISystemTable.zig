@@ -1,10 +1,10 @@
 //! EFI System Table Feature
 
-const root = @import("root.zig");
 const boot = @import("boot");
+const root = @import("root.zig");
 
 pub const Request = extern struct {
-    id: [4]u64 = root.id(0x5ceba5163eaaf6d6, 0x0a6981610cf65fcc),
+    id: [4]u64 = root.id(0x5CEBA5163EAAF6D6, 0x0A6981610CF65FCC),
     revision: u64 = 0,
 
     response: ?*const Response = null,

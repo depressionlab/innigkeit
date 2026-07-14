@@ -1,7 +1,7 @@
-const std = @import("std");
 const architecture = @import("architecture");
 const core = @import("core");
 const root = @import("root.zig");
+const std = @import("std");
 
 pub const VirtualAddress = extern union {
     _kernel: root.KernelVirtualAddress,

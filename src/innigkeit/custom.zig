@@ -9,7 +9,7 @@ pub fn custom(
     module: *std.Build.Module,
     options: Options,
     is_check: bool,
-) anyerror!void {
+) !void {
     // kernel options
     if (is_check) {
         module.addImport("kernel_options", options.debug_kernel_options);
@@ -31,7 +31,7 @@ pub fn custom(
         ) catch |err| blk: {
             if (err != error.FileNotFound)
                 std.debug.print("warning: could not read keys/codesign_public.key: {s}\n", .{@errorName(err)});
-            break :blk b.allocator.alloc(u8, 32) catch @panic("OOM");
+            break :blk try b.allocator.alloc(u8, 32);
         };
         defer b.allocator.free(key_bytes);
         const default_key: [32]u8 = if (key_bytes.len >= 32) key_bytes[0..32].* else [_]u8{0} ** 32;

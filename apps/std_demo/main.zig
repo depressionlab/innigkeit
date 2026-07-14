@@ -6,11 +6,14 @@
 //! * `std.Io.Mutex` / `std.Io.Event` over the futex syscalls
 //! * reading a real file (its own codesig from initfs) and printing it with
 //!   std formatting
-const std = @import("std");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 pub fn main() void {
     run() catch |err| {
+        // Best-effort: this is the top-level failure report itself, with
+        // no meaningful recovery path in this demo app.
+        // zlinter-disable-next-line no_swallow_error
         innigkeit.io.stdout.print("std_demo: FAILED: {t}\n", .{err}) catch {};
     };
 }
@@ -74,10 +77,10 @@ fn run() !void {
 
     // Real file I/O: read this app's codesig sidecar from initfs and print
     // its header with std formatting. (std.Io.File cannot carry a kernel fd
-    // on this target -- Handle is void -- so VFS/initfs files go through
-    // innigkeit.fs; see library/innigkeit/stdio.zig.)
+    // on this target (Handle is void) so VFS/initfs files go through
+    // innigkeit.filesystem; see library/innigkeit/stdio.zig).
     var sig: [144]u8 = undefined;
-    const n = innigkeit.fs.initfsRead("std_demo.codesig", &sig) catch |err| blk: {
+    const n = innigkeit.filesystem.initfsRead("std_demo.codesig", &sig) catch |err| blk: {
         try w.print("std_demo: initfs read failed: {t}\n", .{err});
         try w.flush();
         break :blk 0;
@@ -132,7 +135,7 @@ test "uncontended Mutex and Event complete without blocking" {
     try event.wait(io); // already set: returns without a futex wait
 }
 
-test "fileFromFd wraps a kernel fd in innigkeit.fs.File" {
+test "fileFromFd wraps a kernel fd in innigkeit.filesystem.File" {
     const file = innigkeit.stdio.fileFromFd(7);
     try std.testing.expectEqual(@as(u32, 7), file.fd);
 }

@@ -1,9 +1,9 @@
 const CandidateTimeSources = @This();
 
-const std = @import("std");
-const innigkeit = @import("innigkeit");
-const core = @import("core");
 const CandidateTimeSource = @import("CandidateTimeSource.zig");
+const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 const init_log = innigkeit.debug.log.scoped(.time_init);
 

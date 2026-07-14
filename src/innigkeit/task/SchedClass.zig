@@ -65,8 +65,8 @@ pub fn make(comptime Impl: type, comptime priority: u8) SchedClass {
 }
 
 const eevdf_impl = @import("sched/Eevdf.zig");
-const rt_impl = @import("sched/Rt.zig");
 const idle_impl = @import("sched/Idle.zig");
+const rt_impl = @import("sched/Rt.zig");
 
 pub const rt_class: SchedClass = SchedClass.make(rt_impl, 0);
 pub const fair_class: SchedClass = SchedClass.make(eevdf_impl, 1);

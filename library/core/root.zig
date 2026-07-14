@@ -1,14 +1,13 @@
 const builtin = @import("builtin");
 const std = @import("std");
 
+pub const containers = @import("containers/root.zig");
+pub const endian_ = @import("endian.zig");
 pub const hash = @import("hash.zig");
 pub const lock = @import("lock.zig");
-pub const simd = @import("simd.zig");
 pub const masking = @import("masking.zig");
-pub const queue = @import("queue.zig");
-pub const containers = @import("containers/root.zig");
+pub const simd = @import("simd.zig");
 pub const testing = @import("testing.zig");
-pub const endian_ = @import("endian.zig");
 pub const Duration = @import("duration.zig").Duration;
 pub const Size = @import("size.zig").Size;
 pub const TypeErasedCall = @import("containers/TypeErasedCall.zig").TypeErasedCall;
@@ -35,11 +34,19 @@ pub const LockState = enum { locked, unlocked };
 pub const LockType = enum { read, write };
 pub const CleanupDecision = enum { keep, free };
 
-/// Copies a zeroed-out buffer to `readInt` beyond bounds.
+/// Reads up to `sizeOf(T)` bytes of `input` as a `T`, zero-extending any
+/// missing high-order bytes, as if `input` were a short/truncated encoding
+/// of the full-width value. Where the "missing" bytes land in `buffer`
+/// depends on `endian`: for `.little` they're the trailing bytes (already
+/// zero); for `.big` the real bytes must be right-aligned instead, or they'd
+/// land in the high-order position instead of the low-order one.
 pub inline fn readIntPartial(comptime T: type, input: []const u8, endian: Endian) u64 {
-    const len = @min(@sizeOf(T), input.len);
+    const len: usize = @min(@sizeOf(T), input.len);
     var buffer = [_]u8{0} ** @sizeOf(T);
-    @memcpy(buffer[0..len], input[0..len]);
+    switch (endian) {
+        .little => @memcpy(buffer[0..len], input[0..len]),
+        .big => @memcpy(buffer[@sizeOf(T) - len ..], input[0..len]),
+    }
     return std.mem.readInt(T, &buffer, endian);
 }
 
@@ -59,6 +66,12 @@ test readIntPartial {
     const endian = builtin.cpu.arch.endian();
     const hello_int = readIntPartial(u64, hello, endian);
     try std.testing.expectEqual(expected, hello_int);
+}
+
+test "readIntPartial zero-extends the low-order bytes for both endiannesses" {
+    const input = [_]u8{ 0x01, 0x02 };
+    try std.testing.expectEqual(@as(u64, 0x0102), readIntPartial(u32, &input, .big));
+    try std.testing.expectEqual(@as(u64, 0x0201), readIntPartial(u32, &input, .little));
 }
 
 // test trees {

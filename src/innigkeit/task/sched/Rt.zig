@@ -8,15 +8,14 @@
 //!
 //! The active priority levels are tracked in a 128-bit bitmap for O(1)
 //! highest-priority selection.
-const std = @import("std");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 const Runqueue = @import("../Runqueue.zig");
 const SchedClass = @import("../SchedClass.zig");
+const std = @import("std");
+
 const wallclock = innigkeit.time.wallclock;
-
 const FIFO = core.containers.FIFO;
-
 const log = innigkeit.debug.log.scoped(.rt_sched);
 
 pub const rt_priority_max: u7 = 99;

@@ -1,10 +1,12 @@
 //! Registers `zig build run_{arch}` steps that launch a disk image in QEMU.
-const QEMU = @This();
 
-const std = @import("std");
 const Bundle = @import("Bundle.zig");
 const ImageStep = @import("ImageStep.zig");
 const Options = @import("Options.zig");
+const Platform = @import("Platform.zig");
+const std = @import("std");
+const TpmHarness = @import("TpmHarness.zig");
+const VerdictStep = @import("VerdictStep.zig");
 
 /// For each architecture, creates a step that runs the image for the architecture using QEMU.
 pub fn registerQemuSteps(
@@ -14,7 +16,7 @@ pub fn registerQemuSteps(
     architectures: []const Bundle.Architecture,
 ) !void {
     for (architectures) |arch| {
-        const qemu = try buildQemuCommand(b, arch, image_steps.get(arch).?.image_file, options);
+        const qemu = try buildQemuCommand(b, arch, image_steps.get(arch).?.image_file, options, .{});
         qemu.addArgs(&.{
             "-device", "virtio-blk-pci,drive=drive1,disable-modern=on,disable-legacy=off",
             "-drive",  b.fmt("file={s},format=raw,if=none,id=drive1,readonly=on", .{options.emulator.wad_path}),
@@ -26,19 +28,44 @@ pub fn registerQemuSteps(
     }
 }
 
-fn buildQemuCommand(
+pub const CommandOptions = struct {
+    /// When non-null, the non-display console output is routed to a
+    /// build-tracked log file (instead of the process's own stdio) and
+    /// the resulting `LazyPath` is written here so a `VerdictStep` can
+    /// scan it.
+    log_out: ?*std.Build.LazyPath = null,
+    /// When non-null, bypasses the normal uefi/host-firmware auto-detection
+    /// below entirely. Used by the Secure Boot suite (`build/Verify.zig`),
+    /// which needs an SB-capable OVMF plus a per-run enrolled VARS store,
+    /// neither of which fits the plain readonly-both-units UEFI case.
+    firmware_override: ?Firmware = null,
+    /// When non-null, wraps the QEMU invocation in `timeout <secs>`. Used
+    /// by the Secure Boot suite's rejected-boot cases (unsigned/tampered
+    /// images): firmware refusing to boot may just sit at an error screen
+    /// forever rather than exiting, so a bounded wait is the only way to
+    /// tell "rejected as expected" apart from "actually hung".
+    timeout_secs: ?u32 = null,
+};
+
+pub fn buildQemuCommand(
     b: *std.Build,
     arch: Bundle.Architecture,
     image: std.Build.LazyPath,
     options: Options,
+    cmd_opts: CommandOptions,
 ) !*std.Build.Step.Run {
     const emu = options.emulator;
-    const firmware: Firmware = if (emu.uefi or requiresUefi(arch))
-        .{ .uefi = b.dependency("edk2", .{}) }
-    else
-        .bios;
+    const firmware: Firmware = cmd_opts.firmware_override orelse if (emu.uefi or requiresUefi(arch)) uefi: {
+        if (Platform.hostFirmware(b, arch)) |host| break :uefi .{ .host_uefi = host };
+        if (arch == .arm) std.debug.print("note: host AAVMF not found, falling back to vendored edk2 firmware\n", .{});
+        break :uefi .{ .uefi = b.dependency("edk2", .{}) };
+    } else .bios;
 
-    const run = b.addSystemCommand(&.{qemuBinary(b, arch)});
+    const qemu_bin = Platform.findQemuBinary(b, arch);
+    const run = if (cmd_opts.timeout_secs) |secs|
+        b.addSystemCommand(&.{ "timeout", b.fmt("{d}", .{secs}), qemu_bin })
+    else
+        b.addSystemCommand(&.{qemu_bin});
     run.has_side_effects = true;
     run.stdio = .inherit;
 
@@ -86,7 +113,12 @@ fn buildQemuCommand(
         run.addArgs(&.{ "-display", display_backend });
     } else {
         const console_flag: []const u8 = if (arch == .x64) "-debugcon" else "-serial";
-        run.addArgs(&.{ console_flag, if (emu.qemu_monitor) "mon:stdio" else "stdio" });
+        run.addArg(console_flag);
+        if (cmd_opts.log_out) |out| {
+            out.* = run.addPrefixedOutputFileArg("file:", "test.log");
+        } else {
+            run.addArg(if (emu.qemu_monitor) "mon:stdio" else "stdio");
+        }
         run.addArgs(&.{ "-display", "none" });
     }
 
@@ -104,14 +136,18 @@ fn buildQemuCommand(
         std.process.exit(1);
     }
 
-    run.addArgs(&.{ "-machine", switch (arch) {
-        .arm => b.fmt("virt,{s}", .{acpi_kv}),
-        .riscv => switch (firmware) {
-            .bios => b.fmt("virt,{s}", .{acpi_kv}),
-            .uefi => b.fmt("virt,pflash0=pflash0,pflash1=pflash1,{s}", .{acpi_kv}),
+    run.addArgs(&.{
+        "-machine",
+        switch (arch) {
+            .arm => b.fmt("virt,{s}", .{acpi_kv}),
+            .riscv => switch (firmware) {
+                .bios => b.fmt("virt,{s}", .{acpi_kv}),
+                .uefi => b.fmt("virt,pflash0=pflash0,pflash1=pflash1,{s}", .{acpi_kv}),
+                .host_uefi, .secboot_uefi => unreachable, // Platform.hostFirmware is arm-only
+            },
+            .x64 => "q35",
         },
-        .x64 => "q35",
-    } });
+    });
 
     // Hardware acceleration.
     if (emu.acceleration and arch.isNative(b)) {
@@ -141,13 +177,27 @@ fn buildQemuCommand(
                 run.addPrefixedFileArg("if=pflash,format=raw,unit=1,readonly=on,file=", edk2.path(firmwareVarsPath(arch)));
             },
         },
+        .host_uefi => |host| {
+            run.addArgs(&.{ "-drive", b.fmt("if=pflash,format=raw,unit=0,readonly=on,file={s}", .{host.code}) });
+            run.addArgs(&.{ "-drive", b.fmt("if=pflash,format=raw,unit=1,readonly=on,file={s}", .{host.vars}) });
+        },
+        .secboot_uefi => |sb| {
+            // vars (unit1) is intentionally NOT readonly: firmware may
+            // record state into it, and the whole point is enrolling our
+            // own PK/KEK/db beforehand via `tools/secureboot -- enroll`.
+            run.addArgs(&.{ "-global", "driver=cfi.pflash01,property=secure,value=on" });
+            run.addArgs(&.{ "-drive", b.fmt("if=pflash,format=raw,unit=0,readonly=on,file={s}", .{sb.code}) });
+            run.addArg("-drive");
+            run.addPrefixedFileArg("if=pflash,format=raw,unit=1,file=", sb.vars);
+        },
     }
 
     if (emu.tpm_socket) |socket| {
+        // CRB interface (PTP), matching drivers/tpm/crb.zig and QEMU's tpm-crb.
         run.addArgs(&.{
             "-chardev", b.fmt("socket,id=chrtpm,path={s}", .{socket}),
             "-tpmdev",  "emulator,id=tpm0,chardev=chrtpm",
-            "-device",  "tpm-tis,tpmdev=tpm0",
+            "-device",  "tpm-crb,tpmdev=tpm0",
         });
     }
 
@@ -178,12 +228,30 @@ pub fn buildTestQemuStep(
     arch: Bundle.Architecture,
     image: std.Build.LazyPath,
     options: Options,
-) !*std.Build.Step.Run {
+    /// Extra substrings the serial log must contain, beyond the plain
+    /// pass/fail verdict line (e.g., proof the opt-in TPM suite actually
+    /// ran rather than being silently skipped).
+    required_substrings: []const []const u8,
+    /// When non-null (and `options.emulator.tpm_socket` is set), the run
+    /// step depends on `harness.start` and `harness.stop` depends on the
+    /// resulting verdict so the caller can fold the whole TPM lifecycle
+    /// into whatever step it names as depending on the returned VerdictStep.
+    tpm_harness: ?*TpmHarness,
+) !*VerdictStep {
     var test_opts = options;
     test_opts.emulator.cpus = testCpus(arch);
+    // TODO: determine the best value for this
     test_opts.emulator.memory = 256;
+    test_opts.emulator.display = false;
+    // TODO: TPM-like security on other arches
+    if (arch != .x64) test_opts.emulator.tpm_socket = null;
 
-    const run = try buildQemuCommand(b, arch, image, test_opts);
+    var log: std.Build.LazyPath = undefined;
+    const run = try buildQemuCommand(b, arch, image, test_opts, .{ .log_out = &log });
+    if (tpm_harness) |harness| {
+        if (test_opts.emulator.tpm_socket != null)
+            run.step.dependOn(&harness.start);
+    }
 
     switch (arch) {
         .x64 => run.addArgs(&.{ "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04" }),
@@ -200,7 +268,12 @@ pub fn buildTestQemuStep(
         .arm => {}, // semihosting SYS_EXIT subcode 0 -> QEMU exits 0 (default success)
         .riscv => {},
     }
-    return run;
+    const verdict = try VerdictStep.create(b, run, log, required_substrings, true);
+    if (tpm_harness) |harness| {
+        if (test_opts.emulator.tpm_socket != null)
+            harness.stop.dependOn(&verdict.step);
+    }
+    return verdict;
 }
 
 /// Returns true for architectures that always require UEFI (no BIOS fallback).
@@ -209,26 +282,6 @@ fn requiresUefi(arch: Bundle.Architecture) bool {
         .arm, .riscv => true,
         .x64 => false,
     };
-}
-
-fn qemuBinary(b: *std.Build, arch: Bundle.Architecture) []const u8 {
-    const name = switch (arch) {
-        .arm => "qemu-system-aarch64",
-        .riscv => "qemu-system-riscv64",
-        .x64 => "qemu-system-x86_64",
-    };
-
-    // Prefer a locally-built QEMU in .tools/qemu/bin when present.
-    const local = b.pathFromRoot(b.fmt(".tools/qemu/bin/{s}", .{name}));
-    var exists = false;
-
-    std.Io.Dir.accessAbsolute(b.graph.io, local, .{}) catch |e| switch (e) {
-        std.Io.Dir.AccessError.FileNotFound => exists = false,
-        else => return name,
-    };
-
-    if (exists) return local;
-    return name;
 }
 
 fn firmwareCodePath(arch: Bundle.Architecture) []const u8 {
@@ -247,7 +300,14 @@ fn firmwareVarsPath(arch: Bundle.Architecture) []const u8 {
     };
 }
 
-const Firmware = union(enum) {
+pub const Firmware = union(enum) {
     bios,
     uefi: *std.Build.Dependency,
+    host_uefi: Platform.FirmwarePaths,
+    /// UEFI Secure Boot-capable firmware: `code` is a static host path,
+    /// mapped readonly (the firmware itself); `vars` is a build-generated
+    /// per-run enrolled PK/KEK/db copy, mapped writable (the firmware may
+    /// update it). Requires the `cfi.pflash01` "secure" property so OVMF
+    /// enforces SB at all.
+    secboot_uefi: struct { code: []const u8, vars: std.Build.LazyPath },
 };

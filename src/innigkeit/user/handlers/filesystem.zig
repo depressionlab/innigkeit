@@ -5,7 +5,7 @@
 //! - fs_close (id=34): close an fd
 
 const innigkeit = @import("innigkeit");
-const simple_fs = innigkeit.fs.simple_fs;
+const simple_fs = innigkeit.filesystem.simple_fs;
 const log = innigkeit.debug.log.scoped(.user_fs);
 
 const Error = @import("libinnigkeit").Error;
@@ -30,8 +30,7 @@ pub fn fsOpen(context: Context) Error.Syscall!usize {
     if (name_len == 0 or name_len > 15) return Error.Syscall.InvalidArgument;
 
     var name_buf: [16]u8 = undefined;
-    validate.copyFromUser(name_buf[0..name_len], name_ptr) catch
-        return Error.Syscall.BadAddress;
+    try validate.copyFromUser(name_buf[0..name_len], name_ptr);
     const name = name_buf[0..name_len];
 
     const flags: simple_fs.OpenFlags = @bitCast(flags_bits);
@@ -86,7 +85,7 @@ pub fn fsRead(context: Context) Error.Syscall!usize {
     if (buf_len == 0) return 0;
     // Validate up front so a bad buffer faults before the read advances the
     // file offset.
-    if (!validate.validateUserBuffer(buf_ptr, buf_len)) return Error.Syscall.BadAddress;
+    if (!validate.userBuffer(buf_ptr, buf_len)) return Error.Syscall.BadAddress;
 
     const process = context.process();
     process.open_files_lock.lock();
@@ -109,8 +108,7 @@ pub fn fsRead(context: Context) Error.Syscall!usize {
     };
     process.open_files_lock.unlock();
 
-    if (n > 0) validate.copyToUser(buf_ptr, tmp[0..n]) catch
-        return Error.Syscall.BadAddress; // unreachable: validated above
+    if (n > 0) try validate.copyToUser(buf_ptr, tmp[0..n]);
 
     return n;
 }
@@ -125,13 +123,13 @@ pub fn fsWrite(context: Context) Error.Syscall!usize {
     if (buf_len == 0) return 0;
     // The whole user range must be valid even though at most tmp.len bytes
     // are consumed per call.
-    if (!validate.validateUserBuffer(buf_ptr, buf_len)) return Error.Syscall.BadAddress;
+    if (!validate.userBuffer(buf_ptr, buf_len)) return Error.Syscall.BadAddress;
 
     // Copy user data into a kernel bounce buffer before touching the file.
     var tmp: [4096]u8 = undefined;
     const to_write: usize = @min(buf_len, tmp.len);
 
-    validate.copyFromUser(tmp[0..to_write], buf_ptr) catch return Error.Syscall.BadAddress;
+    try validate.copyFromUser(tmp[0..to_write], buf_ptr);
 
     const process = context.process();
     process.open_files_lock.lock();

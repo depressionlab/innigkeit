@@ -55,11 +55,11 @@
 //! `pickBest()` to prune ineligible subtrees and select the best eligible task
 //! in O(log n). Both insert and remove use O(log n) augmentation fixup.
 
-const std = @import("std");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 const Runqueue = @import("../Runqueue.zig");
 const SchedClass = @import("../SchedClass.zig");
+const std = @import("std");
 const RbTree = core.containers.RedBlackTree;
 const wallclock = innigkeit.time.wallclock;
 
@@ -82,7 +82,7 @@ pub const nice_0_weight: u32 = weight_table[20]; // 1024
 /// Default time slice in nanoseconds (3 ms).
 pub const default_slice_ns: u64 = 3_000_000;
 
-/// Quality-of-Service class. For more information, see `docs/qos.md`.
+/// Quality-of-Service class. For more information, see `docs/QoS.md`.
 ///
 /// QoS maps onto EEVDF weight + slice rather than a separate root-bucket
 /// scheduler: a higher class gets more weight (a larger CPU share) and a
@@ -722,24 +722,23 @@ test "calcDeltaFair: nice-0 task (identity)" {
     try std.testing.expectEqual(@as(u64, 3_000_000), calcDeltaFair(3_000_000, nice_0_weight));
 }
 
-// TODO: fix these test errors
-// test "calcDeltaFair: heavy task (nice -20, weight 88761) earns more real time" {
-//     // Heavy task's virtual time advances slowly: delta_fair < elapsed.
-//     const elapsed: u64 = 1_000_000;
-//     const result = calcDeltaFair(elapsed, weight_table[0]); // nice -20
-//     try std.testing.expect(result < elapsed);
-//     // Exact: 1_000_000 * 1024 / 88761 = 11540 (integer)
-//     try std.testing.expectEqual(@as(u64, 11540), result);
-// }
+test "calcDeltaFair: heavy task (nice -20, weight 88761) earns more real time" {
+    // Heavy task's virtual time advances slowly: delta_fair < elapsed.
+    const elapsed: u64 = 1_000_000;
+    const result = calcDeltaFair(elapsed, weight_table[0]); // nice -20
+    try std.testing.expect(result < elapsed);
+    // Exact: 1_000_000 * 1024 / 88761 = 11536 (integer)
+    try std.testing.expectEqual(@as(u64, 11536), result);
+}
 
-// test "calcDeltaFair: light task (nice +19, weight 15) earns less real time" {
-//     // Light task's virtual time advances quickly: delta_fair > elapsed.
-//     const elapsed: u64 = 1_000_000;
-//     const result = calcDeltaFair(elapsed, weight_table[39]); // nice +19
-//     try std.testing.expect(result > elapsed);
-//     // Exact: 1_000_000 * 1024 / 15 = 68266666
-//     try std.testing.expectEqual(@as(u64, 68266666), result);
-// }
+test "calcDeltaFair: light task (nice +19, weight 15) earns less real time" {
+    // Light task's virtual time advances quickly: delta_fair > elapsed.
+    const elapsed: u64 = 1_000_000;
+    const result = calcDeltaFair(elapsed, weight_table[39]); // nice +19
+    try std.testing.expect(result > elapsed);
+    // Exact: 1_000_000 * 1024 / 15 = 68266666
+    try std.testing.expectEqual(@as(u64, 68266666), result);
+}
 
 test "qos: presets apply weight + slice; default is nice-0" {
     var se: SchedEntity = .{};
@@ -1162,7 +1161,7 @@ test "reanchor: zero_vruntime advances past threshold, eligibility and lag uncha
 }
 
 test "augmentation: randomized enqueue/dequeue keeps invariant, pickBest matches linear scan" {
-    var prng = std.Random.DefaultPrng.init(0xdecafbad);
+    var prng = std.Random.DefaultPrng.init(0xDECAFBAD);
     const random = prng.random();
 
     const n = 24;

@@ -1,8 +1,8 @@
-const std = @import("std");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
-const x64 = @import("../x64.zig");
 const globals = @import("globals.zig");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
+const x64 = @import("../x64.zig");
 const LAPIC = @import("LAPIC.zig").LAPIC;
 
 const init_log = innigkeit.debug.log.scoped(.apic_init);
@@ -15,7 +15,7 @@ pub fn captureApicInformation(
     if (x2apic_enabled) {
         globals.lapic = .x2apic;
     } else {
-        const register_space_range = try innigkeit.mem.heap.allocateSpecial(
+        const register_space_range = try innigkeit.memory.heap.allocateSpecial(
             .{
                 .physical_range = .from(
                     .from(madt.local_interrupt_controller_address),
@@ -32,18 +32,14 @@ pub fn captureApicInformation(
     }
 
     init_log.debug("lapic in mode: {t}", .{globals.lapic});
-
-    if (fadt.fixed_feature_flags.FORCE_APIC_PHYSICAL_DESTINATION_MODE) {
+    if (fadt.fixed_feature_flags.FORCE_APIC_PHYSICAL_DESTINATION_MODE)
         @panic("physical destination mode is forced!");
-    }
 }
 
 pub fn initApicOnCurrentExecutor() void {
     var spurious_interrupt_register = globals.lapic.readSupriousInterruptRegister();
-
     spurious_interrupt_register.apic_enable = true;
     spurious_interrupt_register.spurious_vector = .spurious_interrupt;
-
     globals.lapic.writeSupriousInterruptRegister(spurious_interrupt_register);
 
     // TODO: task priority
@@ -70,7 +66,6 @@ const divide_configuration: LAPIC.DivideConfigurationRegister = .@"2";
 
 fn initializeLapicTimer() void {
     std.debug.assert(x64.info.lapic_base_tick_duration_fs != null);
-
     globals.tick_duration_fs = x64.info.lapic_base_tick_duration_fs.? * divide_configuration.toInt();
     init_log.debug("tick duration (fs) from cpuid: {}", .{globals.tick_duration_fs});
 }

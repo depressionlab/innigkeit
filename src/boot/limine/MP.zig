@@ -12,7 +12,7 @@ const root = @import("root.zig");
 const std = @import("std");
 
 pub const Request = extern struct {
-    id: [4]u64 = root.id(0x95a67b819a1b857e, 0xa0b61b723b6a73e0),
+    id: [4]u64 = root.id(0x95A67B819A1B857E, 0xA0B61B723B6A73E0),
     revision: u64 = 0,
 
     response: ?*const Response = null,
@@ -71,7 +71,7 @@ pub const aarch64 = extern struct {
     }
 
     pub inline fn format(self: *const aarch64, writer: *std.Io.Writer) !void {
-        return self.print(writer.any(), 0);
+        return self.print(writer, 0);
     }
 
     pub const MPInfo = extern struct {
@@ -159,7 +159,7 @@ pub const loongarch64 = extern struct {
     }
 
     pub inline fn format(self: *const loongarch64, writer: *std.Io.Writer) !void {
-        return self.print(writer.any(), 0);
+        return self.print(writer, 0);
     }
 
     pub const MPInfo = extern struct {
@@ -288,10 +288,55 @@ pub const riscv64 = extern struct {
         }
 
         pub inline fn format(self: *const MPInfo, writer: *std.Io.Writer) !void {
-            return self.print(self, writer, 0);
+            return self.print(writer, 0);
         }
     };
 };
+
+test "MP Response.format compiles and runs for the current architecture" {
+    // These format()/print() chains are never called by anything in the
+    // kernel itself (this is a debug-dump helper) so calling them here is
+    // the only thing that forces Zig to actually analyze their bodies (a
+    // mere `_ = &Response.format;` reference does not, since `format` is
+    // `inline`; confirmed empirically before relying on this). Catches the
+    // exact bug class found in this file (an inline format() that
+    // mis-called its own print(), and aarch64/loongarch64's calls to
+    // `Io.Writer.any()`, a method that doesn't exist in this Zig version).
+    const resp: Response = switch (root.arch) {
+        .x86_64 => .{
+            .revision = 0,
+            .flags = .{},
+            .bsp_lapic_id = 0,
+            ._cpu_count = 0,
+            ._cpus = &.{},
+        },
+        .aarch64 => .{
+            .revision = 0,
+            .flags = 0,
+            .bsp_mpidr = 0,
+            ._cpu_count = 0,
+            ._cpus = &.{},
+        },
+        .loongarch64 => .{
+            .revision = 0,
+            .flags = 0,
+            .bsp_phys_id = 0,
+            ._cpu_count = 0,
+            ._cpus = &.{},
+        },
+        .riscv64 => .{
+            .revision = 0,
+            .flags = 0,
+            .bsp_hartid = 0,
+            ._cpu_count = 0,
+            ._cpus = &.{},
+        },
+    };
+
+    var buf: [256]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try writer.print("{f}", .{resp});
+}
 
 pub const x86_64 = extern struct {
     revision: u64,

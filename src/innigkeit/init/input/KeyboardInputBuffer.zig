@@ -9,8 +9,8 @@
 //! possible between the producer and consumer paths.
 const KeyboardInputBuffer = @This();
 
-const std = @import("std");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 /// Characters being assembled for the current line (not yet submitted).
 line: [256]u8 = undefined,

@@ -1,15 +1,14 @@
-const std = @import("std");
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 const x64 = @import("../x64.zig");
 
 const EnterUserspaceFrame = @import("EnterUserspaceFrame.zig").EnterUserspaceFrame;
-const globals = @import("globals.zig");
 
 pub const SyscallFrame = @import("SyscallFrame.zig").SyscallFrame;
-pub const PerThread = @import("PerThread.zig");
 pub const init = @import("init.zig");
+pub const PerThread = @import("PerThread.zig");
 
 // TODO: make this better. look at what linux does for syscalls
 // TODO: use @memset and @memcpy instead of `mov`

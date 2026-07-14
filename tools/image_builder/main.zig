@@ -1,10 +1,9 @@
-const std = @import("std");
 const core = @import("core");
-const filesystem = @import("filesystem");
+const std = @import("std");
 
-const ImageDescription = @import("image/ImageDescription.zig");
-const Gpt = @import("gpt/root.zig");
 const FAT = @import("fat/root.zig");
+const Gpt = @import("gpt/root.zig");
+const ImageDescription = @import("image/ImageDescription.zig");
 
 pub const disk_block_size: core.Size = .from(512, .byte);
 
@@ -104,12 +103,12 @@ fn createDiskImage(allocator: std.mem.Allocator, io: std.Io, arguments: Argument
 }
 
 fn createAndMapDiskImage(io: std.Io, disk_image_path: []const u8, disk_size: core.Size) ![]align(std.heap.page_size_min) u8 {
-    const file = if (std.fs.path.dirname(disk_image_path)) |dir_path| blk: {
+    const file = if (std.Io.Dir.path.dirname(disk_image_path)) |dir_path| blk: {
         var parent_directory = try std.Io.Dir.cwd().createDirPathOpen(io, dir_path, .{});
         defer parent_directory.close(io);
         break :blk try parent_directory.createFile(
             io,
-            std.fs.path.basename(disk_image_path),
+            std.Io.Dir.path.basename(disk_image_path),
             .{ .truncate = true, .read = true },
         );
     } else try std.Io.Dir.cwd().createFile(io, disk_image_path, .{ .truncate = true, .read = true });

@@ -1,9 +1,9 @@
 const Stack = @This();
 
-const std = @import("std");
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 /// The entire virtual range including the guard page.
 range: innigkeit.KernelVirtualRange,
@@ -30,7 +30,6 @@ pub fn fromRange(range: innigkeit.KernelVirtualRange, usable_range: innigkeit.Ke
         std.debug.assert(usable_range.size.greaterThanOrEqual(core.Size.of(usize)));
         std.debug.assert(range.fullyContains(usable_range));
 
-        // TODO: are these two checks needed needed as we don't use SIMD? non-x64?
         std.debug.assert(range.address.aligned(.@"16"));
         std.debug.assert(usable_range.address.aligned(.@"16"));
     }
@@ -108,13 +107,13 @@ fn createStackWithSize(usable_size: core.Size) !Stack {
         globals.stack_page_table_mutex.lock();
         defer globals.stack_page_table_mutex.unlock();
 
-        innigkeit.mem.mapRangeAndBackWithPhysicalPages(
-            innigkeit.mem.kernelPageTable(),
+        innigkeit.memory.mapRangeAndBackWithPhysicalPages(
+            innigkeit.memory.kernelPageTable(),
             usable_range.toVirtualRange(),
             .{ .type = .kernel, .protection = .{ .read = true, .write = true } },
             .kernel,
             .keep,
-            innigkeit.mem.PhysicalPage.allocator,
+            innigkeit.memory.PhysicalPage.allocator,
         ) catch return error.ItemConstructionFailed;
     }
 
@@ -126,16 +125,16 @@ pub fn destroyStack(self: Stack) void {
         globals.stack_page_table_mutex.lock();
         defer globals.stack_page_table_mutex.unlock();
 
-        var unmap_batch: innigkeit.mem.VirtualRangeBatch = .{};
+        var unmap_batch: innigkeit.memory.VirtualRangeBatch = .{};
         unmap_batch.appendMergeIfFull(self.usable_range.toVirtualRange());
 
-        innigkeit.mem.unmap(
-            innigkeit.mem.kernelPageTable(),
+        innigkeit.memory.unmap(
+            innigkeit.memory.kernelPageTable(),
             &unmap_batch,
             .kernel,
             .free,
             .keep,
-            innigkeit.mem.PhysicalPage.allocator,
+            innigkeit.memory.PhysicalPage.allocator,
         );
     }
 
@@ -143,7 +142,7 @@ pub fn destroyStack(self: Stack) void {
 }
 
 const globals = struct {
-    var stack_arena: innigkeit.mem.arena.Arena(.none) = undefined;
+    var stack_arena: innigkeit.memory.arena.Arena(.none) = undefined;
     var stack_page_table_mutex: innigkeit.sync.Mutex = .{};
 };
 
@@ -159,7 +158,7 @@ pub const init = struct {
             },
         );
 
-        const stacks_range = innigkeit.mem.kernelRegions().find(.kernel_stacks).?.range;
+        const stacks_range = innigkeit.memory.kernelRegions().find(.kernel_stacks).?.range;
 
         globals.stack_arena.addSpan(
             stacks_range.address.value,

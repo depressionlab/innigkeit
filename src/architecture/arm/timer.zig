@@ -28,12 +28,18 @@ pub fn init() void {
     arm.registers.CNTV_CTL_EL0.write(CTL_IMASK);
 }
 
+/// Convert a nanosecond duration to timer ticks at `freq` Hz: `ns * freq / 1e9`,
+/// split into whole-seconds + remainder to avoid a 128-bit multiply while
+/// staying exact (same technique as init.zig's `referenceCounterWaitFor/wallclockElapsed`).
+fn nsToTicks(ns: u64, freq: u64) u64 {
+    return (ns / 1_000_000_000) * freq + ((ns % 1_000_000_000) * freq) / 1_000_000_000;
+}
+
 /// Schedule the next timer interrupt `ns` nanoseconds from now.
 pub fn setNextTick(ns: u64) void {
     const freq = arm.registers.CNTFRQ_EL0.read();
     const now = arm.registers.CNTVCT_EL0.read();
-    // ticks = ns * freq / 1_000_000_000  (avoid 128-bit multiply on 64-bit hw)
-    const ticks = ns / 1000 * (freq / 1000); // ≈ correct for freq <= 4 GHz
+    const ticks = nsToTicks(ns, freq);
     arm.registers.CNTV_CVAL_EL0.write(now +% ticks);
     arm.registers.CNTV_CTL_EL0.write(CTL_ENABLE);
 }

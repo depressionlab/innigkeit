@@ -1,5 +1,5 @@
-const std = @import("std");
 const core = @import("core");
+const std = @import("std");
 const x64 = @import("../x64.zig");
 
 pub const LAPIC = union(enum) {
@@ -179,7 +179,7 @@ pub const LAPIC = union(enum) {
     /// LVT Error Register
     pub const LVTErrorRegister = packed struct(u32) {
         /// Interrupt vector number.
-        vector: x64.InterruptVector,
+        vector: x64.interrupts.Interrupt,
 
         /// Specifies the type of interrupt to be sent to the processor.
         ///

@@ -1,0 +1,57 @@
+{
+	// CodeLLDB configs for `zig build run_x64 -Ddebug=true` (or run_arm,
+	// test_x64, test_arm): QEMU exposes a GDB-protocol stub on
+	// localhost:1234 and starts frozen (-S) until a debugger attaches, per
+	// CLAUDE.md's Debugging section. These mirror the two commands in
+	// .gdbinit/.lldbinit (`file <kernel>` + `target remote`/`gdb-remote
+	// localhost:1234`) as CodeLLDB's own "custom" launch shape, so all
+	// three debugger entry points (raw gdb, raw lldb, VS Code) target the
+	// same four kernel/arch combinations.
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Attach to QEMU (x64 kernel)",
+			"targetCreateCommands": [
+				"target create ${workspaceFolder}/zig-out/x64/kernel"
+			],
+			"processCreateCommands": [
+				"gdb-remote localhost:1234"
+			]
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Attach to QEMU (arm kernel)",
+			"targetCreateCommands": [
+				"target create ${workspaceFolder}/zig-out/arm/kernel"
+			],
+			"processCreateCommands": [
+				"gdb-remote localhost:1234"
+			]
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Attach to QEMU (x64 test kernel)",
+			"targetCreateCommands": [
+				"target create ${workspaceFolder}/zig-out/x64/kernel_test"
+			],
+			"processCreateCommands": [
+				"gdb-remote localhost:1234"
+			]
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Attach to QEMU (arm test kernel)",
+			"targetCreateCommands": [
+				"target create ${workspaceFolder}/zig-out/arm/kernel_test"
+			],
+			"processCreateCommands": [
+				"gdb-remote localhost:1234"
+			]
+		}
+	]
+}

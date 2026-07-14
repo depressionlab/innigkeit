@@ -1,12 +1,14 @@
 const LineEditor = @This();
 
-const std = @import("std");
+// zlinter-disable no_swallow_error - every catch here is a terminal
+// escape-sequence/console print with no meaningful recovery path.
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 const write = @import("main.zig").write;
 const writePrompt = @import("main.zig").writePrompt;
-const scancode = @import("scancode.zig");
 const completions = @import("completions.zig");
+const scancode = @import("scancode.zig");
 
 pub const MAX = 255;
 

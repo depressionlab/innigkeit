@@ -8,8 +8,8 @@
 //! Wire it into each app's root file:
 //!
 //!     pub const std_options_debug_io = innigkeit.interop.debug_io;
-const std = @import("std");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 // Per-thread cancel protection. Must be threadlocal so that each OS thread has its own
 // independent protection state.

@@ -1,5 +1,5 @@
-const std = @import("std");
 const core = @import("core");
+const std = @import("std");
 
 pub const XCr0 = packed struct(u64) {
     /// x87 FPU state

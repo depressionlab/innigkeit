@@ -1,0 +1,8 @@
+name = "itest_illegal_instruction"
+version = "0.1.0"
+description = "Test-only fixture: executes an illegal instruction for the unhandled-exception isolation integration test"
+
+[entitlements]
+spawn = false
+
+[trust]

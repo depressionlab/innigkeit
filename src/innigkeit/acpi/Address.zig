@@ -1,5 +1,5 @@
-const std = @import("std");
 const core = @import("core");
+const std = @import("std");
 
 /// The Generic Address Structure (GAS) provides the platform with a robust means to describe register locations.
 ///

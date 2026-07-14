@@ -6,11 +6,10 @@
 //! per component, and wires imports according to the dependency fields below.
 //!
 //! Register components in `src/root.zig` as a `[]const KernelModule`.
-const KernelModule = @This();
 
-const std = @import("std");
 const Bundle = @import("Bundle.zig");
 const Options = @import("Options.zig");
+const std = @import("std");
 
 /// Unique component name.
 ///
@@ -43,9 +42,11 @@ configuration: ?*const fn (
     is_check: bool,
 ) anyerror!void = null,
 
+/// A kernel dependency linking to an external `Library`.
 pub const LibraryDependency = struct {
     /// The library's canonical name in `Library.Collection`.
     name: []const u8,
+
     /// The `@import` key exposed to this component. Defaults to `name` when null.
     import_name: ?[]const u8 = null,
 };

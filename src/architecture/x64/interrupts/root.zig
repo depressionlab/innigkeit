@@ -1,12 +1,11 @@
-const std = @import("std");
 const innigkeit = @import("innigkeit");
 const x64 = @import("../x64.zig");
 
 pub const Interrupt = @import("Interrupt.zig").Interrupt;
 pub const InterruptFrame = @import("InterruptFrame.zig").InterruptFrame;
 pub const InterruptStackSelector = @import("InterruptStackSelector.zig").InterruptStackSelector;
-pub const init = @import("init.zig");
 const globals = @import("globals.zig");
+pub const init = @import("init.zig");
 
 // See src/architecture/x64/asm for stupid implementation!
 

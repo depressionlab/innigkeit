@@ -1,8 +1,8 @@
 //! The window-manager/display-server namespace.
 
+pub const client = @import("client.zig");
 pub const geometry = @import("geometry.zig");
 pub const protocol = @import("protocol.zig");
-pub const client = @import("client.zig");
 pub const server = @import("server.zig");
 
 pub const Rect = geometry.Rect;

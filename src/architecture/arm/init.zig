@@ -5,11 +5,9 @@
 //! the reference counter, the wallclock, and the per-executor periodic
 //! scheduler tick; the GICv2 routes the virtual-timer PPI (IRQ 27).
 
-const std = @import("std");
-
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 
 const arm = @import("arm.zig");
 
@@ -42,7 +40,7 @@ pub fn configurePerExecutorSystemFeatures() void {
     // has built and loaded the kernel page table. Skip GIC/timer bring-up
     // until then; this function is re-invoked after full system info.
     arm.semihost.write("[arm] configurePerExecutorSystemFeatures\n");
-    if (!innigkeit.mem.globals.memory_system_initialized) return;
+    if (!innigkeit.memory.globals.memory_system_initialized) return;
 
     // The GIC distributor and the shared IRQ-handler table are GLOBAL: bring
     // them up exactly once (on the bootstrap executor). The GIC CPU interface

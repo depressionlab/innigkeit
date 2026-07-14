@@ -1,5 +1,7 @@
-const std = @import("std");
+// zlinter-disable no_swallow_error - every catch here is a shell console
+// print with no meaningful recovery path.
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 const LineEditor = @import("LineEditor.zig");
 const write = @import("main.zig").write;
@@ -155,7 +157,7 @@ pub fn search(ed: *LineEditor) void {
             var n: usize = 1;
             while (n <= total) : (n += 1) {
                 if (get(n)) |entry| {
-                    if (std.mem.indexOf(u8, entry, q) != null) {
+                    if (std.mem.find(u8, entry, q) != null) {
                         innigkeit.io.stdout.print("{s}", .{entry}) catch {};
                         break;
                     }
@@ -207,7 +209,7 @@ pub fn search(ed: *LineEditor) void {
                 var i: usize = 1;
                 while (i <= total) : (i += 1) {
                     if (get(i)) |entry| {
-                        if (std.mem.indexOf(u8, entry, q) != null) {
+                        if (std.mem.find(u8, entry, q) != null) {
                             const cl = @min(entry.len, LineEditor.MAX);
                             @memcpy(ed.buf[0..cl], entry[0..cl]);
                             ed.len = cl;

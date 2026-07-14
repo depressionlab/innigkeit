@@ -1,11 +1,11 @@
 //! HHDM (Higher Half Direct Map) Feature
 
-const root = @import("root.zig");
 const innigkeit = @import("innigkeit");
+const root = @import("root.zig");
 const std = @import("std");
 
 pub const Request = extern struct {
-    id: [4]u64 = root.id(0x48dcf1cb8ad2b852, 0x63984e959a98244b),
+    id: [4]u64 = root.id(0x48DCF1CB8AD2B852, 0x63984E959A98244B),
     revision: u64 = 0,
 
     response: ?*const Response = null,

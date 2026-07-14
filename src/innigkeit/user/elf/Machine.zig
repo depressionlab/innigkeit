@@ -433,9 +433,9 @@ pub const Machine = enum(u16) {
     /// Infineon Technologies 16-bit microcontroller with C166-V2 core
     XC16X = 0x4688,
     /// Freescale S12Z
-    S12Z = 0x4def,
+    S12Z = 0x4DEF,
     /// DLX
-    DLX = 0x5aa5,
+    DLX = 0x5AA5,
     /// FRV
     CYGNUS_FRV = 0x5441,
     /// D10V
@@ -453,27 +453,27 @@ pub const Machine = enum(u16) {
     /// V850
     CYGNUS_V850 = 0x9080,
     /// Old S/390
-    S390_OLD = 0xa390,
+    S390_OLD = 0xA390,
     /// Old unofficial value for Xtensa
-    XTENSA_OLD = 0xabc7,
+    XTENSA_OLD = 0xABC7,
     /// Xstormy16
-    XSTORMY16 = 0xad45,
+    XSTORMY16 = 0xAD45,
     /// MN10300
-    CYGNUS_MN10300 = 0xbeef,
+    CYGNUS_MN10300 = 0xBEEF,
     /// MN10200
-    CYGNUS_MN10200 = 0xdead,
+    CYGNUS_MN10200 = 0xDEAD,
     /// Renesas M32C and M16C
-    M32C_OLD = 0xfeb0,
+    M32C_OLD = 0xFEB0,
     /// Vitesse IQ2000
-    IQ2000 = 0xfeba,
+    IQ2000 = 0xFEBA,
     /// NIOS
-    NIOS32 = 0xfebb,
+    NIOS32 = 0xFEBB,
     /// Toshiba MeP
-    CYGNUS_MEP = 0xf00d,
+    CYGNUS_MEP = 0xF00D,
     /// Old unofficial value for Moxie
-    MOXIE_OLD = 0xfeed,
+    MOXIE_OLD = 0xFEED,
     /// Old MicroBlaze
-    MICROBLAZE_OLD = 0xbaab,
+    MICROBLAZE_OLD = 0xBAAB,
     /// Adapteva's Epiphany architecture
     ADAPTEVA_EPIPHANY = 0x1223,
 

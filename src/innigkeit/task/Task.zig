@@ -3,26 +3,24 @@
 //! Can be either a kernel or userspace task.
 const Task = @This();
 
-const std = @import("std");
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 pub const Current = @import("Current.zig");
+pub const init = @import("core/init.zig");
+pub const internal = @import("core/internal.zig");
 pub const Scheduler = @import("Scheduler.zig");
 pub const Stack = @import("Stack.zig");
-pub const internal = @import("core/internal.zig");
-pub const init = @import("core/init.zig");
 pub const Transition = @import("core/Transition.zig");
 
 pub const Qos = Eevdf.Qos;
 
-const globals = @import("core/globals.zig");
-const SchedClass = @import("SchedClass.zig");
 const Eevdf = @import("sched/Eevdf.zig");
+const globals = @import("core/globals.zig");
 const Rt = @import("sched/Rt.zig");
-
-const log = innigkeit.debug.log.scoped(.task);
+const SchedClass = @import("SchedClass.zig");
 
 /// Identifies why this task is currently in the .blocked state.
 /// Undefined when state != .blocked.
@@ -79,10 +77,10 @@ migration_disable_count: std.atomic.Value(u32),
 /// Tracks nested enables of access to user memory.
 enable_access_to_user_memory_count: std.atomic.Value(u32) = .init(0),
 
-/// Non-null while a `mem.safe.memcpy` is in progress on this task. The
+/// Non-null while a `memory.safe.memcpy` is in progress on this task. The
 /// page-fault handler reads it to convert an otherwise-unhandleable fault into
 /// a copy failure (and redirect the faulting instruction) instead of panicking.
-safe_result_slot: std.atomic.Value(?*innigkeit.mem.safe.ResultSlot) = .init(null),
+safe_result_slot: std.atomic.Value(?*innigkeit.memory.safe.ResultSlot) = .init(null),
 
 spinlocks_held: u32,
 scheduler_locked: bool,
@@ -285,7 +283,7 @@ pub fn createKernelTask(options: CreateKernelTaskOptions) !*Task {
     globals.kernel_tasks_lock.writeLock();
     defer globals.kernel_tasks_lock.writeUnlock();
 
-    const gop = try globals.kernel_tasks.getOrPut(innigkeit.mem.heap.allocator, task);
+    const gop = try globals.kernel_tasks.getOrPut(innigkeit.memory.heap.allocator, task);
     if (gop.found_existing) std.debug.panic("task already in kernel tasks list!", .{});
 
     return task;

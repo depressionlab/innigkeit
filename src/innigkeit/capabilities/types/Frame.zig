@@ -4,23 +4,23 @@
 //! Mapping a Frame into an address space is a future operation via the Vmem syscall.
 const Frame = @This();
 
-const std = @import("std");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 /// Revocation generation counter. See `Notify.generation` for semantics.
 generation: std.atomic.Value(u32) = .init(0),
 refcount: std.atomic.Value(usize) = .init(1),
-page: innigkeit.mem.PhysicalPage.Index,
+page: innigkeit.memory.PhysicalPage.Index,
 
 /// Allocate a new single-page Frame.
 pub fn create() error{OutOfMemory}!*Frame {
-    const page = innigkeit.mem.PhysicalPage.allocator.allocate() catch return error.OutOfMemory;
+    const page = innigkeit.memory.PhysicalPage.allocator.allocate() catch return error.OutOfMemory;
     errdefer {
-        var list: innigkeit.mem.PhysicalPage.List = .{};
+        var list: innigkeit.memory.PhysicalPage.List = .{};
         list.prepend(page);
-        innigkeit.mem.PhysicalPage.allocator.deallocate(list);
+        innigkeit.memory.PhysicalPage.allocator.deallocate(list);
     }
-    const self = innigkeit.mem.heap.allocator.create(Frame) catch return error.OutOfMemory;
+    const self = try innigkeit.memory.heap.allocator.create(Frame);
     self.* = .{ .page = page };
     return self;
 }
@@ -31,10 +31,10 @@ pub fn ref(self: *Frame) void {
 
 pub fn unref(self: *Frame) void {
     if (self.refcount.fetchSub(1, .acq_rel) != 1) return;
-    var list: innigkeit.mem.PhysicalPage.List = .{};
+    var list: innigkeit.memory.PhysicalPage.List = .{};
     list.prepend(self.page);
-    innigkeit.mem.PhysicalPage.allocator.deallocate(list);
-    innigkeit.mem.heap.allocator.destroy(self);
+    innigkeit.memory.PhysicalPage.allocator.deallocate(list);
+    innigkeit.memory.heap.allocator.destroy(self);
 }
 
 /// Return the base physical address of this frame.

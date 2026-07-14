@@ -5,8 +5,15 @@
 //! without hard-coding output directory layout.
 //!
 //! The image pipeline is:
-//!   `ImageDescriptionStep` (JSON manifest) -> `image_builder` tool -> raw image
-//!   -> (x64 only) `limine_install` tool -> final image -> `ImageStep`
+//! ```
+//! ImageDescriptionStep` (JSON manifest)
+//!     -> `image_builder` tool
+//!     -> raw image
+//!     -> (x64 only) `limine_install` tool
+//!     -> final image
+//!     -> `ImageStep`
+//! ```
+// zlinter-disable require_errdefer_dealloc - every allocation here goes through b.allocator, an arena for the whole build graph's lifetime; there is no per-allocation free to add.
 const ImageStep = @This();
 
 const std = @import("std");
@@ -20,10 +27,16 @@ const Wrapper = @import("Wrapper.zig");
 pub const Collection = std.AutoHashMapUnmanaged(Bundle.Architecture, *ImageStep);
 const ImageManifestStep = @import("ImageManifestStep.zig");
 
+/// The internal `.custom` `Step` underlying `ImageStep`.
 step: Step,
+
+/// The install step that copies the `image_file` to the output path.
 install_image: *std.Build.Step.InstallFile,
+
+/// The internal `GeneratedFile` underlying `image_file`.
 generated_image_file: std.Build.GeneratedFile,
-/// Stable lazy path pointing to the installed image file.
+
+/// Stable `LazyPath` pointing to the installed image file.
 image_file: std.Build.LazyPath,
 
 pub fn registerImageSteps(

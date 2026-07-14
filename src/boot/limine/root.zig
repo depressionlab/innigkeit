@@ -7,9 +7,9 @@ const std = @import("std");
 
 pub const BaseRevison = @import("BaseRevision.zig").BaseRevison;
 pub const File = @import("File.zig").File;
-pub const RequestDelimiters = @import("RequestDelimiters.zig");
 pub const BootloaderInfo = @import("BootloaderInfo.zig");
 pub const BootloaderPerformance = @import("BootloaderPerformance.zig");
+pub const BSPHartID = @import("BSPHartID.zig");
 pub const DateAtBoot = @import("DateAtBoot.zig");
 pub const DeviceTreeBlob = @import("DeviceTreeBlob.zig");
 pub const EFIMemoryMap = @import("EFIMemoryMap.zig");
@@ -27,7 +27,7 @@ pub const MemoryMap = @import("MemoryMap.zig");
 pub const Module = @import("Module.zig");
 pub const MP = @import("MP.zig");
 pub const PagingMode = @import("PagingMode.zig");
-pub const BSPHartID = @import("BSPHartID.zig");
+pub const RequestDelimiters = @import("RequestDelimiters.zig");
 pub const RSDP = @import("RSDP.zig");
 pub const SMBIOS = @import("SMBIOS.zig");
 pub const StackSize = @import("StackSize.zig");
@@ -36,7 +36,7 @@ pub const TSCFrequency = @import("TSCFrequency.zig");
 
 /// Generates a Limine protocol request identifier.
 pub fn id(a: u64, b: u64) [4]u64 {
-    return .{ 0xc7b1dd30df4c8b88, 0x0a82e883a194f07b, a, b };
+    return .{ 0xC7B1DD30DF4C8B88, 0x0A82E883A194F07B, a, b };
 }
 
 const Arch = enum {

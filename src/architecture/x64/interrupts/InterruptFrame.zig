@@ -1,6 +1,6 @@
-const std = @import("std");
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 const x64 = @import("../x64.zig");
 
 pub const InterruptFrame = extern struct {

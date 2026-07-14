@@ -9,9 +9,7 @@ const Context = @This();
 
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
-const libinnigkeit = @import("libinnigkeit");
 
-const Error = libinnigkeit.Error;
 const Arg = architecture.user.SyscallFrame.Arg;
 
 const Process = @import("Process.zig");

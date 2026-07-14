@@ -60,7 +60,7 @@
 //! `error.Unseekable`, which `std.Io.File.{Reader,Writer}` handle by falling
 //! back to streaming mode automatically.
 //!
-//! For real VFS files use `innigkeit.fs.File` (open/read/write/seek/stat
+//! For real VFS files use `innigkeit.filesystem.File` (open/read/write/seek/stat
 //! over the kernel fd table); its `reader()` / `writer()` adapters integrate
 //! with `std.Io.Reader` / `std.Io.Writer`. `fileFromFd` converts a raw
 //! kernel fd into such a handle.
@@ -71,10 +71,10 @@
 //! timestamps/locks), memory maps, process spawning, and all networking
 //! return the closest "unsupported" error of their respective error sets,
 //! reusing the canonical stubs from `std.Io.failing` (e.g. opens return
-//! `error.FileNotFound`, creations return `error.NoSpaceLeft`, net ops
-//! return `error.NetworkDown`).
-const std = @import("std");
+//! `error.FileNotFound`, creations return `error.NoSpaceLeft`, networking
+//! operations return `error.NetworkDown`).
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 const Io = std.Io;
 const Syscall = innigkeit.Syscall;
 const Error = innigkeit.Error;
@@ -96,14 +96,14 @@ pub fn io() Io {
 }
 
 /// Wrap a raw kernel VFS file descriptor (from the open syscall) in an
-/// `innigkeit.fs.File`.
+/// `innigkeit.filesystem.File`.
 ///
 /// This intentionally does *not* return a `std.Io.File`: on the Innigkeit
 /// target `std.Io.File.Handle` is `void` (see the file-model note in the
 /// module doc), so a `std.Io.File` cannot carry an fd. The returned
-/// `fs.File` provides `reader()` / `writer()` adapters that plug into
+/// `filesystem.File` provides `reader()` / `writer()` adapters that plug into
 /// `std.Io.Reader` / `std.Io.Writer` for use with std formatting APIs.
-pub fn fileFromFd(fd: u32) innigkeit.fs.File {
+pub fn fileFromFd(fd: u32) innigkeit.filesystem.File {
     return .{ .fd = fd };
 }
 
@@ -403,7 +403,7 @@ fn fileWritePositional(
 
 fn fileIsTty(_: ?*anyopaque, file: Io.File) Io.Cancelable!bool {
     _ = file;
-    var st: innigkeit.fs.Stat = undefined;
+    var st: innigkeit.filesystem.Stat = undefined;
     const result = Syscall.invoke(.fstat, .{ stdout_fd, @intFromPtr(&st) });
     _ = Syscall.decode(result) catch return false;
     return st.getKind() == .tty;
@@ -457,7 +457,7 @@ var prng_state: std.atomic.Value(u64) = .init(0);
 /// correctly reports `error.EntropyUnavailable`.
 fn random(_: ?*anyopaque, buffer: []u8) void {
     var s = prng_state.load(.monotonic);
-    if (s == 0) s = (uptimeMs() << 16) ^ 0x9e3779b97f4a7c15;
+    if (s == 0) s = (uptimeMs() << 16) ^ 0x9E3779B97F4A7C15;
     for (buffer) |*b| {
         s ^= s << 13;
         s ^= s >> 7;

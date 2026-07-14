@@ -1,7 +1,7 @@
-const std = @import("std");
-const innigkeit = @import("innigkeit");
-const core = @import("core");
 const architecture = @import("architecture");
+const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 // marked as `inline` unconditionally so that it can be called from a naked function.
 pub inline fn disableAndHalt() noreturn {

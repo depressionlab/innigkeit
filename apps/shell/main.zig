@@ -1,10 +1,11 @@
-const std = @import("std");
+// zlinter-disable no_swallow_error - every catch here is a shell console
+// print with no meaningful recovery path.
 const innigkeit = @import("innigkeit");
 
-const LineEditor = @import("LineEditor.zig");
 const commands = @import("commands.zig");
-const environment = @import("environment.zig");
 const completions = @import("completions.zig");
+const environment = @import("environment.zig");
+const LineEditor = @import("LineEditor.zig");
 
 pub fn write(s: []const u8) void {
     innigkeit.io.stdout.print("{s}", .{s}) catch {};

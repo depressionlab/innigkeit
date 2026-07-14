@@ -1,8 +1,8 @@
 const SourceOverride = @This();
 
-const std = @import("std");
 const innigkeit = @import("innigkeit");
 const IOAPIC = @import("IOAPIC.zig");
+const std = @import("std");
 
 gsi: u32,
 polarity: IOAPIC.Polarity,

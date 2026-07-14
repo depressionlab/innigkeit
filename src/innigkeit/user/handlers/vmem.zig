@@ -3,7 +3,7 @@
 //! `vmem_map(handle: u32)` -> addr | error
 //!   Maps the physical page(s) backing a Frame capability into the calling
 //!   process's address space. Returns the virtual base address of the mapping.
-//!   The frame is mapped read+write with max_protection=all.
+//!   Mapped (and capped) at the capability's own rights (never write+execute).
 //!
 //! `vmem_unmap(addr: usize, size: usize)` -> 0 | error
 //!   Unmaps the region [addr, addr+size) from the calling process's address space.
@@ -43,18 +43,22 @@ pub fn vmemMap(context: Context) Error.Syscall!usize {
     const page_align = architecture.paging.standard_page_size_alignment;
     const page_size = architecture.paging.standard_page_size;
 
-    const prot: innigkeit.mem.MapType.Protection = .{
+    const prot: innigkeit.memory.MapType.Protection = .{
         .read = slot_info.rights.read,
         .write = slot_info.rights.write,
         .execute = false, // W^X: explicit execute right required
     };
 
-    // Reserve a virtual address range in the process's address space.
+    // Reserve a virtual address range in the process's address space,
+    // keeping entries_lock held so a concurrent unmap/changeProtection
+    // from a sibling thread can't race the page-table population below
+    // (mirrors FaultInfo's entries_lock -> page_table_lock nesting).
     const virt_range = process.address_space.map(.{
         .size = page_size,
         .protection = prot,
         .max_protection = prot,
         .type = .zero_fill,
+        .keep_entries_locked = true,
     }) catch |err| {
         log.debug("vmem_map: address_space.map failed: {t}", .{err});
         return switch (err) {
@@ -64,7 +68,7 @@ pub fn vmemMap(context: Context) Error.Syscall!usize {
     };
 
     // Now wire the physical page into the page table over the reserved VA.
-    const map_type: innigkeit.mem.MapType = .{
+    const map_type: innigkeit.memory.MapType = .{
         .type = .user,
         .protection = prot,
     };
@@ -72,20 +76,22 @@ pub fn vmemMap(context: Context) Error.Syscall!usize {
     _ = page_align; // alignment is guaranteed by address_space.map
 
     process.address_space.page_table_lock.lock();
-    innigkeit.mem.mapSinglePage(
+    innigkeit.memory.mapSinglePage(
         process.address_space.page_table,
         virt_range.address,
         phys_page,
         map_type,
-        innigkeit.mem.PhysicalPage.allocator,
+        innigkeit.memory.PhysicalPage.allocator,
     ) catch |err| {
         process.address_space.page_table_lock.unlock();
+        process.address_space.unlockEntriesAfterMap();
         // Unmap the VA we just reserved since we can't back it.
         process.address_space.unmap(virt_range) catch {};
         log.debug("vmem_map: mapSinglePage failed: {t}", .{err});
         return Error.Syscall.OutOfMemory;
     };
     process.address_space.page_table_lock.unlock();
+    process.address_space.unlockEntriesAfterMap();
 
     return virt_range.address.value;
 }

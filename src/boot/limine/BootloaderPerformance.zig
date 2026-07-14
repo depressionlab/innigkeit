@@ -4,11 +4,11 @@
 //!
 //! Bootloaders may implement this feature using the FPDT.
 
-const std = @import("std");
 const root = @import("root.zig");
+const std = @import("std");
 
 pub const Request = extern struct {
-    id: [4]u64 = root.id(0x6b50ad9bf36d13ad, 0xdc4c7e88fc759e17),
+    id: [4]u64 = root.id(0x6B50AD9BF36D13AD, 0xDC4C7E88FC759E17),
     revision: u64 = 0,
 
     response: ?*const Response = null,

@@ -1,6 +1,6 @@
-const std = @import("std");
 const builtin = @import("builtin");
 const core = @import("core");
+const std = @import("std");
 
 pub const Bitfield = @import("types/Bitfield.zig").Bitfield;
 pub const Bit = @import("types/root.zig").Bit;
@@ -37,7 +37,7 @@ pub inline fn isBitSet(target: anytype, comptime bit: comptime_int) bool {
     }
 
     const mask: TargetType = comptime blk: {
-        const MaskType = std.meta.Int(.unsigned, bit + 1);
+        const MaskType = @Int(.unsigned, bit + 1);
         var temp: MaskType = std.math.maxInt(MaskType);
         temp <<= bit;
         break :blk temp;
@@ -137,7 +137,7 @@ pub inline fn getBits(
     target: anytype,
     comptime start_bit: comptime_int,
     comptime number_of_bits: comptime_int,
-) std.meta.Int(.unsigned, number_of_bits) {
+) @Int(.unsigned, number_of_bits) {
     const TargetType = @TypeOf(target);
 
     comptime {
@@ -284,7 +284,8 @@ pub fn setBits(
 
     const peer_value: TargetType = value;
 
-    if (std.debug.runtime_safety) {
+    // Panic if runtime safety is enabled and value exceeds bit range.
+    if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) {
         if (getBits(peer_value, 0, (end_bit - start_bit)) != peer_value) {
             @panic("value exceeds bit range!");
         }

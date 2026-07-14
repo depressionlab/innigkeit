@@ -1,3 +1,4 @@
+const core = @import("core");
 const std = @import("std");
 
 const globals = @import("globals.zig");
@@ -12,7 +13,7 @@ pub const init = @import("init.zig");
 pub fn getFunction(address: Address) ?*Function {
     for (globals.ecams) |ecam| {
         if (ecam.segment_group != address.segment) continue;
-        if (ecam.start_bus < address.bus or address.bus >= ecam.end_bus) continue;
+        if (address.bus < ecam.start_bus or address.bus >= ecam.end_bus) continue;
 
         const bus_offset: usize = address.bus - ecam.start_bus;
 
@@ -69,4 +70,36 @@ pub fn forEachFunction(callback: *const fn (Address, *Function) void) void {
             }
         }
     }
+}
+
+// The size claimed below is metadata only (getFunction never dereferences the
+// returned pointer in this test, only checks null vs. non-null), so it's safe
+// to claim more than `scratch`'s real 4 KiB backs, as long as the address +
+// claimed size still falls inside the kernel's virtual address window.
+var pci_test_scratch: [4096]u8 align(4096) = undefined;
+
+test "pci: getFunction matches any bus inside [start_bus, end_bus), not just start_bus" {
+    const saved = globals.ecams;
+    defer globals.ecams = saved;
+
+    var ecams = [_]ECAM{.{
+        .segment_group = 0,
+        .start_bus = 5,
+        .end_bus = 8,
+        .config_space = .{
+            .address = .fromPtr(&pci_test_scratch),
+            .size = core.Size.from(1 << 21, .byte), // 2 MiB: covers bus_offset up to 1
+        },
+    }};
+    globals.ecams = &ecams;
+
+    // Bus 6 is inside [5, 8) but not equal to start_bus (5).
+    try std.testing.expect(getFunction(.{ .segment = 0, .bus = 6, .device = 0, .function = 0 }) != null);
+
+    // Bus 5 (== start_bus) still matches.
+    try std.testing.expect(getFunction(.{ .segment = 0, .bus = 5, .device = 0, .function = 0 }) != null);
+
+    // Bus 4 (before start_bus) and bus 8 (== end_bus, exclusive) do not match.
+    try std.testing.expect(getFunction(.{ .segment = 0, .bus = 4, .device = 0, .function = 0 }) == null);
+    try std.testing.expect(getFunction(.{ .segment = 0, .bus = 8, .device = 0, .function = 0 }) == null);
 }

@@ -18,8 +18,8 @@
 
 const GpuBuffer = @This();
 
-const std = @import("std");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 generation: std.atomic.Value(u32) = .init(0),
 refcount: std.atomic.Value(usize) = .init(1),
@@ -61,11 +61,11 @@ pub fn create(page_count: usize, usage: Usage) error{OutOfMemory}!*GpuBuffer {
     if (page_count > 1) return error.OutOfMemory;
 
     // Allocate the metadata struct from the kernel heap.
-    const self = innigkeit.mem.heap.allocator.create(GpuBuffer) catch return error.OutOfMemory;
+    const self = try innigkeit.memory.heap.allocator.create(GpuBuffer);
 
     // TODO(gpu_buffer): replace single-page alloc with contiguous allocator.
-    const first_page = innigkeit.mem.PhysicalPage.allocator.allocate() catch {
-        innigkeit.mem.heap.allocator.destroy(self);
+    const first_page = innigkeit.memory.PhysicalPage.allocator.allocate() catch {
+        innigkeit.memory.heap.allocator.destroy(self);
         return error.OutOfMemory;
     };
 
@@ -84,10 +84,10 @@ pub fn ref(self: *GpuBuffer) void {
 pub fn unref(self: *GpuBuffer) void {
     if (self.refcount.fetchSub(1, .acq_rel) != 1) return;
     // TODO(gpu_buffer): free all contiguous pages, not just the first one.
-    var list: innigkeit.mem.PhysicalPage.List = .{};
+    var list: innigkeit.memory.PhysicalPage.List = .{};
     list.prepend(.fromAddress(self.phys_base));
-    innigkeit.mem.PhysicalPage.allocator.deallocate(list);
-    innigkeit.mem.heap.allocator.destroy(self);
+    innigkeit.memory.PhysicalPage.allocator.deallocate(list);
+    innigkeit.memory.heap.allocator.destroy(self);
 }
 
 /// Selectors for cap_invoke on a GpuBuffer capability.

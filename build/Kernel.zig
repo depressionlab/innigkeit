@@ -3,17 +3,19 @@
 //! The kernel module graph is declared in `src/root.zig` as a `[]const KernelModule`.
 //! Graph traversal starts from the component named `kernel_entry` (currently `"internal"`),
 //! then transitively pulls in all reachable components.
+// zlinter-disable require_errdefer_dealloc - every allocation here goes through b.allocator, an arena for the whole build graph's lifetime; there is no per-allocation free to add.
 const Kernel = @This();
 
 const std = @import("std");
 const Step = std.Build.Step;
+
 const App = @import("App.zig");
 const Bundle = @import("Bundle.zig");
 const KernelModule = @import("KernelModule.zig");
 const Library = @import("Library.zig");
 const Options = @import("Options.zig");
-const Wrapper = @import("Wrapper.zig");
 const Tool = @import("Tool.zig");
+const Wrapper = @import("Wrapper.zig");
 
 /// An extra binary to embed in the initfs alongside the normal Zig apps.
 /// `step` must complete before the initfs_builder run step executes.
@@ -26,6 +28,7 @@ pub const ExtraBinary = struct {
     step: *std.Build.Step,
 };
 
+/// A collection of `Kernel`s mapped by their target `Bundle.Architecture`.
 pub const Collection = std.AutoHashMapUnmanaged(Bundle.Architecture, Kernel);
 
 /// The name of the root component from which DAG traversal begins.
@@ -48,10 +51,7 @@ pub fn getKernels(
     extra_binaries: ?[]const ExtraBinary,
 ) !Kernel.Collection {
     var kernels: Kernel.Collection = .empty;
-    try kernels.ensureTotalCapacity(
-        b.allocator,
-        @intCast(architectures.len),
-    );
+    try kernels.ensureTotalCapacity(b.allocator, @intCast(architectures.len));
 
     for (architectures) |architecture| {
         kernels.putAssumeCapacityNoClobber(architecture, try buildKernel(
@@ -80,7 +80,8 @@ fn buildKernel(
     extra_binaries: ?[]const ExtraBinary,
 ) !Kernel {
     // Build the initfs archive once; share between check and release modules.
-    const initfs_archive = buildInitfs(b, architecture, apps, tools, extra_binaries);
+    // The release kernel excludes `test_only` fixture apps.
+    const initfs_archive = buildInitfs(b, architecture, apps, tools, extra_binaries, false);
 
     // Check compilation: verifies correctness without emitting a binary.
     wrapper.registerCheck(b.addExecutable(.{
@@ -124,6 +125,23 @@ fn buildKernel(
     );
     wrapper.registerKernel(architecture, &install.step);
 
+    // x64-only: it's the only architecture actually released (release.yml
+    // builds/signs image_x64), so signing arm/riscv here would just cost
+    // build time on every kernel_{arch}/image_{arch}/run_{arch} invocation
+    // for a signature nothing ever reads.
+    if (architecture == .x64) {
+        const codesign_exe = tools.get("codesign").?.release_safe_exe;
+        const sign_kernel_run = b.addRunArtifact(codesign_exe);
+        sign_kernel_run.addArg("sign-artifact");
+        sign_kernel_run.addFileArg(kernel_exe.getEmittedBin());
+        const kernel_sig = sign_kernel_run.addOutputFileArg("kernel.codesig");
+        const install_sig = b.addInstallFile(
+            kernel_sig,
+            b.pathJoin(&.{ @tagName(architecture), "kernel.codesig" }),
+        );
+        install.step.dependOn(&install_sig.step);
+    }
+
     return .{
         .kernel_binary = kernel_exe.getEmittedBin(),
         .install_step = &install.step,
@@ -146,7 +164,8 @@ pub fn buildTestKernel(
     extra_binaries: ?[]const ExtraBinary,
 ) !Kernel {
     // TODO: unify this with buildKernel()
-    const initfs_archive = buildInitfs(b, architecture, apps, tools, extra_binaries);
+    // The test kernel includes `test_only` fixture apps alongside the normal ones.
+    const initfs_archive = buildInitfs(b, architecture, apps, tools, extra_binaries, true);
 
     // Build the component graph exactly as the normal kernel does.
     const graph = try resolveComponentGraph(b);
@@ -160,8 +179,15 @@ pub fn buildTestKernel(
     );
 
     // Use the innigkeit component module as the test binary's root package.
-    // All files reachable via its import hierarchy are in the root package, so Zig
-    // collects every test block in them automatically, no dual-module conflict.
+    // Test blocks in files reached via *relative* imports from this module's
+    // root are collected automatically. Files reached only by crossing into
+    // "architecture" or "boot" (separate `*std.Build.Module`s, each with its
+    // own root_source_file set in configureComponents()) are NOT. Zig's
+    // `zig test` discovery is scoped to the root module's own file tree, not
+    // other modules reached via named `@import`. Confirmed empirically
+    // (Phase 3 Stage 21/22): test blocks added under src/boot/ never appear
+    // in the QEMU test suite's verdict output, with or without a real bug
+    // reintroduced to prove `zig build check` doesn't catch them either.
     // TODO: hone these options so we have the most optimized when we release and the most debuggable when we debug!
     const innigkeit_module = graph.nodes.get("innigkeit").?.module;
     innigkeit_module.resolved_target = architecture.kernelTarget(b);
@@ -224,6 +250,7 @@ fn buildInitfs(
     apps: App.Collection,
     tools: Tool.Collection,
     extra_binaries: ?[]const ExtraBinary,
+    include_test_only: bool,
 ) std.Build.LazyPath {
     const initfs_builder = tools.get("initfs_builder").?.release_safe_exe;
     const codesign_exe = tools.get("codesign").?.release_safe_exe;
@@ -232,12 +259,14 @@ fn buildInitfs(
 
     var it = apps.iterator();
     while (it.next()) |entry| {
+        if (entry.value_ptr.test_only and !include_test_only) continue;
+
         const name = entry.key_ptr.*;
         const exe = entry.value_ptr.executables.get(bundle) orelse continue;
         const elf_bin = exe.getEmittedBin();
 
         // Sign the ELF and produce a .codesig sidecar.
-        const entitlements_path = b.path(b.pathJoin(&.{ "apps", name, "manifest.toml" }));
+        const entitlements_path = b.path(b.pathJoin(&.{ entry.value_ptr.root_dir, name, "manifest.toml" }));
         const sign_run = b.addRunArtifact(codesign_exe);
         sign_run.addArg("sign");
         sign_run.addFileArg(elf_bin);
@@ -362,7 +391,6 @@ const ComponentNode = struct {
 fn resolveComponentGraph(b: *std.Build) !ComponentNode.Graph {
     var pending: std.array_hash_map.String(void) = .empty;
     try pending.putNoClobber(b.allocator, kernel_entry, {});
-
     var nodes: std.array_hash_map.String(ComponentNode) = .empty;
 
     while (pending.pop()) |kv| {
@@ -433,7 +461,7 @@ fn configureComponents(
         for (desc.library_dependencies) |dep| {
             module.addImport(
                 dep.import_name orelse dep.name,
-                libraries.get(dep.name).?.internal_modules.get(architecture) orelse unreachable,
+                libraries.get(dep.name).?.internal_modules.get(architecture).?,
             );
         }
 
@@ -531,7 +559,7 @@ fn collectFilesRecursive(
     while (try it.next(b.graph.io)) |entry| {
         switch (entry.kind) {
             .file => {
-                if (!std.mem.eql(u8, std.fs.path.extension(entry.name), ".zig")) continue;
+                if (!std.mem.eql(u8, std.Io.Dir.path.extension(entry.name), ".zig")) continue;
                 const path = b.pathJoin(&.{ dir_path, entry.name });
                 try file_paths.append(b.allocator, path);
                 try modules.append(b.allocator, .{

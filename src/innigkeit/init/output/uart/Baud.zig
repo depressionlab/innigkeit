@@ -1,7 +1,7 @@
 const Baud = @This();
 
-const std = @import("std");
 const core = @import("core");
+const std = @import("std");
 
 /// The clock frequency of the UART in Hz.
 ///

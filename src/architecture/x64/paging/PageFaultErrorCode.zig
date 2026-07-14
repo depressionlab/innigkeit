@@ -75,11 +75,11 @@ pub const PageFaultErrorCode = packed struct(u64) {
             try writer.writeAll("- No Execute");
         }
 
-        if (self.instruction_fetch) {
+        if (self.protection_key) {
             try writer.writeAll("- Protection Key");
         }
 
-        if (self.instruction_fetch) {
+        if (self.shadow_stack) {
             try writer.writeAll("- Shadow Stack");
         }
 
@@ -87,7 +87,7 @@ pub const PageFaultErrorCode = packed struct(u64) {
             try writer.writeAll("- Hypervisor Linear Address Translation");
         }
 
-        if (self.instruction_fetch) {
+        if (self.software_guard_exception) {
             try writer.writeAll("- Software Guard Extension");
         }
 

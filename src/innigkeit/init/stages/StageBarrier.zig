@@ -1,10 +1,8 @@
 const StageBarrier = @This();
 
-const std = @import("std");
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
-
-const log = innigkeit.debug.log.scoped(.init);
+const std = @import("std");
 
 number_of_executors_ready: std.atomic.Value(usize) = .init(0),
 stage_complete: std.atomic.Value(bool) = .init(false),

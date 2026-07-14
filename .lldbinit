@@ -1,0 +1,14 @@
+# LLDB init for `zig build run_x64 -Ddebug=true`: QEMU exposes a GDB-protocol
+# stub on localhost:1234 and starts frozen (-S) until a debugger attaches.
+#
+# LLDB sources a project-local .lldbinit only if you either launch from this
+# directory with `--local-lldbinit`, or add
+# `settings set target.load-cwd-lldbinit true` to your own ~/.lldbinit once.
+#
+# For arm instead of x64, or a test kernel instead of the release one:
+#   file zig-out/arm/kernel
+#   file zig-out/x64/kernel_test
+#   file zig-out/arm/kernel_test
+
+file zig-out/x64/kernel
+gdb-remote localhost:1234

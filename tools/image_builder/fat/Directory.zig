@@ -1,8 +1,8 @@
 const Directory = @This();
 
-const std = @import("std");
 const core = @import("core");
 const filesystem = @import("filesystem");
+const std = @import("std");
 
 const FAT = @import("root.zig");
 

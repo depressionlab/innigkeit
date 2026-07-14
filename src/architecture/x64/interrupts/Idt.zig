@@ -1,8 +1,8 @@
 /// The `x64` Interrupt Descriptor Table (IDT).
 const Idt = @This();
 
-const std = @import("std");
 const core = @import("core");
+const std = @import("std");
 const x64 = @import("../x64.zig");
 
 /// The number of interrupt handlers in the IDT.

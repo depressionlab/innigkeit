@@ -1,8 +1,8 @@
 const std = @import("std");
 
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 
 const devicetree = @import("../devicetree.zig");
 pub const framebuffer = @import("framebuffer.zig");
@@ -173,7 +173,7 @@ pub fn writeWithCarridgeReturns(
     var str = full_str;
 
     while (str.len != 0) {
-        const index_of_newline = std.mem.indexOfScalar(u8, str, '\n') orelse {
+        const index_of_newline = std.mem.findScalar(u8, str, '\n') orelse {
             writeFn(context, str);
             return;
         };

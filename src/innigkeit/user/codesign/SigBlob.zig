@@ -11,8 +11,8 @@
 //!   _pad         [24]u8  reserved, must be 0
 //!   signature    [64]u8  Ed25519 over (elf_hash || entitlements_le || key_id_le)
 
-const std = @import("std");
 const Manifest = @import("Manifest.zig");
+const std = @import("std");
 
 pub const magic: [8]u8 = "IKSIG\x01\x00\x00".*;
 

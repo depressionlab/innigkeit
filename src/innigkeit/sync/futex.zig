@@ -5,9 +5,8 @@
 //! wake() can selectively wake only tasks waiting on a specific address
 //! even when multiple addresses hash to the same bucket.
 
-const std = @import("std");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 const validate = innigkeit.user.validate;
 
 const num_buckets = 256;
@@ -30,7 +29,7 @@ fn bucketOf(addr: usize) *Bucket {
 /// `expected`, returns immediately (retry signal to caller).
 /// Caller must have validated that [addr, addr+4) lies inside user space.
 pub fn wait(addr: usize, expected: u32) void {
-    if (!validate.validateUserBuffer(addr, @sizeOf(u32))) return;
+    if (!validate.userBuffer(addr, @sizeOf(u32))) return;
     const bucket = bucketOf(addr);
     bucket.lock.lock();
 
@@ -39,7 +38,7 @@ pub fn wait(addr: usize, expected: u32) void {
     // returns an error (a no-op; the caller retries) instead of panicking the
     // kernel. The load is atomic (lost-wakeup correctness) and the lock guards
     // the check-then-enqueue against a concurrent wake.
-    const current_val = innigkeit.mem.safe.atomicLoadU32(.from(addr)) catch {
+    const current_val = innigkeit.memory.safe.atomicLoadU32(.from(addr)) catch {
         bucket.lock.unlock();
         return;
     };
@@ -62,13 +61,13 @@ pub fn wait(addr: usize, expected: u32) void {
 /// Same as wait() but with a millisecond deadline. Sets futex_timeout_ms and block_reason.
 /// Caller must have validated that [addr, addr+4) lies inside user space.
 pub fn waitTimeout(addr: usize, expected: u32, deadline_ms: u64) void {
-    if (!validate.validateUserBuffer(addr, @sizeOf(u32))) return;
+    if (!validate.userBuffer(addr, @sizeOf(u32))) return;
     const bucket = bucketOf(addr);
     bucket.lock.lock();
 
     const current_task: innigkeit.Task.Current = .get();
     // Fault-safe atomic load under the bucket lock (see `wait`).
-    const current_val = innigkeit.mem.safe.atomicLoadU32(.from(addr)) catch {
+    const current_val = innigkeit.memory.safe.atomicLoadU32(.from(addr)) catch {
         bucket.lock.unlock();
         return;
     };

@@ -1,8 +1,8 @@
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 
-const StageBarrier = @import("StageBarrier.zig");
 const stage4 = @import("stage4.zig");
+const StageBarrier = @import("StageBarrier.zig");
 
 const log = innigkeit.debug.log.scoped(.init);
 

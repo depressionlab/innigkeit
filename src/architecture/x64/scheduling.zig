@@ -1,7 +1,7 @@
-const std = @import("std");
 const builtin = @import("builtin");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 const x64 = @import("x64.zig");
 
 /// Prepares the given task for being scheduled.

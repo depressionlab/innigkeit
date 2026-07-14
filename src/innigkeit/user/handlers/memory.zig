@@ -8,10 +8,10 @@
 //! `munmap(addr: usize, size: usize) -> 0 | error`
 //!   Unmaps [addr, addr+size). Both must be page-aligned and in user space.
 
-const std = @import("std");
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 const Error = @import("libinnigkeit").Error;
 const Context = @import("../Context.zig");
@@ -29,7 +29,7 @@ pub fn mmap(context: Context) Error.Syscall!usize {
     if (size_bytes > std.math.maxInt(usize) - (page_size - 1)) return error.InvalidArgument;
     const aligned_size = core.Size.from(size_bytes, .byte).alignForward(page_align);
 
-    const protection: innigkeit.mem.MapType.Protection = .{
+    const protection: innigkeit.memory.MapType.Protection = .{
         .read = (prot_raw & 1) != 0,
         .write = (prot_raw & 2) != 0,
         .execute = (prot_raw & 4) != 0,

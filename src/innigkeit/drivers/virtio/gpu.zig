@@ -12,10 +12,10 @@
 //! response arrives). This is fine because the driver is single-threaded
 //! during init, and the only runtime call is flush() which is cheap.
 
-const std = @import("std");
-const innigkeit = @import("innigkeit");
 const architecture = @import("architecture");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 const log = innigkeit.debug.log.scoped(.virtio_gpu);
 
@@ -30,7 +30,6 @@ const VSTAT_ACKNOWLEDGE: u8 = 0x01;
 const VSTAT_DRIVER: u8 = 0x02;
 const VSTAT_DRIVER_OK: u8 = 0x04;
 const VSTAT_FEATURES_OK: u8 = 0x08;
-const VSTAT_FAILED: u8 = 0x80;
 
 const VIRTIO_F_VERSION_1: u64 = 1 << 32;
 
@@ -156,16 +155,16 @@ comptime {
 pub const GpuState = struct {
     cfg_va: usize, // virtual address of common_cfg MMIO region
     notify_va: usize, // virtual address of notify register
-    queue_page: innigkeit.mem.PhysicalPage.Index,
+    queue_page: innigkeit.memory.PhysicalPage.Index,
     avail_idx: u16,
     used_last: u16,
     fb_width: u32,
     fb_height: u32,
-    fb_pages: []innigkeit.mem.PhysicalPage.Index,
-    // Physical pages backing the RESOURCE_ATTACH_BACKING mem-entries array.
+    fb_pages: []innigkeit.memory.PhysicalPage.Index,
+    // Physical pages backing the RESOURCE_ATTACH_BACKING memory-entries array.
     // Heap memory is outside the direct map so we can't derive DMA addresses
     // from heap pointers; physical pages are always in the direct map.
-    entry_pages: []innigkeit.mem.PhysicalPage.Index,
+    entry_pages: []innigkeit.memory.PhysicalPage.Index,
 };
 
 var state_storage: GpuState = undefined;
@@ -187,10 +186,10 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
     func.write(u16, 0x04, cmd | 0x06);
 
     // Walk PCI capability list to find common_cfg and notify.
-    var common_bar: u8 = 0xff;
+    var common_bar: u8 = 0xFF;
     var common_off: u32 = 0;
     var common_len: u32 = 0;
-    var notify_bar: u8 = 0xff;
+    var notify_bar: u8 = 0xFF;
     var notify_off: u32 = 0;
     var notify_mult: u32 = 0;
 
@@ -225,7 +224,7 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
         cap = next;
     }
 
-    if (common_bar == 0xff or notify_bar == 0xff) {
+    if (common_bar == 0xFF or notify_bar == 0xFF) {
         log.err("virtio-gpu: capabilities not found", .{});
         return;
     }
@@ -240,7 +239,7 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
         std.mem.alignForward(usize, common_off + common_len - cfg_page_base, PAGE_SIZE),
         .byte,
     );
-    const cfg_range = innigkeit.mem.heap.allocateSpecial(.{
+    const cfg_range = innigkeit.memory.heap.allocateSpecial(.{
         .physical_range = .from(innigkeit.PhysicalAddress.from(cfg_phys + cfg_page_base), cfg_map_size),
         .protection = .{ .read = true, .write = true },
         .cache = .uncached,
@@ -256,7 +255,7 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
         return;
     };
     const notify_page_base = notify_off & ~@as(u32, PAGE_SIZE - 1);
-    const notify_range = innigkeit.mem.heap.allocateSpecial(.{
+    const notify_range = innigkeit.memory.heap.allocateSpecial(.{
         .physical_range = .from(
             innigkeit.PhysicalAddress.from(notify_phys + notify_page_base),
             core.Size.from(PAGE_SIZE, .byte),
@@ -270,7 +269,7 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
     const notify_va = notify_range.address.value + (notify_off - notify_page_base);
 
     // Allocate the virtqueue page.
-    const queue_page = innigkeit.mem.PhysicalPage.allocator.allocate() catch {
+    const queue_page = innigkeit.memory.PhysicalPage.allocator.allocate() catch {
         log.err("virtio-gpu: out of memory for queue page", .{});
         return;
     };
@@ -317,8 +316,8 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
     const fb_bytes: usize = @as(usize, s.fb_width) * @as(usize, s.fb_height) * 4;
     const fb_page_count = (fb_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
 
-    const fb_pages = innigkeit.mem.heap.allocator.alloc(
-        innigkeit.mem.PhysicalPage.Index,
+    const fb_pages = innigkeit.memory.heap.allocator.alloc(
+        innigkeit.memory.PhysicalPage.Index,
         fb_page_count,
     ) catch {
         log.err("virtio-gpu: could not alloc fb_pages slice", .{});
@@ -326,31 +325,32 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
     };
 
     for (fb_pages, 0..) |*slot, i| {
-        slot.* = innigkeit.mem.PhysicalPage.allocator.allocate() catch {
+        slot.* = innigkeit.memory.PhysicalPage.allocator.allocate() catch {
             log.err("virtio-gpu: out of pages at fb page {}", .{i});
             return; // leak earlier pages: init failure is non-recoverable
         };
         // Zero the page.
         const va = slot.*.baseAddress().toDirectMap().value;
+        // `va` is an already-typed direct-map `VirtualAddress`, not a raw integer.
         @memset(@as([*]u8, @ptrFromInt(va))[0..PAGE_SIZE], 0);
     }
     s.fb_pages = fb_pages;
 
-    // Allocate physical pages for RESOURCE_ATTACH_BACKING mem entries.
+    // Allocate physical pages for RESOURCE_ATTACH_BACKING memory entries.
     // Heap memory is outside the HHDM so we can't use fromDirectMap on heap
     // pointers. Physical pages are always in the direct map.
     const entry_bytes = fb_page_count * @sizeOf(GpuMemEntry);
     const ep_count = (entry_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
 
-    const entry_page_idxs = innigkeit.mem.heap.allocator.alloc(
-        innigkeit.mem.PhysicalPage.Index,
+    const entry_page_idxs = innigkeit.memory.heap.allocator.alloc(
+        innigkeit.memory.PhysicalPage.Index,
         ep_count,
     ) catch {
         log.err("virtio-gpu: could not alloc entry_page_idxs", .{});
         return;
     };
     for (entry_page_idxs, 0..) |*slot, i| {
-        slot.* = innigkeit.mem.PhysicalPage.allocator.allocate() catch {
+        slot.* = innigkeit.memory.PhysicalPage.allocator.allocate() catch {
             log.err("virtio-gpu: out of pages for entry page {}", .{i});
             return;
         };
@@ -479,9 +479,15 @@ fn getDisplayInfo(s: *GpuState) !void {
     const resp_type = try submitCmd(s, qp_virt, qp_phys, @sizeOf(GpuCtrlHdr), OFF_CMD, @sizeOf(GpuRespDisplayInfo));
     if (resp_type != RESP_OK_DISPLAY_INFO) return error.BadResponse;
 
+    // `qp_virt` is this driver's own direct-mapped queue page; `OFF_RESP` is a
+    // fixed in-page offset (see "Total used" note on the `OFF_*` constants above).
     const resp = @as(*align(1) const GpuRespDisplayInfo, @ptrFromInt(qp_virt + OFF_RESP)).*;
     for (&resp.modes) |mode| {
         if (mode.enabled != 0 and mode.r.w > 0 and mode.r.h > 0) {
+            if (!modeFitsFramebuffer(mode.r.w, mode.r.h)) {
+                log.warn("virtio-gpu: mode {}x{} exceeds MAX_FB_PAGES, skipping", .{ mode.r.w, mode.r.h });
+                continue;
+            }
             s.fb_width = mode.r.w;
             s.fb_height = mode.r.h;
             return;
@@ -490,6 +496,19 @@ fn getDisplayInfo(s: *GpuState) !void {
     // No enabled mode found.
     s.fb_width = 1024;
     s.fb_height = 768;
+}
+
+/// True if a `w`x`h` framebuffer fits within `MAX_FB_PAGES`. Guards the
+/// `fb_width * fb_height * 4` byte-size computation in `tryInit` from
+/// overflowing: a corrupted/hostile GET_DISPLAY_INFO response could otherwise
+/// report dimensions large enough for that multiplication to wrap (or, in a
+/// safety-checked build, panic). Saturating arithmetic here means an
+/// oversized report saturates to the max instead of wrapping/panicking, so it
+/// always safely fails the `MAX_FB_PAGES` comparison.
+fn modeFitsFramebuffer(w: u32, h: u32) bool {
+    const bytes = (@as(u64, w) *| @as(u64, h)) *| 4;
+    const pages = (bytes +| (PAGE_SIZE - 1)) / PAGE_SIZE;
+    return pages <= MAX_FB_PAGES;
 }
 
 fn sendResourceCreate2d(s: *GpuState) !void {
@@ -525,7 +544,7 @@ fn sendResourceAttachBacking(s: *GpuState) !void {
 
     setDesc(qp_virt, 0, qp_phys + OFF_CMD, @sizeOf(GpuResourceAttachBacking), VRING_DESC_F_NEXT, 1);
 
-    // One pass: write mem entries into physical pages AND build their descriptors.
+    // One pass: write memory entries into physical pages AND build their descriptors.
     //
     // j is a monotone fb_page index in [0, n]. next_j = @min(j + entries_per_page, n)
     // guarantees next_j >= j, so count = next_j - j is always >= 0, no subtraction
@@ -537,6 +556,8 @@ fn sendResourceAttachBacking(s: *GpuState) !void {
         const next_j = @min(j + entries_per_page, n);
         const count = next_j - j; // always in [0, entries_per_page]
         for (0..count) |k| {
+            // `page_va` is a direct-mapped physical entry page this driver just
+            // allocated; `k < count <= entries_per_page` keeps the offset in-page.
             @as(*align(1) GpuMemEntry, @ptrFromInt(page_va + k * @sizeOf(GpuMemEntry))).* = .{
                 .addr = s.fb_pages[j + k].baseAddress().value,
                 .length = PAGE_SIZE,
@@ -568,6 +589,9 @@ fn sendSetScanout(s: *GpuState) !void {
 
 /// Write a command struct into the cmd buffer, return the buffer offset used.
 fn buildCmd(comptime T: type, val: T, qp_virt: usize) usize {
+    // `qp_virt` is this driver's own direct-mapped queue page; `OFF_CMD`
+    // is a fixed in-page offset (see "Total used" note on the `OFF_*`
+    // constants above).
     @as(*align(1) T, @ptrFromInt(qp_virt + OFF_CMD)).* = val;
     return OFF_CMD;
 }
@@ -641,24 +665,30 @@ fn barPhysAddr(func: *innigkeit.pci.Function, bar_idx: u8) ?usize {
     return lo & 0xFFFFFFF0;
 }
 
+// `addr` is always a virtual address this driver itself established.
+// a BAR_mapped `common_cfg`/`notify` register (`allocateSpecial`, see
+// `tryInit`) or an offst into the direct-mapped `queue_page`.
+// this is guaranteed to never be an arbitrary or user-supplied value.
 inline fn mmioR8(addr: usize) u8 {
-    return @as(*volatile u8, @ptrFromInt(addr)).*;
+    return @as(*volatile u8, @ptrFromInt(addr)).*; // see comment above
 }
+
 inline fn mmioR16(addr: usize) u16 {
-    return @as(*volatile u16, @ptrFromInt(addr)).*;
+    return @as(*volatile u16, @ptrFromInt(addr)).*; // see comment above
 }
-inline fn mmioR32(addr: usize) u32 {
-    return @as(*volatile u32, @ptrFromInt(addr)).*;
-}
+
 inline fn mmioW8(addr: usize, v: u8) void {
-    @as(*volatile u8, @ptrFromInt(addr)).* = v;
+    @as(*volatile u8, @ptrFromInt(addr)).* = v; // see comment above
 }
+
 inline fn mmioW16(addr: usize, v: u16) void {
-    @as(*volatile u16, @ptrFromInt(addr)).* = v;
+    @as(*volatile u16, @ptrFromInt(addr)).* = v; // see comment above
 }
+
 inline fn mmioW32(addr: usize, v: u32) void {
-    @as(*volatile u32, @ptrFromInt(addr)).* = v;
+    @as(*volatile u32, @ptrFromInt(addr)).* = v; // see comment above
 }
+
 inline fn mmioW64(addr: usize, v: usize) void {
-    @as(*volatile u64, @ptrFromInt(addr)).* = @intCast(v);
+    @as(*volatile u64, @ptrFromInt(addr)).* = @intCast(v); // see comment above
 }

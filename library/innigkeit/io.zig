@@ -3,8 +3,8 @@
 //! The simple API (`stdin`, `stdout`, `stderr`) covers the common case.
 //! Call `.stdWriter()` on a `Writer` to obtain a `std.Io.Writer` compatible
 //! with stdlib formatting functions (std.json.writeStream, etc.).
-const std = @import("std");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 /// Standard file descriptors, encoded as `usize` for direct syscall use.
 pub const Fd = enum(usize) {

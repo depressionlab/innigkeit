@@ -1,6 +1,6 @@
+const globals = @import("globals.zig");
 const innigkeit = @import("innigkeit");
 const IOAPIC = @import("IOAPIC.zig");
-const globals = @import("globals.zig");
 const SourceOverride = @import("SourceOverride.zig");
 
 const init_log = innigkeit.debug.log.scoped(.ioapic_init);
@@ -13,7 +13,7 @@ pub fn captureMADTInformation(madt: *const innigkeit.acpi.tables.MADT) !void {
             .io_apic => {
                 const io_apic_data = entry.specific.io_apic;
 
-                const register_region_range = try innigkeit.mem.heap.allocateSpecial(
+                const register_region_range = try innigkeit.memory.heap.allocateSpecial(
                     .{
                         .physical_range = .from(
                             .from(io_apic_data.ioapic_address),

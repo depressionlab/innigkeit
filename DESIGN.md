@@ -1,13 +1,6 @@
 # design
 
-uhhhh hhh:
-
-- all 64-bit: x64, arm, riscv (in priority order)
-- limine bootloader first and foremost
-  - then we can do like, multiboot or EFI stub
-- focused on targeting modern and efficient standards
-
-## issues/todo
+## TODO: this whole file
 
 - [ ] library dependency loops?
 - [ ] interrupt handler generation
@@ -20,4 +13,6 @@ uhhhh hhh:
 - [ ] improve disk image layout
 - [ ] `inline for`
 - [ ] library tests need to be run in innigkeit itself, not on the host
-- [ ] include stdlib and other external dependencies in embedded files for stack trace
+- [ ] include stdlib and other external dependencies in embedded files for stack trace (on debug only?)
+- If you're not using resources you're wasting them philosophy from Apple (precaching and whatnot)
+- should "everything be a file"?

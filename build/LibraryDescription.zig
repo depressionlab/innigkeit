@@ -3,7 +3,6 @@
 //! Register libraries in `library/root.zig` as a `[]const LibraryDescription`.
 //! `Library.getLibraries` resolves this slice topologically, panicking on
 //! cycles or missing names.
-const LibraryDescription = @This();
 
 const Bundle = @import("Bundle.zig");
 

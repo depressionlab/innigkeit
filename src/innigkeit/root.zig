@@ -1,13 +1,15 @@
 pub const acpi = @import("acpi/root.zig");
 pub const capabilities = @import("capabilities/root.zig");
 pub const config = @import("config.zig");
-pub const drivers = @import("drivers/root.zig");
+pub const crypto = @import("crypto/root.zig");
 pub const debug = @import("debug/root.zig");
+pub const drivers = @import("drivers/root.zig");
 pub const Executor = @import("Executor.zig");
-pub const fs = @import("fs/root.zig");
+pub const filesystem = @import("filesystem/root.zig");
+pub const firmware = @import("firmware/root.zig");
 pub const init = @import("init/root.zig");
-pub const mem = @import("mem/root.zig");
-pub const net = @import("net/root.zig");
+pub const memory = @import("memory/root.zig");
+pub const network = @import("network/root.zig");
 pub const pci = @import("pci/root.zig");
 pub const sync = @import("sync/root.zig");
 pub const Task = @import("task/Task.zig");
@@ -37,8 +39,8 @@ pub const Context = union(Type) {
 
 // Boot-time hardware security integration tests.
 
-const std = @import("std");
 const builtin = @import("builtin");
+const std = @import("std");
 
 test "x64: SMEP is enforced at runtime (CR4 bit 20)" {
     if (comptime builtin.cpu.arch != .x86_64) return error.SkipZigTest;

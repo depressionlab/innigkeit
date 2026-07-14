@@ -159,7 +159,7 @@ pub const TypeErasedCall = extern struct {
                 }
             }
 
-            const TemplateArgsTuple: type = std.meta.Tuple(template_parameters);
+            const TemplateArgsTuple = @Tuple(template_parameters);
 
             fn NonTemplateArgsTuple(comptime Function: type) type {
                 @setEvalBranchQuota(10_000);
@@ -191,11 +191,26 @@ pub const TypeErasedCall = extern struct {
                     argument_field_list[i] = T;
                 }
 
-                return std.meta.Tuple(&argument_field_list);
+                return @Tuple(&argument_field_list);
             }
         };
     }
 };
+
+test "TypeErasedCall: round-trips a signed-tag-type enum argument" {
+    const Signal = enum(i8) { stop = -1, go = 1 };
+
+    const static = struct {
+        var seen: ?Signal = null;
+        fn record(signal: Signal) void {
+            seen = signal;
+        }
+    };
+
+    const call = TypeErasedCall.prepare(static.record, .{Signal.stop});
+    call.call();
+    try std.testing.expectEqual(Signal.stop, static.seen.?);
+}
 
 inline fn usizeFromArg(arg: anytype) usize {
     const ArgT = @TypeOf(arg);
@@ -206,46 +221,46 @@ inline fn usizeFromArg(arg: anytype) usize {
         .bool => return @intFromBool(arg),
         .int => |int| return if (int.signedness == .signed) @bitCast(@as(isize, arg)) else arg,
         .float => {
-            const int_value: std.meta.Int(.unsigned, @sizeOf(ArgT) * 8) = @bitCast(arg);
+            const int_value: @Int(.unsigned, @sizeOf(ArgT) * 8) = @bitCast(arg);
             return int_value;
         },
         .pointer => return @intFromPtr(arg),
         .array => {
-            const int_value: std.meta.Int(.unsigned, @sizeOf(ArgT) * 8) = @bitCast(arg);
+            const int_value: @Int(.unsigned, @sizeOf(ArgT) * 8) = @bitCast(arg);
             return int_value;
         },
         .@"struct" => |stru| switch (stru.layout) {
             .@"extern", .@"packed" => {
-                const int_value: std.meta.Int(.unsigned, @sizeOf(ArgT) * 8) = @bitCast(arg);
+                const int_value: @Int(.unsigned, @sizeOf(ArgT) * 8) = @bitCast(arg);
                 return int_value;
             },
             .auto => {
                 const bytes = std.mem.asBytes(&arg);
-                const int_value: std.meta.Int(.unsigned, @sizeOf(ArgT) * 8) = @bitCast(bytes.*);
+                const int_value: @Int(.unsigned, @sizeOf(ArgT) * 8) = @bitCast(bytes.*);
                 return int_value;
             },
         },
         .optional => |opt| {
             if (comptime @typeInfo(opt.child) != .pointer) {
                 const bytes = std.mem.asBytes(&arg);
-                const int_value: std.meta.Int(.unsigned, @sizeOf(ArgT) * 8) = @bitCast(bytes.*);
+                const int_value: @Int(.unsigned, @sizeOf(ArgT) * 8) = @bitCast(bytes.*);
                 return int_value;
             }
             return @intFromPtr(arg);
         },
         .error_set => return @intFromError(arg),
         .@"enum" => |enu| return if (@typeInfo(enu.tag_type).int.signedness == .signed)
-            @bitCast(@intFromEnum(arg))
+            @bitCast(@as(isize, @intFromEnum(arg)))
         else
             @intFromEnum(arg),
         .@"union" => |uni| switch (uni.layout) {
             .@"extern", .@"packed" => {
-                const int_value: std.meta.Int(.unsigned, @sizeOf(ArgT) * 8) = @bitCast(arg);
+                const int_value: @Int(.unsigned, @sizeOf(ArgT) * 8) = @bitCast(arg);
                 return int_value;
             },
             .auto => {
                 const bytes = std.mem.asBytes(&arg);
-                const int_value: std.meta.Int(.unsigned, @sizeOf(ArgT) * 8) = @bitCast(bytes.*);
+                const int_value: @Int(.unsigned, @sizeOf(ArgT) * 8) = @bitCast(bytes.*);
                 return int_value;
             },
         },
@@ -264,16 +279,18 @@ inline fn argFromUsize(comptime ArgT: type, value: usize) ArgT {
             return @truncate(value);
         },
         .float => {
-            const int_value: std.meta.Int(.unsigned, @sizeOf(ArgT) * 8) = @truncate(value);
+            const int_value: @Int(.unsigned, @sizeOf(ArgT) * 8) = @truncate(value);
             return @bitCast(int_value);
         },
+        // `value` is always `usizeFromArg`'s `@intFromPtr(arg)` for a pointer-typed
+        // argument. The two functions are exact inverses of this packing scheme.
         .pointer => return @ptrFromInt(value),
         .array => {
-            const int_value: std.meta.Int(.unsigned, @sizeOf(ArgT) * 8) = @truncate(value);
+            const int_value: @Int(.unsigned, @sizeOf(ArgT) * 8) = @truncate(value);
             return @bitCast(int_value);
         },
         .@"struct" => |stru| {
-            const int_value: std.meta.Int(.unsigned, @sizeOf(ArgT) * 8) = @truncate(value);
+            const int_value: @Int(.unsigned, @sizeOf(ArgT) * 8) = @truncate(value);
             return switch (stru.layout) {
                 .@"extern", .@"packed" => @bitCast(int_value),
                 .auto => std.mem.bytesToValue(ArgT, std.mem.asBytes(&int_value)),
@@ -281,13 +298,14 @@ inline fn argFromUsize(comptime ArgT: type, value: usize) ArgT {
         },
         .optional => |opt| {
             if (comptime @typeInfo(opt.child) != .pointer) {
-                const int_value: std.meta.Int(.unsigned, @sizeOf(ArgT) * 8) = @truncate(value);
+                const int_value: @Int(.unsigned, @sizeOf(ArgT) * 8) = @truncate(value);
                 return std.mem.bytesToValue(ArgT, std.mem.asBytes(&int_value));
             }
+            // same inverse-of-usizeFromArg packing as the `.pointer` case above.
             return @ptrFromInt(value);
         },
         .error_set => {
-            const int_value: std.meta.Int(.unsigned, @sizeOf(ArgT) * 8) = @truncate(value);
+            const int_value: @Int(.unsigned, @sizeOf(ArgT) * 8) = @truncate(value);
             return @errorCast(@errorFromInt(int_value));
         },
         .@"enum" => |enu| {
@@ -298,7 +316,7 @@ inline fn argFromUsize(comptime ArgT: type, value: usize) ArgT {
             return @enumFromInt(@as(enu.tag_type, @truncate(value)));
         },
         .@"union" => |uni| {
-            const int_value: std.meta.Int(.unsigned, @sizeOf(ArgT) * 8) = @truncate(value);
+            const int_value: @Int(.unsigned, @sizeOf(ArgT) * 8) = @truncate(value);
             return switch (uni.layout) {
                 .@"extern", .@"packed" => @bitCast(int_value),
                 .auto => std.mem.bytesToValue(ArgT, std.mem.asBytes(&int_value)),

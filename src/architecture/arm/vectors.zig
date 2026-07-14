@@ -14,10 +14,10 @@
 //! script places 2 KiB-aligned at the very start of `.text`, guaranteeing the
 //! `vector_table` symbol address is a legal VBAR_EL1 value.
 
-const std = @import("std");
 const arm = @import("arm.zig");
-const innigkeit = @import("innigkeit");
 const gic = @import("gic.zig");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 /// sizeof(InterruptFrame) = 31*8 + 8 + 8 + 8 = 272
 const FRAME_SIZE = @sizeOf(arm.InterruptFrame);

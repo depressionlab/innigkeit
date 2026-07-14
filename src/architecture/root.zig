@@ -31,14 +31,14 @@ pub fn earlyDebugWrite(s: []const u8) void {
     f(s);
 }
 
+pub const Decls = @import("Decls.zig");
+pub const Functions = @import("Functions.zig");
+pub const init = @import("init.zig");
 pub const interrupts = @import("interrupts.zig");
+pub const io = @import("io.zig");
 pub const paging = @import("paging.zig");
 pub const scheduling = @import("scheduling.zig");
 pub const user = @import("user.zig");
-pub const io = @import("io.zig");
-pub const init = @import("init.zig");
-pub const Functions = @import("Functions.zig");
-pub const Decls = @import("Decls.zig");
 
 const current_interface = switch (current_arch) {
     .arm => @import("arm/interface.zig"),

@@ -3,7 +3,7 @@ const std = @import("std");
 const architecture = @import("architecture");
 const bitjuggle = @import("bitjuggle");
 const innigkeit = @import("innigkeit");
-const MapType = innigkeit.mem.MapType;
+const MapType = innigkeit.memory.MapType;
 const core = @import("core");
 
 const x64 = @import("../x64.zig");
@@ -62,7 +62,7 @@ pub const PageTable = extern struct {
     ///
     /// **REQUIREMENTS**:
     /// - The provided physical page must be accessible in the direct map.
-    pub fn create(physical_page: innigkeit.mem.PhysicalPage.Index) *PageTable {
+    pub fn create(physical_page: innigkeit.memory.PhysicalPage.Index) *PageTable {
         const page_table = physical_page.baseAddress().toDirectMap().toPtr(*PageTable);
         page_table.zero();
         return page_table;
@@ -85,13 +85,13 @@ pub const PageTable = extern struct {
     pub fn map4KiB(
         level4_table: *PageTable,
         virtual_address: innigkeit.VirtualAddress,
-        phys_page: innigkeit.mem.PhysicalPage.Index,
+        phys_page: innigkeit.memory.PhysicalPage.Index,
         map_type: MapType,
-        physical_page_allocator: innigkeit.mem.PhysicalPage.Allocator,
-    ) innigkeit.mem.MapError!void {
+        physical_page_allocator: innigkeit.memory.PhysicalPage.Allocator,
+    ) innigkeit.memory.MapError!void {
         if (core.is_debug) std.debug.assert(virtual_address.pageAligned());
 
-        var deallocate_page_list: innigkeit.mem.PhysicalPage.List = .{};
+        var deallocate_page_list: innigkeit.memory.PhysicalPage.List = .{};
         errdefer physical_page_allocator.deallocate(deallocate_page_list);
 
         const level4_entries = level4_table.entries();
@@ -163,13 +163,23 @@ pub const PageTable = extern struct {
     /// This function:
     ///  - only supports the standard page size for the architecture
     ///  - does not flush the TLB
+    ///
+    /// `top_level_decision` only gates freeing an emptied level-3 table (the
+    /// one a level-4/PML4 entry points to); emptied level-2/level-1 tables
+    /// are always freed regardless. This asymmetry is deliberate: level-3
+    /// tables for the kernel half of the address space are shared across
+    /// every process's page table (copied entry-for-entry by
+    /// `copyTopLevelIntoPageTable`), so callers pass `.keep` for the kernel
+    /// context to avoid tearing down a structure other address spaces still
+    /// reference; user-context callers pass `.free` since a user address
+    /// space's level-3 tables are never shared.
     pub fn unmap(
         level4_table: *PageTable,
         virtual_range: innigkeit.VirtualRange,
         backing_page_decision: core.CleanupDecision,
         top_level_decision: core.CleanupDecision,
-        flush_batch: *innigkeit.mem.VirtualRangeBatch,
-        deallocate_page_list: *innigkeit.mem.PhysicalPage.List,
+        flush_batch: *innigkeit.memory.VirtualRangeBatch,
+        deallocate_page_list: *innigkeit.memory.PhysicalPage.List,
     ) void {
         if (core.is_debug) std.debug.assert(virtual_range.pageAligned());
 
@@ -328,7 +338,7 @@ pub const PageTable = extern struct {
         virtual_range: innigkeit.VirtualRange,
         previous_map_type: MapType,
         new_map_type: MapType,
-        flush_batch: *innigkeit.mem.VirtualRangeBatch,
+        flush_batch: *innigkeit.memory.VirtualRangeBatch,
     ) void {
         if (core.is_debug) std.debug.assert(virtual_range.pageAligned());
 
@@ -1015,7 +1025,7 @@ pub const PageTable = extern struct {
                         } else {
                             try writer.print(
                                 "    [{d:0>3}] 2MiB 0x{x:0>16} -> 0x{x:0>16} ",
-                                .{ level3_index, level3_range.address.value, physical.value },
+                                .{ level2_index, level2_range.address.value, physical.value },
                             );
                             try level2_entry.printHugeEntryFlags(writer);
                             try writer.writeByte('\n');
@@ -1113,7 +1123,7 @@ pub const PageTable = extern struct {
         pub fn fillTopLevel(
             page_table: *PageTable,
             range: innigkeit.VirtualRange,
-            physical_page_allocator: innigkeit.mem.PhysicalPage.Allocator,
+            physical_page_allocator: innigkeit.memory.PhysicalPage.Allocator,
         ) !void {
             const size_of_top_level_entry = architecture.paging.init.sizeOfTopLevelEntry();
             if (core.is_debug) {
@@ -1149,7 +1159,7 @@ pub const PageTable = extern struct {
             virtual_range: innigkeit.VirtualRange,
             physical_range: innigkeit.PhysicalRange,
             map_type: MapType,
-            physical_page_allocator: innigkeit.mem.PhysicalPage.Allocator,
+            physical_page_allocator: innigkeit.memory.PhysicalPage.Allocator,
         ) !void {
             if (core.is_debug) {
                 std.debug.assert(virtual_range.pageAligned());
@@ -1305,7 +1315,7 @@ pub const PageTable = extern struct {
 /// Returns the next table and whether it had to be created by this function or not.
 fn ensureNextTable(
     raw_entry: *volatile PageTable.Entry.Raw,
-    physical_page_allocator: innigkeit.mem.PhysicalPage.Allocator,
+    physical_page_allocator: innigkeit.memory.PhysicalPage.Allocator,
 ) !struct { *PageTable, bool } {
     var created_table = false;
 

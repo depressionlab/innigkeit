@@ -3,12 +3,14 @@
 //! Draws color bands, circles, rectangles, diagonal lines, text, and a
 //! gradient. Waits up to 30 seconds for any keypress, then exits.
 
-const std = @import("std");
 const innigkeit = @import("innigkeit");
-const gfx = innigkeit.graphics;
+const std = @import("std");
 
 pub fn main() void {
     const fb = innigkeit.display.framebufferMap() catch |err| {
+        // Best-effort: this is the failure report itself, with no
+        // meaningful recovery path in this demo app.
+        // zlinter-disable-next-line no_swallow_error
         innigkeit.io.stdout.print("gfx_demo: framebuffer_map failed: {}\n", .{err}) catch {};
         return;
     };

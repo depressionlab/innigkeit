@@ -5,10 +5,10 @@
 //! Interrupts are disabled while locked.
 const TicketSpinLock = @This();
 
-const std = @import("std");
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 // Cache-line-aligned marker first so embedding this lock can't false-share its
 // atomic with a preceding field.

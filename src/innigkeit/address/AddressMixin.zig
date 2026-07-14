@@ -1,7 +1,7 @@
-const std = @import("std");
 const architecture = @import("architecture");
 const core = @import("core");
 const root = @import("root.zig");
+const std = @import("std");
 
 pub fn AddressMixin(comptime Address: type) type {
     return struct {

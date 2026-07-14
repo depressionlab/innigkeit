@@ -1,11 +1,5 @@
 // The "mixins" in this file have signatures only to help ZLS realize they are "methods".
 
-const std = @import("std");
-
-const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
-const core = @import("core");
-
 pub const VirtualAddress = @import("VirtualAddress.zig").VirtualAddress;
 pub const KernelVirtualAddress = @import("KernelVirtualAddress.zig").KernelVirtualAddress;
 pub const UserVirtualAddress = @import("UserVirtualAddress.zig").UserVirtualAddress;

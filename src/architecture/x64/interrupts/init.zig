@@ -1,9 +1,9 @@
-const std = @import("std");
-const interrupt_handlers = @import("handlers.zig");
 const globals = @import("globals.zig");
+const interrupt_handlers = @import("handlers.zig");
+const std = @import("std");
 const Interrupt = @import("Interrupt.zig").Interrupt;
 const InterruptStackSelector = @import("InterruptStackSelector.zig").InterruptStackSelector;
-const Name = @import("innigkeit").mem.arena.Name;
+const Name = @import("innigkeit").memory.arena.Name;
 
 /// Ensure that any exceptions/faults that occur during early initialization are handled.
 ///

@@ -35,8 +35,8 @@
 //!   that take an `Io` parameter; see library/innigkeit/stdio.zig.
 //! * `std.fs`: is not supported for `.os = .other`; use initfs for read-only
 //!   init-time files and future VFS capability for general file I/O.
-const std = @import("std");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 pub const debug_io = @import("debug_io.zig").debug_io;
 

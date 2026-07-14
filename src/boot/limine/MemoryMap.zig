@@ -11,13 +11,13 @@
 //! To the contrary, all non-usable entries (including executable/modules) are not guaranteed any alignment, nor is it guaranteed that they
 //! do not overlap other entries.
 
+const core = @import("core");
+const innigkeit = @import("innigkeit");
 const root = @import("root.zig");
 const std = @import("std");
-const innigkeit = @import("innigkeit");
-const core = @import("core");
 
 pub const Request = extern struct {
-    id: [4]u64 = root.id(0x67cf3d9d378a806f, 0xe304acdfc50c3c62),
+    id: [4]u64 = root.id(0x67CF3D9D378A806F, 0xE304ACDFC50C3C62),
     revision: u64 = 0,
 
     response: ?*const Response = null,

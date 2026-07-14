@@ -1,8 +1,8 @@
 const WaitQueue = @This();
 
-const std = @import("std");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 waiting_tasks: core.containers.FIFO = .{},
 
@@ -60,6 +60,7 @@ pub fn wait(self: *WaitQueue, spinlock: *innigkeit.sync.TicketSpinLock) void {
     scheduler_handle.block(.{
         .action = struct {
             fn action(old_task: *innigkeit.Task, arg: usize) void {
+                // `arg` is always `@intFromPtr(spinlock)` from the single call site below.
                 const inner_spinlock: *innigkeit.sync.TicketSpinLock = @ptrFromInt(arg);
 
                 old_task.state = .blocked;

@@ -1,9 +1,9 @@
 const LoadableRegion = @This();
 
-const std = @import("std");
 const architecture = @import("architecture");
 const core = @import("core");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 const log = innigkeit.debug.log.scoped(.user);
 
 /// The virtual range to allocate in the address space.
@@ -12,7 +12,7 @@ const log = innigkeit.debug.log.scoped(.user);
 virtual_range: innigkeit.UserVirtualRange,
 
 /// The protection to use for the mapping.
-protection: innigkeit.mem.MapType.Protection,
+protection: innigkeit.memory.MapType.Protection,
 
 /// The offset into the source data to copy from.
 source_base: usize,
@@ -60,7 +60,7 @@ pub const Iterator = struct {
             }
 
             const new_protection = blk: {
-                var prot: innigkeit.mem.MapType.Protection = .{};
+                var prot: innigkeit.memory.MapType.Protection = .{};
 
                 if (program_header.flags.read) prot.read = true;
                 if (program_header.flags.execute) prot.execute = true;

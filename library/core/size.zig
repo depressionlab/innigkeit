@@ -1,5 +1,5 @@
-const std = @import("std");
 const core = @import("core");
+const std = @import("std");
 
 /// Represents a size in bytes.
 pub const Size = extern struct {

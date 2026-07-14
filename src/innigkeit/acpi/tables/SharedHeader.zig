@@ -94,3 +94,26 @@ pub const SharedHeader = extern struct {
         );
     }
 };
+
+test "fuzz: SharedHeader.isValid never panics or reads out of bounds" {
+    try std.testing.fuzz({}, fuzzIsValid, .{});
+}
+
+fn fuzzIsValid(context: void, smith: *std.testing.Smith) !void {
+    _ = context;
+
+    var buf: [128]u8 align(@alignOf(SharedHeader)) = undefined;
+    smith.bytes(&buf);
+
+    // isValid() trusts the caller to guarantee `length` bytes are actually
+    // available starting at the header's own address (that's the
+    // real-world precondition, that a table is always parsed from a buffer
+    // already sized to its own claimed length). Clamp the fuzzed length to
+    // this harness's buffer so the harness itself never reads out of
+    // bounds; the property under test is that isValid() never panics for
+    // any byte content once that precondition holds.
+    const header: *SharedHeader = @ptrCast(&buf);
+    header.length = @min(header.length, buf.len);
+
+    _ = header.isValid();
+}

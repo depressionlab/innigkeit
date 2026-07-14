@@ -1,8 +1,8 @@
 const ProgramHeader = @import("ProgramHeader.zig");
 
-const std = @import("std");
 const core = @import("core");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 /// What kind of segment this describes or how to interpret the information.
 type: Type,
@@ -36,6 +36,16 @@ memory_size: core.Size,
 /// Otherwise, `alignment` should be a positive, integral power of 2, and `virtual_address` should equal `offset`
 /// modulo `alignment`.
 alignment: u64,
+
+/// The minimum `program_header_entry_size` this parser can read: the native raw struct size for
+/// the given ELF class. A file whose `e_phentsize` is smaller than this cannot actually hold one
+/// of the fields `Iterator.next` reads, and must be rejected before iterating rather than trusted.
+pub fn requiredEntrySize(is_64: bool) u64 {
+    return if (is_64)
+        @sizeOf(RawElf64ProgramHeader)
+    else
+        @sizeOf(RawElf32ProgramHeader);
+}
 
 pub const Iterator = struct {
     header: *const innigkeit.user.elf.Header,
@@ -139,7 +149,7 @@ pub const Type = enum(u32) {
     tls = 7,
 
     /// .eh_frame_hdr segment
-    gnu_eh_frame = 0x6474e550,
+    gnu_eh_frame = 0x6474E550,
 
     _,
 
@@ -147,13 +157,13 @@ pub const Type = enum(u32) {
     pub const LOOS = 0x60000000;
 
     /// End of OS-specific types
-    pub const HIOS = 0x6fffffff;
+    pub const HIOS = 0x6FFFFFFF;
 
     /// Beginning of processor-specific types
     pub const LOPROC = 0x70000000;
 
     /// End of processor-specific types
-    pub const HIPROC = 0x7fffffff;
+    pub const HIPROC = 0x7FFFFFFF;
 };
 
 pub const Flags = packed struct(u32) {
@@ -164,12 +174,12 @@ pub const Flags = packed struct(u32) {
     _reserved: u29,
 
     /// All bits included in the `MASKOS` mask are reserved for operating system-specific semantics.
-    pub const MASKOS: u32 = 0x0ff00000;
+    pub const MASKOS: u32 = 0x0FF00000;
 
     /// All bits included in the `MASKPROC` mask are reserved for processor-specific semantics.
     ///
     /// If meanings are specified, the psABI supplement explains them.
-    pub const MASKPROC: u32 = 0xf0000000;
+    pub const MASKPROC: u32 = 0xF0000000;
 
     pub fn print(self: *const Flags, writer: *std.Io.Writer, indent: usize) !void {
         const new_indent = indent + 2;

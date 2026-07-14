@@ -1,8 +1,8 @@
 //! Functionality that is used during kernel init only.
 
-const innigkeit = @import("innigkeit");
-const core = @import("core");
 const architecture = @import("architecture");
+const core = @import("core");
+const innigkeit = @import("innigkeit");
 
 /// Read current wallclock time from the standard wallclock source of the current architecture.
 ///

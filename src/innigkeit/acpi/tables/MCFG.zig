@@ -13,12 +13,15 @@ pub const MCFG = extern struct {
     _base_allocations_start: BaseAllocation align(1),
 
     pub fn baseAllocations(mcfg: *const MCFG) []const BaseAllocation {
+        const fixed_size = @sizeOf(acpi.tables.SharedHeader) + @sizeOf(u64);
+
+        // header.length is firmware-supplied; a table shorter than the fixed
+        // portion (no room even for the reserved field, let alone an entry)
+        // would underflow this subtraction and produce a huge slice length.
+        if (mcfg.header.length < fixed_size) return &.{};
         const base_allocations_ptr: [*]const BaseAllocation = @ptrCast(&mcfg._base_allocations_start);
-
-        const size_of_base_allocations = mcfg.header.length - (@sizeOf(acpi.tables.SharedHeader) + @sizeOf(u64));
-
+        const size_of_base_allocations = mcfg.header.length - fixed_size;
         if (core.is_debug) std.debug.assert(size_of_base_allocations % @sizeOf(BaseAllocation) == 0);
-
         return base_allocations_ptr[0 .. size_of_base_allocations / @sizeOf(BaseAllocation)];
     }
 

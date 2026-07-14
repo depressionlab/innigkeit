@@ -1,8 +1,10 @@
 {
-    "recommendations": [
-        "ziglang.vscode-zig",
-        "EditorConfig.EditorConfig",
-        "usernamehw.errorlens",
-        "tamasfe.even-better-toml",
-    ],
+	"recommendations": [
+		"ziglang.vscode-zig",
+		"EditorConfig.EditorConfig",
+		"usernamehw.errorlens",
+		"tamasfe.even-better-toml",
+		"vadimcn.vscode-lldb",
+		"llvm-vs-code-extensions.lldb-dap"
+	],
 }

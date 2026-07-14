@@ -1,6 +1,6 @@
+const globals = @import("globals.zig");
 const innigkeit = @import("innigkeit");
 const x64 = @import("../x64.zig");
-const globals = @import("globals.zig");
 
 const init_log = innigkeit.debug.log.scoped(.user_init);
 

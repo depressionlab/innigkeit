@@ -65,6 +65,8 @@ pub const Node = struct {
     }
 
     pub fn parent(self: @This()) ?*Node {
+        // Inverse of `setParent`'s `>> 3` truncation. `setParent` asserts
+        // the low 3 bits of any stored pointer are zero (8-byte `Node` alignment).
         return @ptrFromInt(@as(u64, self.extra.ptr) << 3);
     }
 

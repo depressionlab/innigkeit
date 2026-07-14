@@ -8,15 +8,15 @@ const root = @import("../main.zig");
 
 pub const Context = @import("Context.zig");
 pub const DateTime = @import("DateTime.zig");
-pub const Name = @import("Name.zig");
 pub const Directory = @import("Directory.zig");
+pub const Name = @import("Name.zig");
 
 pub fn create(allocator: std.mem.Allocator, io: std.Io, partition: ImageDescription.Partition, slice: []u8) !void {
     const sector_size = root.disk_block_size;
 
     const root_cluster = 2;
     const number_of_fat = 2;
-    const sectors_per_fat = 0x3f1; // TODO: Why 1009?
+    const sectors_per_fat = 0x3F1; // TODO: Why 1009?
     const sectors_per_cluster = 1;
     const sectors_per_track = 32;
     const number_of_heads = 16;
@@ -43,6 +43,8 @@ pub fn create(allocator: std.mem.Allocator, io: std.Io, partition: ImageDescript
         .large_sector_count = @intCast(number_of_sectors),
     };
 
+    // `ExtendedBPB_32` is the on-disk FAT32 layout immediately following BPB;
+    // `bpb` points into `slice`, which is sized for at least one whole sector.
     const ebpb: *filesystem.fat.ExtendedBPB_32 = @ptrFromInt(@intFromPtr(bpb) + @sizeOf(filesystem.fat.BPB));
     ebpb.* = filesystem.fat.ExtendedBPB_32{
         .sectors_per_fat = sectors_per_fat,
@@ -56,7 +58,7 @@ pub fn create(allocator: std.mem.Allocator, io: std.Io, partition: ImageDescript
         .backup_boot_sector = 0x6,
         .drive_number = 0x80,
         .extended_boot_signature = 0x29,
-        .volume_id = 0xa96b2625, // TODO
+        .volume_id = 0xA96B2625, // TODO
         .volume_label = [_]u8{ 'N', 'O', ' ', 'N', 'A', 'M', 'E', ' ', ' ', ' ', ' ' }, // TODO
     };
     const boot_code_ptr: *@TypeOf(ebpb_boot_code) = @ptrCast(&ebpb.boot_code);
@@ -102,10 +104,10 @@ pub fn create(allocator: std.mem.Allocator, io: std.Io, partition: ImageDescript
     );
 
     // BPB media in lower byte and all ones elsewhere
-    context.setFAT(0, @enumFromInt(0xfffff00 | @as(u32, @intFromEnum(bpb.media_descriptor_type))));
+    context.setFAT(0, @enumFromInt(0xFFFFF00 | @as(u32, @intFromEnum(bpb.media_descriptor_type))));
 
     // Reserved entry
-    context.setFAT(1, @enumFromInt(0xfffffff));
+    context.setFAT(1, @enumFromInt(0xFFFFFFF));
 
     // Root directory end of chain
     context.setFAT(root_cluster, filesystem.fat.FAT32Entry.end_of_chain);
@@ -126,12 +128,12 @@ fn addFilesAndDirectoriesToFAT(context: *Context, allocator: std.mem.Allocator, 
     for (partition.entries) |entry| {
         switch (entry) {
             .file => |file| {
-                const parent_dir_path = std.fs.path.dirname(file.destination_path) orelse {
+                const parent_dir_path = std.Io.Dir.path.dirname(file.destination_path) orelse {
                     std.debug.panic("file entry with invalid destination path: '{s}'!", .{file.destination_path});
                 };
                 const parent_directory = try ensureFATDirectory(context, allocator, parent_dir_path);
 
-                const file_name = std.fs.path.basename(file.destination_path);
+                const file_name = std.Io.Dir.path.basename(file.destination_path);
 
                 const name = try Name.create(allocator, file_name);
                 defer name.deinit();
@@ -166,37 +168,37 @@ fn ensureFATDirectory(context: *Context, allocator: std.mem.Allocator, path: []c
 }
 
 const ebpb_boot_code = [_]u8{
-    0x0e, 0x1f, 0xbe, 0x77,
-    0x7c, 0xac, 0x22, 0xc0,
-    0x74, 0x0b, 0x56, 0xb4,
-    0x0e, 0xbb, 0x07, 0x00,
-    0xcd, 0x10, 0x5e, 0xeb,
-    0xf0, 0x32, 0xe4, 0xcd,
-    0x16, 0xcd, 0x19, 0xeb,
-    0xfe, 0x54, 0x68, 0x69,
+    0x0E, 0x1F, 0xBE, 0x77,
+    0x7C, 0xAC, 0x22, 0xC0,
+    0x74, 0x0B, 0x56, 0xB4,
+    0x0E, 0xBB, 0x07, 0x00,
+    0xCD, 0x10, 0x5E, 0xEB,
+    0xF0, 0x32, 0xE4, 0xCD,
+    0x16, 0xCD, 0x19, 0xEB,
+    0xFE, 0x54, 0x68, 0x69,
     0x73, 0x20, 0x69, 0x73,
-    0x20, 0x6e, 0x6f, 0x74,
+    0x20, 0x6E, 0x6F, 0x74,
     0x20, 0x61, 0x20, 0x62,
-    0x6f, 0x6f, 0x74, 0x61,
-    0x62, 0x6c, 0x65, 0x20,
-    0x64, 0x69, 0x73, 0x6b,
-    0x2e, 0x20, 0x20, 0x50,
-    0x6c, 0x65, 0x61, 0x73,
-    0x65, 0x20, 0x69, 0x6e,
+    0x6F, 0x6F, 0x74, 0x61,
+    0x62, 0x6C, 0x65, 0x20,
+    0x64, 0x69, 0x73, 0x6B,
+    0x2E, 0x20, 0x20, 0x50,
+    0x6C, 0x65, 0x61, 0x73,
+    0x65, 0x20, 0x69, 0x6E,
     0x73, 0x65, 0x72, 0x74,
     0x20, 0x61, 0x20, 0x62,
-    0x6f, 0x6f, 0x74, 0x61,
-    0x62, 0x6c, 0x65, 0x20,
-    0x66, 0x6c, 0x6f, 0x70,
+    0x6F, 0x6F, 0x74, 0x61,
+    0x62, 0x6C, 0x65, 0x20,
+    0x66, 0x6C, 0x6F, 0x70,
     0x70, 0x79, 0x20, 0x61,
-    0x6e, 0x64, 0x0d, 0x0a,
+    0x6E, 0x64, 0x0D, 0x0A,
     0x70, 0x72, 0x65, 0x73,
-    0x73, 0x20, 0x61, 0x6e,
-    0x79, 0x20, 0x6b, 0x65,
-    0x79, 0x20, 0x74, 0x6f,
+    0x73, 0x20, 0x61, 0x6E,
+    0x79, 0x20, 0x6B, 0x65,
+    0x79, 0x20, 0x74, 0x6F,
     0x20, 0x74, 0x72, 0x79,
     0x20, 0x61, 0x67, 0x61,
-    0x69, 0x6e, 0x20, 0x2e,
-    0x2e, 0x2e, 0x20, 0x0d,
-    0x0a,
+    0x69, 0x6E, 0x20, 0x2E,
+    0x2E, 0x2E, 0x20, 0x0D,
+    0x0A,
 };

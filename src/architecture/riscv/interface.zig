@@ -1,6 +1,6 @@
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 
 const riscv = @import("riscv.zig");
 
@@ -33,6 +33,7 @@ pub const functions: architecture.Functions = .{
 
         .getCurrentTask = struct {
             inline fn getCurrentTask() *innigkeit.Task {
+                // safe: setCurrentTask is the only writer, always a real *Task.
                 return @ptrFromInt(riscv.registers.SupervisorScratch.read());
             }
         }.getCurrentTask,
@@ -91,8 +92,8 @@ pub const functions: architecture.Functions = .{
 };
 
 const standard_page_size: core.Size = .from(4, .kib);
-
 const size_of_address_space_half = core.Size.from(128, .tib).subtract(standard_page_size);
+const size_of_user_address_space_half = size_of_address_space_half.subtract(standard_page_size);
 
 pub const decls: architecture.Decls = .{
     .PerExecutor = struct { hartid: u32 },
@@ -107,7 +108,7 @@ pub const decls: architecture.Decls = .{
         .standard_page_size = standard_page_size,
         .largest_page_size = .from(1, .gib),
         .kernel_memory_range = .from(
-            innigkeit.VirtualAddress.from(0xffff800000000000),
+            innigkeit.VirtualAddress.from(0xFFFF800000000000),
             size_of_address_space_half,
         ),
         .PageTable = extern struct {},
@@ -127,7 +128,7 @@ pub const decls: architecture.Decls = .{
         .SyscallFrame = struct {},
         .user_memory_range = .from(
             innigkeit.VirtualAddress.zero.moveForward(standard_page_size),
-            size_of_address_space_half,
+            size_of_user_address_space_half,
         ),
     },
 

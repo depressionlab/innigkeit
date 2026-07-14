@@ -2565,19 +2565,26 @@ pub const Resources = extern struct {
     pub fn iterate(resources: *const Resources) Iterator {
         return .{
             .data = @ptrCast(resources.entries),
+            .bytes_left = resources.length,
         };
     }
 
     pub const Iterator = struct {
         data: [*]const u8,
+        bytes_left: usize,
 
+        /// Mirrors the bounds-checking `uacpi for each resource` (the vendored
+        /// C helper this iterator replaces) performs on each entry: refuses to
+        /// trust a firmware/AML-derived `length` past what's left in the buffer,
+        /// and never advances by zero (a zero-length non-end-tag entry would
+        /// otherwise loop forever).
         pub fn next(iterator: *Iterator) ?*const Resource {
+            if (iterator.bytes_left < @sizeOf(Resource.Type) + @sizeOf(u32)) return null;
             const current: *const Resource = @ptrCast(@alignCast(iterator.data));
-
             if (current.type == .end_tag) return null;
-
+            if (current.length == 0 or current.length > iterator.bytes_left) return null;
             iterator.data += current.length;
-
+            iterator.bytes_left -= current.length;
             return current;
         }
     };

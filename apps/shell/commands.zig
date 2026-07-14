@@ -1,8 +1,10 @@
-const std = @import("std");
+// zlinter-disable no_swallow_error - every catch here is a shell console
+// print with no meaningful recovery path.
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
-const environment = @import("environment.zig");
 const completions = @import("completions.zig");
+const environment = @import("environment.zig");
 const LineEditor = @import("LineEditor.zig");
 const write = @import("main.zig").write;
 
@@ -151,7 +153,7 @@ fn cmdEnv() void {
 }
 
 fn cmdExport(args: []const u8) void {
-    const eq = std.mem.indexOfScalar(u8, args, '=') orelse {
+    const eq = std.mem.findScalar(u8, args, '=') orelse {
         writeln("export: usage: export KEY=VALUE");
         return;
     };
@@ -199,8 +201,8 @@ fn cmdLs() void {
     write("\n");
 }
 
-fn parseIp4(s: []const u8) ?innigkeit.net.Ip4 {
-    var ip: innigkeit.net.Ip4 = undefined;
+fn parseIp4(s: []const u8) ?innigkeit.network.Ip4 {
+    var ip: innigkeit.network.Ip4 = undefined;
     var it = std.mem.splitScalar(u8, s, '.');
     for (&ip) |*b| {
         const tok = it.next() orelse return null;
@@ -212,7 +214,7 @@ fn parseIp4(s: []const u8) ?innigkeit.net.Ip4 {
 
 fn cmdIfconfig(argc: usize, argv: [][]const u8) u8 {
     if (argc < 2) {
-        if (innigkeit.net.getMac()) |mac| {
+        if (innigkeit.network.getMac()) |mac| {
             innigkeit.io.stdout.print("eth0: mac={x:0>2}:{x:0>2}:{x:0>2}:{x:0>2}:{x:0>2}:{x:0>2}\n", .{ mac[0], mac[1], mac[2], mac[3], mac[4], mac[5] }) catch {};
         } else {
             writeln("eth0: no NIC");
@@ -223,7 +225,7 @@ fn cmdIfconfig(argc: usize, argv: [][]const u8) u8 {
         writeln("ifconfig: bad address (use A.B.C.D)");
         return 1;
     };
-    innigkeit.net.setIp(ip);
+    innigkeit.network.setIp(ip);
     innigkeit.io.stdout.print("eth0: ip set to {d}.{d}.{d}.{d}\n", .{ ip[0], ip[1], ip[2], ip[3] }) catch {};
     return 0;
 }
@@ -239,7 +241,7 @@ fn cmdPing(args: []const u8) u8 {
         return 1;
     };
     innigkeit.io.stdout.print("PING {d}.{d}.{d}.{d}\n", .{ ip[0], ip[1], ip[2], ip[3] }) catch {};
-    const rtt = innigkeit.net.ping(ip, 2000) catch {
+    const rtt = innigkeit.network.ping(ip, 2000) catch {
         writeln("ping: no reply (timeout 2s)");
         return 1;
     };
@@ -268,7 +270,7 @@ fn cmdCat(args: []const u8) u8 {
         return 1;
     }
 
-    const file = innigkeit.fs.File.open(path, .{}) catch |err| {
+    const file = innigkeit.filesystem.File.open(path, .{}) catch |err| {
         innigkeit.io.stdout.print("cat: {s}: {t}\n", .{ path, err }) catch {};
         return 1;
     };

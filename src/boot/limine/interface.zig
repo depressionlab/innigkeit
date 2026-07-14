@@ -1,8 +1,8 @@
-const std = @import("std");
 const architecture = @import("architecture");
 const boot = @import("boot");
 const innigkeit = @import("innigkeit");
 const root = @import("root.zig");
+const std = @import("std");
 
 pub fn kernelBaseAddress() ?boot.KernelBaseAddress {
     const resp = requests.kernel_address.response orelse
@@ -15,7 +15,7 @@ pub fn kernelBaseAddress() ?boot.KernelBaseAddress {
 }
 
 pub fn kernelExecutableFile() ?[]align(architecture.paging.standard_page_size_alignment.toByteUnits()) const u8 {
-    const resp = requests.executable_file.response orelse return &.{};
+    const resp = requests.executable_file.response orelse return null;
     return @alignCast(resp.executable_file.getContents());
 }
 
@@ -64,6 +64,37 @@ pub fn rsdp() ?boot.Address {
     const resp = requests.rsdp.response orelse return null;
 
     return resp.address(limine_revison);
+}
+
+pub fn tpmEventLog() ?boot.TpmEventLog {
+    const resp = requests.tpm_event_log.response orelse return null;
+    const ptr = resp.address.toPtr([*]const u8);
+
+    return .{
+        .bytes = ptr[0..resp.size.value],
+        .format = switch (resp.format) {
+            .tcg_1_2 => .tcg_1_2,
+            .tcg_2 => .tcg_2,
+            _ => .other,
+        },
+    };
+}
+
+pub fn efiSystemTable() ?boot.Address {
+    const resp = requests.efi_system_table.response orelse return null;
+
+    return resp.address(limine_revison);
+}
+
+pub fn firmwareType() ?boot.FirmwareType {
+    const resp = requests.firmware_type.response orelse return null;
+    return switch (resp.firmware_type) {
+        .x86_bios => .x86_bios,
+        .efi_32 => .efi_32,
+        .efi_64 => .efi_64,
+        .sbi => .sbi,
+        _ => .other,
+    };
 }
 
 pub fn x2apicEnabled() bool {
@@ -121,6 +152,8 @@ pub const CpuDescriptorIterator = struct {
         ) void {
             const trampolineFn = struct {
                 fn trampolineFn(smp_info: *const root.MP.Response.MPInfo) callconv(.c) noreturn {
+                    // `extra_argument` is `@intFromPtr(user_data)`, stored just below
+                    // by this same `bootFn` before the AP jumps to `trampolineFn`.
                     targetFn(@ptrFromInt(smp_info.extra_argument)) catch |err| {
                         std.debug.panic("unhandled error: {t}!", .{err});
                     };
@@ -249,6 +282,15 @@ pub fn exportRequests() void {
     @export(&requests.stack_size, .{
         .name = "limine_stack_size_request",
     });
+    @export(&requests.tpm_event_log, .{
+        .name = "limine_tpm_event_log_request",
+    });
+    @export(&requests.efi_system_table, .{
+        .name = "limine_efi_system_table_request",
+    });
+    @export(&requests.firmware_type, .{
+        .name = "limine_firmware_type_request",
+    });
 }
 
 const requests = struct {
@@ -271,4 +313,7 @@ const requests = struct {
     var stack_size: root.StackSize.Request = .{
         .stack_size = innigkeit.config.task.kernel_stack_size,
     };
+    var tpm_event_log: root.TPMEventLog.Request = .{};
+    var efi_system_table: root.EFISystemTable.Request = .{};
+    var firmware_type: root.FirmwareType.Request = .{};
 };

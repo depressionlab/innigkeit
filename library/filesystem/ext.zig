@@ -5,7 +5,7 @@ const UUID = @import("uuid").UUID;
 
 // TODO: This file is *very* WIP.
 
-pub const signature: u16 = 0xef53;
+pub const signature: u16 = 0xEF53;
 
 /// The superblock is always 1024 bytes from the beginning of the file system.
 pub const superblock_offset: usize = 1024;

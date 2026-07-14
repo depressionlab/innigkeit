@@ -6,8 +6,8 @@ pub const UnwindContext = Dwarf.SelfUnwinder;
 
 const architecture = @import("architecture");
 const boot = @import("boot");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 
 const native_endian = @import("builtin").target.cpu.arch.endian();
 const SelfInfo = @This();
@@ -109,6 +109,7 @@ pub fn unwindFrame(si: *SelfInfo, _: std.Io, context: *UnwindContext) Error!usiz
         @memset(si.unwind_cache.?, .empty);
     }
 
+    // Non-null: either already set, or the block above just set it.
     const unwind_sections = try module.getUnwindSections(gpa);
     for (unwind_sections) |*unwind| {
         if (context.computeRules(gpa, unwind, module.load_offset, null)) |entry| {
@@ -154,19 +155,17 @@ fn getModule(si: *SelfInfo, gpa: std.mem.Allocator, address: usize) Error!*Modul
 
     if (si.module == null) {
         const load_offset = if (boot.kernelBaseAddress()) |base_address|
-            innigkeit.config.mem.kernel_base_address.difference(base_address.virtual).value
+            innigkeit.config.memory.kernel_base_address.difference(base_address.virtual).value
         else
             0;
 
         const kernel_elf_slice = boot.kernelExecutableFile() orelse return error.MissingDebugInfo;
-
         const header = innigkeit.user.elf.Header.parse(kernel_elf_slice) catch return error.InvalidDebugInfo;
-
         const program_headers_location = header.programHeaderTableLocation();
 
         var program_headers = header.iterateProgramHeaders(
             kernel_elf_slice[program_headers_location.offset.value..][0..program_headers_location.size.value],
-        );
+        ) catch return error.InvalidDebugInfo;
 
         var build_id: ?[]const u8 = null;
         var gnu_eh_frame: ?[]const u8 = null;
@@ -181,6 +180,9 @@ fn getModule(si: *SelfInfo, gpa: std.mem.Allocator, address: usize) Error!*Modul
                     .len = program_header.memory_size.value,
                 }),
                 .gnu_eh_frame => {
+                    // `load_offset + virtual_address` reconstructs the runtime address
+                    // of this already-loaded kernel image's own `.eh_frame` segment, from
+                    // this same kernel ELF's own `program_headers` just parsed above
                     const segment_ptr: [*]const u8 = @ptrFromInt(load_offset + program_header.virtual_address.value);
                     gnu_eh_frame = segment_ptr[0..program_header.memory_size.value];
                 },
@@ -211,13 +213,11 @@ fn getModule(si: *SelfInfo, gpa: std.mem.Allocator, address: usize) Error!*Modul
         };
     }
 
+    // Non-null: either already set, or the block above just set it.
     const module = &si.module.?;
-
-    for (si.ranges.items) |range| {
-        if (address >= range.start and address < range.start + range.len) {
+    for (si.ranges.items) |range|
+        if (address >= range.start and address < range.start + range.len)
             return module;
-        }
-    }
 
     return error.MissingDebugInfo;
 }

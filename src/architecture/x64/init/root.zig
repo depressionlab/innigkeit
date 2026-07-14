@@ -1,6 +1,6 @@
-const std = @import("std");
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 const x64 = @import("../x64.zig");
 
 const SerialPort = architecture.init.InitOutput.Output.uart.IoPort16550;
@@ -164,24 +164,16 @@ pub fn captureSystemInformation(stage: architecture.init.CaptureSystemInformatio
         .early => {
             log.debug("capturing cpuid information", .{});
             x64.info.cpu_id.capture() catch @panic("failed to capture cpuid information!");
-
-            if (x64.info.cpu_id.physical_address_size.? > x64.paging.PageTable.maximum_physical_address_bit) {
+            // capture() above always populates physical_address_size on success.
+            if (x64.info.cpu_id.physical_address_size.? > x64.paging.PageTable.maximum_physical_address_bit)
                 std.debug.panic("unsupported physical address size: {}!", .{x64.info.cpu_id.physical_address_size.?});
-            }
-
-            if (!x64.info.cpu_id.mtrr) {
-                @panic("MTRRs not supported!");
-            }
-
+            if (!x64.info.cpu_id.mtrr) @panic("MTRRs not supported!");
             const mtrr_cap = x64.registers.IA32_MTRRCAP.read();
             x64.info.mtrr_number_of_variable_registers = mtrr_cap.number_of_variable_range_registers;
             x64.info.mtrr_write_combining_supported = mtrr_cap.write_combining_supported;
             log.debug("mtrr number of variable registers: {}", .{x64.info.mtrr_number_of_variable_registers});
             log.debug("mtrr write combining supported: {}", .{x64.info.mtrr_write_combining_supported});
-
-            if (!x64.info.cpu_id.pat) {
-                @panic("PAT not supported!");
-            }
+            if (!x64.info.cpu_id.pat) @panic("PAT not supported!");
 
             if (x64.info.cpu_id.determineCrystalFrequency()) |crystal_frequency| {
                 const lapic_base_tick_duration_fs = innigkeit.time.fs_per_s / crystal_frequency;
@@ -263,6 +255,7 @@ fn captureXsaveInformation() void {
     // set xcr0 on the bootstrap executor to allow capturing the required size of the XSAVE area
     xcr0.write();
 
+    // xcr0 was just written above, so the enabled-state size is always computable.
     x64.info.xsave.xsave_area_size = x64.info.cpu_id.xsave.enabledStateSize().?;
     log.debug("size of XSAVE area: {f}", .{x64.info.xsave.xsave_area_size});
 }
@@ -419,11 +412,11 @@ pub fn configurePerExecutorSystemFeatures() void {
         pat.entry0 = .write_back;
         pat.entry1 = .write_through;
         pat.entry2 = .uncached;
-        pat.entry3 = .unchacheable;
+        pat.entry3 = .uncacheable;
         pat.entry4 = .write_protected;
         pat.entry5 = .write_combining;
         pat.entry6 = .uncached;
-        pat.entry7 = .unchacheable;
+        pat.entry7 = .uncacheable;
         x64.registers.PAT.write(pat);
 
         // flip the page global bit to ensure the PAT is applied
@@ -461,7 +454,7 @@ pub fn initLocalInterruptController() void {
 }
 
 const DebugCon = struct {
-    const port = 0xe9;
+    const port = 0xE9;
 
     fn detect() bool {
         return x64.instructions.portReadU8(port) == port;

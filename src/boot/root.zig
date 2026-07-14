@@ -60,6 +60,48 @@ pub fn rsdp() ?Address {
     };
 }
 
+// TODO: reorganize boot.*
+/// The firmware TCG measurement log captured by the bootloader prior to
+/// `ExitBootServices` (via `EFI_TCG2_PROTOCOL`). The bytes live in
+/// bootloader-reclaimable memory, so consume them early.
+pub const TpmEventLog = struct {
+    bytes: []const u8,
+    format: enum { tcg_1_2, tcg_2, other },
+};
+
+/// Returns the firmware TCG event log provided by the bootloader, if any.
+///
+/// Returns `null` when there is no TPM/no `EFI_TCG2_PROTOCOl`/capture failed.
+pub fn tpmEventLog() ?TpmEventLog {
+    return switch (bootloader_api) {
+        .limine => limine.tpmEventLog(),
+        .unknown => null,
+    };
+}
+
+/// The firmware type the bootloader ran under.
+pub const FirmwareType = enum { x86_bios, efi_32, efi_64, sbi, other };
+
+/// Returns the firmware type reported by the bootloader, if any.
+pub fn firmwareType() ?FirmwareType {
+    return switch (bootloader_api) {
+        .limine => limine.firmwareType(),
+        .unknown => null,
+    };
+}
+
+/// Returns the EFI System Table address provided by the bootloader, if any
+/// (`.physical` or `.virtual` depending on the boot protocol revision). Only
+/// present on EFI platforms. The table and the runtime-services it points to
+/// remain valid after ExitBootServices, but the runtime *code* must be mapped
+/// executable before any runtime-services function is called.
+pub fn efiSystemTable() ?Address {
+    return switch (bootloader_api) {
+        .limine => limine.efiSystemTable(),
+        .unknown => null,
+    };
+}
+
 pub fn x2apicEnabled() bool {
     if (architecture.current_arch != .x64) {
         @compileError("x2apicEnabled can only be called on x64");

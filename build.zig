@@ -1,16 +1,20 @@
 const std = @import("std");
 
-const metadata = @import("build.zig.zon");
-const Bundle = @import("build/Bundle.zig");
-const Options = @import("build/Options.zig");
 const App = @import("build/App.zig");
-const Wrapper = @import("build/Wrapper.zig");
-const Library = @import("build/Library.zig");
-const Tool = @import("build/Tool.zig");
-const Kernel = @import("build/Kernel.zig");
-const RustApp = @import("build/RustApp.zig");
+const Bundle = @import("build/Bundle.zig");
 const ImageStep = @import("build/ImageStep.zig");
+const Kernel = @import("build/Kernel.zig");
+const Library = @import("build/Library.zig");
+const Lint = @import("build/Lint.zig");
+const metadata = @import("build.zig.zon");
+const Options = @import("build/Options.zig");
 const QEMU = @import("build/QEMU.zig");
+const RustApp = @import("build/RustApp.zig");
+const Tool = @import("build/Tool.zig");
+const TpmHarness = @import("build/TpmHarness.zig");
+const VerdictStep = @import("build/VerdictStep.zig");
+const Verify = @import("build/Verify.zig");
+const Wrapper = @import("build/Wrapper.zig");
 
 pub fn build(b: *std.Build) !void {
     try disableUnsupportedSteps(b);
@@ -24,9 +28,9 @@ pub fn build(b: *std.Build) !void {
     const apps: App.Collection = try App.getApps(b, wrapper, libraries, options, architectures);
 
     // Build Rust no_std apps and embed them in the initfs.
-    const rust_hello = RustApp.build(b, "rust_hello", "apps/rust_hello");
-    const rust_cat = RustApp.build(b, "rust_cat", "apps/rust_cat");
-    const rust_echo = RustApp.build(b, "rust_echo", "apps/rust_echo");
+    const rust_hello = try RustApp.build(b, "rust_hello");
+    const rust_cat = try RustApp.build(b, "rust_cat");
+    const rust_echo = try RustApp.build(b, "rust_echo");
     const extra_binaries = [_]Kernel.ExtraBinary{
         .{ .name = rust_hello.name, .binary_path = rust_hello.binary_path, .step = rust_hello.step },
         .{ .name = rust_cat.name, .binary_path = rust_cat.binary_path, .step = rust_cat.step },
@@ -38,12 +42,21 @@ pub fn build(b: *std.Build) !void {
 
     try QEMU.registerQemuSteps(b, image_steps, options, architectures);
 
+    const native_test_step = b.step("test_native", "Run native (host) unit tests without QEMU");
     {
-        const native_test_step = b.step("test_native", "Run native (host) unit tests without QEMU");
         for (&[_]struct { name: []const u8, path: []const u8 }{
-            .{ .name = "tcp_segment", .path = "src/innigkeit/net/tcp/Segment.zig" },
+            .{ .name = "elf_raw_header", .path = "src/innigkeit/user/elf/RawHeader.zig" },
+            .{ .name = "tcp_segment", .path = "src/innigkeit/network/tcp/Segment.zig" },
+            .{ .name = "udp", .path = "src/innigkeit/network/udp.zig" },
+            .{ .name = "icmp", .path = "src/innigkeit/network/icmp.zig" },
             .{ .name = "abi_error", .path = "library/innigkeit/Error.zig" },
             .{ .name = "wm_core", .path = "library/innigkeit/wm.test.zig" },
+            .{ .name = "xts", .path = "src/innigkeit/crypto/xts.zig" },
+            .{ .name = "encrypted_block", .path = "src/innigkeit/crypto/EncryptedBlockDevice.zig" },
+            .{ .name = "passphrase_keyslot", .path = "src/innigkeit/crypto/PassphraseKeyslot.zig" },
+            .{ .name = "volume_header", .path = "src/innigkeit/filesystem/VolumeHeader.zig" },
+            .{ .name = "tpm_kdf", .path = "src/innigkeit/drivers/tpm/kdf.zig" },
+            .{ .name = "recovery_flow", .path = "src/innigkeit/recovery.test.zig" },
         }) |entry| {
             const mod = b.createModule(.{ .root_source_file = b.path(entry.path) });
             mod.resolved_target = b.resolveTargetQuery(.{});
@@ -55,20 +68,77 @@ pub fn build(b: *std.Build) !void {
             native_test_step.dependOn(&run.step);
             wrapper.tools_test_step.dependOn(&run.step);
         }
+
+        // SharedHeader.zig imports `core` (for `core.Size`/`core.testing`), so
+        // unlike the bare-module entries above it needs a real import wired in.
+        {
+            const shared_header_mod = b.createModule(.{
+                .root_source_file = b.path("src/innigkeit/acpi/tables/SharedHeader.zig"),
+                .imports = &.{
+                    .{ .name = "core", .module = libraries.get("core").?.external_module_for_host.? },
+                },
+            });
+            shared_header_mod.resolved_target = b.resolveTargetQuery(.{});
+            const test_exe = b.addTest(.{
+                .name = "acpi_shared_header",
+                .root_module = shared_header_mod,
+            });
+            const run = b.addRunArtifact(test_exe);
+            native_test_step.dependOn(&run.step);
+            wrapper.tools_test_step.dependOn(&run.step);
+        }
     }
 
     // Test steps: build a test kernel (builtin.is_test = true), assemble a disk
     // image, and run it in QEMU. Exit code 1 = all tests passed.
+    //
+    // -Dtpm=true wires a build-managed swtpm around the x64 run specifically
+    // (arm has no TPM driver test path); the harness is created once here so
+    // both this loop and `zig build verify -Dtpm=true` share the same daemon.
+    const tpm_harness: ?*TpmHarness = if (options.emulator.tpm_socket) |socket|
+        try .create(b, options.emulator.tpm_state_dir.?, socket)
+    else
+        null;
+
+    var x64_verdict: *VerdictStep = undefined;
+    var arm_verdict: *VerdictStep = undefined;
+
     inline for (.{
         .{ .arch = Bundle.Architecture.x64, .name = "test_x64", .desc = "Build test kernel and run unit tests in QEMU (x64)" },
         .{ .arch = Bundle.Architecture.arm, .name = "test_arm", .desc = "Build test kernel and run unit tests in QEMU (arm/AArch64)" },
     }) |entry| {
         const test_kernel = try Kernel.buildTestKernel(b, libraries, options, entry.arch, apps, tools, &extra_binaries);
         const test_image = try ImageStep.buildTestImageStep(b, test_kernel, tools, entry.arch, options);
-        const test_qemu = try QEMU.buildTestQemuStep(b, entry.arch, test_image.image_file, options);
-        b.step(entry.name, entry.desc).dependOn(&test_qemu.step);
+        const harness_for_arch: ?*TpmHarness = if (entry.arch == .x64) tpm_harness else null;
+        const required: []const []const u8 = if (harness_for_arch != null) &.{"pass  testing.tpm"} else &.{};
+        const test_qemu = try QEMU.buildTestQemuStep(b, entry.arch, test_image.image_file, options, required, harness_for_arch);
+        const final_step: *std.Build.Step = if (harness_for_arch) |h| &h.stop else &test_qemu.step;
+        b.step(entry.name, entry.desc).dependOn(final_step);
         b.step("image_" ++ entry.name, "Build the " ++ @tagName(entry.arch) ++ " test image (no QEMU run)").dependOn(&test_image.install_image.step);
+        switch (entry.arch) {
+            .x64 => x64_verdict = test_qemu,
+            .arm => arm_verdict = test_qemu,
+            else => {},
+        }
     }
+
+    const no_check = b.option(bool, "no_check", "dont check") orelse false;
+
+    try Verify.register(
+        b,
+        wrapper,
+        libraries,
+        tools,
+        apps,
+        &extra_binaries,
+        options,
+        native_test_step,
+        x64_verdict,
+        arm_verdict,
+        !no_check,
+    );
+
+    Lint.register(b);
 }
 
 fn disableUnsupportedSteps(b: *std.Build) !void {

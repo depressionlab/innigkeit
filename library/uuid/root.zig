@@ -17,10 +17,10 @@ pub const UUID = extern struct {
         random.bytes(&uuid.bytes);
 
         // Version 4
-        uuid.bytes[6] = (uuid.bytes[6] & 0x0f) | 0x40;
+        uuid.bytes[6] = (uuid.bytes[6] & 0x0F) | 0x40;
 
         // Variant 1
-        uuid.bytes[8] = (uuid.bytes[8] & 0x3f) | 0x80;
+        uuid.bytes[8] = (uuid.bytes[8] & 0x3F) | 0x80;
 
         return uuid;
     }

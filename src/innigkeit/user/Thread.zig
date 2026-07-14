@@ -1,11 +1,12 @@
 //! Represents a userspace thread.
 const Thread = @This();
 
-const std = @import("std");
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 const log = innigkeit.debug.log.scoped(.user);
+const validate = @import("validate.zig");
 
 task: innigkeit.Task,
 
@@ -133,14 +134,24 @@ pub fn startProcess(self: *Thread, entry_point: innigkeit.UserVirtualAddress, in
         .type = .zero_fill,
     });
 
+    // proc_init's caller-side validation (handlers/spawn.zig's argc/envc/
+    // per-string length caps) is what actually keeps frame_size well under
+    // the stack size; assert it explicitly here too, since a future caller
+    // violating that contract would otherwise silently write past the
+    // mapped stack via moveBackward below.
+    if (core.is_debug) std.debug.assert(frame_size <= user_stack.size.value);
+
     const stack_top = user_stack.toUser().after();
     const stack_ptr = stack_top.moveBackward(core.Size.from(frame_size, .byte));
 
     {
-        const current_task: innigkeit.Task.Current = .get();
-        current_task.incrementEnableAccessToUserMemory();
-        defer current_task.decrementEnableAccessToUserMemory();
-
+        const access: validate.UserAccess = .acquire();
+        defer access.release();
+        // every @ptrFromInt below is derived from `stack_ptr` (this process's
+        // own just-mapped stack, not an externally supplied user pointer) and
+        // stays within the asserted `frame_size`, inside this `UserAccess`
+        // window. the whole block writes the initial user stack layout the
+        // kernel is constructing, not a foreign buffer.
         var meta: usize = stack_ptr.value;
 
         // argc
@@ -166,10 +177,13 @@ pub fn startProcess(self: *Thread, entry_point: innigkeit.UserVirtualAddress, in
         // auxv: AT_PHDR, AT_PHNUM, AT_ENTRY, AT_NULL
         @as(*std.elf.Auxv, @ptrFromInt(meta)).* = .{ .a_type = std.elf.AT_PHDR, .a_un = .{ .a_val = initial.phdr_vaddr } };
         meta += @sizeOf(std.elf.Auxv);
+        // meta, see comment above
         @as(*std.elf.Auxv, @ptrFromInt(meta)).* = .{ .a_type = std.elf.AT_PHNUM, .a_un = .{ .a_val = initial.phnum } };
         meta += @sizeOf(std.elf.Auxv);
+        // meta, see comment above
         @as(*std.elf.Auxv, @ptrFromInt(meta)).* = .{ .a_type = std.elf.AT_ENTRY, .a_un = .{ .a_val = initial.entry } };
         meta += @sizeOf(std.elf.Auxv);
+        // meta, see comment above
         @as(*std.elf.Auxv, @ptrFromInt(meta)).* = .{ .a_type = std.elf.AT_NULL, .a_un = .{ .a_val = 0 } };
         meta += @sizeOf(std.elf.Auxv);
         // meta == stack_ptr.value + metadata_size; string data follows here.
@@ -181,13 +195,16 @@ pub fn startProcess(self: *Thread, entry_point: innigkeit.UserVirtualAddress, in
         // Copy argv strings into user stack and back-fill pointer table.
         for (0..argc) |i| {
             const str_len = std.mem.readInt(usize, initial.proc_init[(2 + i) * S ..][0..S], .little);
+            // `str_ptr/argv_ptrs_base`, see the block comment above.
             @as(*usize, @ptrFromInt(argv_ptrs_base + i * S)).* = str_ptr;
             if (str_len > 0) {
+                // str_ptr, see the block comment above.
                 @memcpy(
-                    @as([*]u8, @ptrFromInt(str_ptr))[0..str_len],
+                    @as([*]u8, @ptrFromInt(str_ptr))[0..str_len], // see comment above
                     initial.proc_init[flat_str_offset..][0..str_len],
                 );
             }
+            // `str_ptr`, see the block comment above.
             @as(*u8, @ptrFromInt(str_ptr + str_len)).* = 0;
             str_ptr += str_len + 1;
             flat_str_offset += str_len;
@@ -196,13 +213,16 @@ pub fn startProcess(self: *Thread, entry_point: innigkeit.UserVirtualAddress, in
         // Copy envp strings into user stack and back-fill pointer table.
         for (0..envc) |i| {
             const str_len = std.mem.readInt(usize, initial.proc_init[(2 + argc + i) * S ..][0..S], .little);
+            // `str_ptr/envp_ptrs_base`, see the block comment above.
             @as(*usize, @ptrFromInt(envp_ptrs_base + i * S)).* = str_ptr;
             if (str_len > 0) {
+                // `str_ptr`, see the block comment above.
                 @memcpy(
-                    @as([*]u8, @ptrFromInt(str_ptr))[0..str_len],
+                    @as([*]u8, @ptrFromInt(str_ptr))[0..str_len], // see comment above
                     initial.proc_init[flat_str_offset..][0..str_len],
                 );
             }
+            // `str_ptr`, see the block comment above.
             @as(*u8, @ptrFromInt(str_ptr + str_len)).* = 0;
             str_ptr += str_len + 1;
             flat_str_offset += str_len;
@@ -213,7 +233,7 @@ pub fn startProcess(self: *Thread, entry_point: innigkeit.UserVirtualAddress, in
 
     // Free combined proc_init buffer before entering userspace; defers in the
     // caller won't run on the noreturn success path.
-    if (initial.proc_init.len > 0) innigkeit.mem.heap.allocator.free(initial.proc_init);
+    if (initial.proc_init.len > 0) innigkeit.memory.heap.allocator.free(initial.proc_init);
 
     architecture.user.enterUserspace(.{
         .entry_point = entry_point,
@@ -248,7 +268,7 @@ pub const internal = struct {
         };
 
         try innigkeit.Task.internal.init(&thread.task, options);
-        architecture.user.initializeThread(thread);
+        architecture.user.thread.initialize(thread);
 
         return thread;
     }
@@ -268,20 +288,20 @@ const globals = struct {
     /// The source of thread objects.
     ///
     /// Initialized during `init.initializeThreads`.
-    var cache: innigkeit.mem.cache.Cache(
+    var cache: innigkeit.memory.cache.Cache(
         Thread,
         .{
             .constructor = struct {
-                fn constructor(thread: *Thread) innigkeit.mem.cache.ConstructorError!void {
+                fn constructor(thread: *Thread) innigkeit.memory.cache.ConstructorError!void {
                     if (core.is_debug) thread.* = undefined;
                     thread.task.stack = try .createStack();
                     errdefer thread.task.stack.destroyStack();
-                    try architecture.user.createThread(thread);
+                    try architecture.user.thread.create(thread);
                 }
             }.constructor,
             .destructor = struct {
                 fn destructor(thread: *Thread) void {
-                    architecture.user.destroyThread(thread);
+                    architecture.user.thread.destroy(thread);
                     thread.task.stack.destroyStack();
                 }
             }.destructor,

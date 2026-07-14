@@ -92,12 +92,12 @@ pub const MADT = extern struct {
             local_sapic = 0x7,
             platform_interrupt_sources = 0x8,
             processor_local_x2apic = 0x9,
-            local_x2apic_nmi = 0xa,
-            gic_cpu_interface = 0xb,
-            gic_distributor = 0xc,
-            gic_msi_frame = 0xd,
-            gic_redistributor = 0xe,
-            gic_interrupt_translation_service = 0xf,
+            local_x2apic_nmi = 0xA,
+            gic_cpu_interface = 0xB,
+            gic_distributor = 0xC,
+            gic_msi_frame = 0xD,
+            gic_redistributor = 0xE,
+            gic_interrupt_translation_service = 0xF,
             multiprocessor_wakeup = 0x10,
             core_programmable_interrupt_controller = 0x11,
             legacy_io_programmable_interrupt_controller = 0x12,
@@ -1206,7 +1206,7 @@ pub const MADT = extern struct {
 
     pub const MADTIterator = struct {
         current_ptr: [*]const u8,
-        end_ptr: [*]const u8,
+        bytes_left: usize,
 
         pub fn init(madt: *const MADT) MADTIterator {
             const start_ptr: [*]const u8 = @ptrCast(&madt._interrupt_controller_structures_start);
@@ -1215,17 +1215,25 @@ pub const MADT = extern struct {
 
             return .{
                 .current_ptr = start_ptr,
-                .end_ptr = end_ptr,
+                .bytes_left = @intFromPtr(end_ptr) -| @intFromPtr(start_ptr),
             };
         }
 
+        const header_size = @sizeOf(InterruptControllerEntry.Type) + @sizeOf(u8); // entry_type + length, before `specific`
+
+        /// Mirrors `Resources.Iterator.next()` (`uacpi.zig`): `entry.length` is
+        /// firmware-supplied, so it's checked against what's actually left in
+        /// the table before being trusted, not just against zero. A zero-length
+        /// entry would never advance `current_ptr`, hanging every caller's loop
+        /// forever; an over-length entry would let a caller's `entry.specific.*`
+        /// field read run past the table's mapped extent. Both are treated as
+        /// end-of-table.
         pub fn next(madt_iterator: *MADTIterator) ?*const InterruptControllerEntry {
-            if (@intFromPtr(madt_iterator.current_ptr) >= @intFromPtr(madt_iterator.end_ptr)) return null;
-
+            if (madt_iterator.bytes_left < header_size) return null;
             const entry: *const InterruptControllerEntry = @ptrCast(madt_iterator.current_ptr);
-
+            if (entry.length == 0 or entry.length > madt_iterator.bytes_left) return null;
             madt_iterator.current_ptr += entry.length;
-
+            madt_iterator.bytes_left -= entry.length;
             return entry;
         }
     };
@@ -1240,3 +1248,35 @@ pub const MADT = extern struct {
         );
     }
 };
+
+const madt_fixed_prefix_size = @sizeOf(MADT) - 1; // everything before `_interrupt_controller_structures_start`
+
+test "MADTIterator: rejects an entry whose length claims more than remains in the table" {
+    // Header claims an io_apic entry (needs 12 bytes: 2-byte type/length + 10-byte
+    // IOAPIC payload) but only 3 bytes actually remain in the table: the exact
+    // shape that would let a caller's `entry.specific.io_apic.*` field read run
+    // past the table's mapped extent if trusted.
+    var buf: [madt_fixed_prefix_size + 3]u8 = undefined;
+    @memset(&buf, 0);
+    std.mem.writeInt(u32, buf[4..8], buf.len, .little); // header.length
+    buf[madt_fixed_prefix_size + 0] = @intFromEnum(MADT.InterruptControllerEntry.Type.io_apic);
+    buf[madt_fixed_prefix_size + 1] = 12; // claims 12 bytes; only 3 remain
+
+    const madt: *const MADT = @ptrCast(&buf);
+    var iter = madt.iterate();
+    try std.testing.expect(iter.next() == null);
+}
+
+test "MADTIterator: accepts a well-formed entry that exactly fills the remaining bytes" {
+    var buf: [madt_fixed_prefix_size + 12]u8 = undefined;
+    @memset(&buf, 0);
+    std.mem.writeInt(u32, buf[4..8], buf.len, .little); // header.length
+    buf[madt_fixed_prefix_size + 0] = @intFromEnum(MADT.InterruptControllerEntry.Type.io_apic);
+    buf[madt_fixed_prefix_size + 1] = 12; // exactly matches the 12 bytes remaining
+
+    const madt: *const MADT = @ptrCast(&buf);
+    var iter = madt.iterate();
+    const entry = iter.next() orelse return error.TestExpectedEntry;
+    try std.testing.expectEqual(MADT.InterruptControllerEntry.Type.io_apic, entry.entry_type);
+    try std.testing.expect(iter.next() == null);
+}

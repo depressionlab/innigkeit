@@ -1,0 +1,8 @@
+name = "itest_spawn_wait"
+version = "0.1.0"
+description = "Test-only fixture: exits with status 42 for the spawn/wait integration test"
+
+[entitlements]
+spawn = false
+
+[trust]

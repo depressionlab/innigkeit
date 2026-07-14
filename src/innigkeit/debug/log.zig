@@ -1,8 +1,8 @@
 const std = @import("std");
 
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 const kernel_options = @import("kernel_options");
 const log_scopes = kernel_options.log_scopes;
 
@@ -220,7 +220,7 @@ inline fn scopeMatcherMatches(comptime scope: @EnumLiteral()) bool {
                     return true,
                 .ends_with => if (std.mem.endsWith(u8, tag, scope_matcher.match_string))
                     return true,
-                .contains => if (std.mem.indexOf(u8, tag, scope_matcher.match_string)) |_|
+                .contains => if (std.mem.find(u8, tag, scope_matcher.match_string)) |_|
                     return true,
             }
         }

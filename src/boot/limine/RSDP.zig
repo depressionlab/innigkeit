@@ -1,10 +1,10 @@
 //! RSDP Feature
 
-const root = @import("root.zig");
 const boot = @import("boot");
+const root = @import("root.zig");
 
 pub const Request = extern struct {
-    id: [4]u64 = root.id(0xc5e77b6b397e7b43, 0x27637845accdcf3c),
+    id: [4]u64 = root.id(0xC5E77B6B397E7B43, 0x27637845ACCDCF3C),
     revision: u64 = 0,
 
     response: ?*const Response = null,

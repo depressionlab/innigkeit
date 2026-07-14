@@ -1,5 +1,9 @@
-const std = @import("std");
+// zlinter-disable no_swallow_error - this is a syscall-surface smoke test:
+// every catch is either a console print with no recovery path, or a test
+// step whose own next print already reports success/failure, not a
+// production error-handling gap.
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 const capabilities = innigkeit.capabilities;
 
 pub fn main() void {
@@ -52,7 +56,7 @@ fn testIpc() void {
 }
 
 fn testMmap() void {
-    const region = innigkeit.mem.mmap(4096, .{ .read = true, .write = true }) catch {
+    const region = innigkeit.memory.mmap(4096, .{ .read = true, .write = true }) catch {
         innigkeit.io.stdout.print("mmap failed\n", .{}) catch {};
         return;
     };
@@ -62,12 +66,12 @@ fn testMmap() void {
     const ok = region[0] == 0xAB and region[4095] == 0xCD;
     innigkeit.io.stdout.print("mmap: write/read {s}\n", .{if (ok) "ok" else "FAIL"}) catch {};
 
-    innigkeit.mem.munmap(region) catch {};
+    innigkeit.memory.munmap(region) catch {};
     innigkeit.io.stdout.print("mmap test done\n", .{}) catch {};
 }
 
 fn testAllocator() void {
-    var arena = std.heap.ArenaAllocator.init(innigkeit.mem.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(innigkeit.memory.page_allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
 

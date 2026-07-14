@@ -1,7 +1,9 @@
-const std = @import("std");
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 const x64 = @import("../x64.zig");
+
+const log = innigkeit.debug.log.scoped(.interrupt);
 
 pub fn nonMaskableInterruptHandler(
     interrupt_frame: architecture.interrupts.InterruptFrame,
@@ -24,7 +26,7 @@ pub fn pageFaultHandler(
     const arch_interrupt_frame: *const x64.interrupts.InterruptFrame = .from(interrupt_frame);
     const error_code: x64.paging.PageFaultErrorCode = .fromErrorCode(arch_interrupt_frame.error_code);
 
-    innigkeit.mem.onPageFault(.{
+    innigkeit.memory.onPageFault(.{
         .faulting_address = faulting_address,
 
         .access_type = if (error_code.write)
@@ -75,7 +77,7 @@ pub fn flushRequestHandler(
     _: innigkeit.Task.Current.StateBeforeInterrupt,
 ) void {
     // eoi is called after this handler returns
-    innigkeit.mem.FlushRequest.processFlushRequests();
+    innigkeit.memory.FlushRequest.processFlushRequests();
 }
 
 pub fn rescheduleHandler(
@@ -112,13 +114,29 @@ pub fn unhandledException(
     _: innigkeit.Task.Current.StateBeforeInterrupt,
 ) void {
     const arch_interrupt_frame: *const x64.interrupts.InterruptFrame = .from(interrupt_frame);
+    const vector = arch_interrupt_frame.vector_number.interrupt;
+
     switch (arch_interrupt_frame.context()) {
         .kernel => innigkeit.debug.interruptSourcePanic(
             interrupt_frame,
             "unhandled kernel exception: {t}",
-            .{arch_interrupt_frame.vector_number.interrupt},
+            .{vector},
         ),
-        .user => std.debug.panic("NOT IMPLEMENTED: unhandled exception in user mode!\n{f}", .{interrupt_frame}),
+        .user => switch (vector.exceptionDisposition()) {
+            .always_fatal => innigkeit.debug.interruptSourcePanic(
+                interrupt_frame,
+                "unrecoverable exception (fatal regardless of privilege level): {t}",
+                .{vector},
+            ),
+            .isolate => |exit_status| {
+                const current_task: innigkeit.Task.Current = .get();
+                const process: *innigkeit.user.Process = .from(current_task.task);
+                log.warn("{f}: unhandled user-mode exception {t}, killing process (exit status {})\n{f}", .{
+                    process, vector, exit_status, interrupt_frame,
+                });
+                process.terminateCallingThread(exit_status);
+            },
+        },
     }
 }
 

@@ -11,7 +11,7 @@
 const root = @import("root.zig");
 
 pub const Request = extern struct {
-    id: [4]u64 = root.id(0x10f2ee1d87d195e4, 0xf747a2b78f6ddb31),
+    id: [4]u64 = root.id(0x10F2EE1D87D195E4, 0xF747A2B78F6DDB31),
     revision: u64 = 0,
 
     response: ?*const Response = null,

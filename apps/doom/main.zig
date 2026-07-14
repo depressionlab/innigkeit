@@ -4,7 +4,6 @@
 //! All C sources in `doomgeneric/` are compiled as part of this module
 //! via the custom App configuration in `apps/root.zig`.
 
-const innigkeit = @import("innigkeit");
 const builtin = @import("builtin");
 
 // Pull in the C syscall exports so they are linked.

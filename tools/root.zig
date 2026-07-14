@@ -11,11 +11,23 @@ pub const tools: []const ToolDescription = &.{
             .custom = @import("limine_install/config.zig").config,
         },
     },
-    .{ .name = "initfs_builder" },
     .{
         .name = "codesign",
         .configuration = .{
             .custom = @import("codesign/config.zig").config,
         },
     },
+    .{
+        .name = "volume_recovery",
+        .configuration = .{
+            .custom = @import("volume_recovery/config.zig").config,
+        },
+    },
+    .{
+        .name = "secureboot",
+        .configuration = .{
+            .custom = @import("secureboot/config.zig").config,
+        },
+    },
+    .{ .name = "initfs_builder" },
 };

@@ -1,13 +1,13 @@
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
-const wallclock = @import("wallclock.zig");
+const innigkeit = @import("innigkeit");
 const per_executor_periodic = @import("per_executor_periodic.zig");
+const wallclock = @import("wallclock.zig");
 
 const init_log = innigkeit.debug.log.scoped(.time_init);
 
-pub const CandidateTimeSources = @import("CandidateTimeSources.zig");
 pub const CandidateTimeSource = @import("CandidateTimeSource.zig");
+pub const CandidateTimeSources = @import("CandidateTimeSources.zig");
 pub const ReferenceCounter = @import("ReferenceCounter.zig");
 
 /// Attempts to capture the wallclock time at the start of the system using the most likely time source.

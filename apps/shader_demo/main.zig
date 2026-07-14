@@ -1,5 +1,5 @@
-const std = @import("std");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 // TODO: implement better rng via `std.Random` and `architecture`
 var rng: u32 = 0o33653337357;
@@ -273,12 +273,15 @@ pub fn main() void {
     const H = canvas.height;
 
     // Allocate back buffer
-    const buf_bytes = innigkeit.mem.mmap(
+    const buf_bytes = innigkeit.memory.mmap(
         @as(usize, W) * @as(usize, H) * 4,
         .{ .read = true, .write = true },
     ) catch return;
-    defer innigkeit.mem.munmap(buf_bytes) catch {};
+    // Best-effort: the process is exiting when this defer runs regardless.
+    // zlinter-disable-next-line no_swallow_error
+    defer innigkeit.memory.munmap(buf_bytes) catch {};
 
+    // mmap() always returns a page-aligned address, well past u32's 4-byte requirement.
     const back_raw = @as([*]u32, @ptrCast(@alignCast(buf_bytes.ptr)))[0 .. @as(usize, W) * @as(usize, H)];
     var back: innigkeit.graphics.Buffer = .{ .pixels = back_raw, .width = W, .height = H, .stride = W };
 
@@ -286,27 +289,33 @@ pub fn main() void {
     // Decay runs on liss_w*liss_h pixels (1/4 of screen); blitScaled2x upscales to fb.
     const liss_w = W / 2;
     const liss_h = H / 2;
-    const liss_bytes = innigkeit.mem.mmap(
+    const liss_bytes = innigkeit.memory.mmap(
         @as(usize, liss_w) * @as(usize, liss_h) * 4,
         .{ .read = true, .write = true },
     ) catch return;
-    defer innigkeit.mem.munmap(liss_bytes) catch {};
+    // Best-effort: the process is exiting when this defer runs regardless.
+    // zlinter-disable-next-line no_swallow_error
+    defer innigkeit.memory.munmap(liss_bytes) catch {};
+    // mmap() always returns a page-aligned address, well past u32's 4-byte requirement.
     const liss_raw = @as([*]u32, @ptrCast(@alignCast(liss_bytes.ptr)))[0 .. @as(usize, liss_w) * @as(usize, liss_h)];
     @memset(liss_raw, 0);
 
     // Allocate and precompute per-pixel tunnel lookup table.
     // Eliminates isqrt + atan2u from the tunnel inner loop at the cost of ~6 MB.
     const tunnel_tbl: ?[]TunnelPx = blk: {
-        const tbl_bytes = innigkeit.mem.mmap(
+        const tbl_bytes = innigkeit.memory.mmap(
             @as(usize, W) * @as(usize, H) * @sizeOf(TunnelPx),
             .{ .read = true, .write = true },
         ) catch break :blk null;
+        // mmap() always returns a page-aligned address, well past TunnelPx's 1-byte requirement.
         const tbl: []TunnelPx = @alignCast(std.mem.bytesAsSlice(TunnelPx, tbl_bytes));
         buildTunnelTable(tbl, W, H);
         break :blk tbl;
     };
     defer if (tunnel_tbl) |tbl| {
-        innigkeit.mem.munmap(std.mem.sliceAsBytes(tbl)) catch {};
+        // Best-effort: the process is exiting when this defer runs regardless.
+        // zlinter-disable-next-line no_swallow_error
+        innigkeit.memory.munmap(std.mem.sliceAsBytes(tbl)) catch {};
     };
 
     var effect: u32 = 0;

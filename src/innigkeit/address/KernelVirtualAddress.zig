@@ -1,8 +1,8 @@
-const std = @import("std");
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 const root = @import("root.zig");
+const std = @import("std");
 
 pub const KernelVirtualAddress = extern struct {
     value: usize,
@@ -34,6 +34,7 @@ pub const KernelVirtualAddress = extern struct {
     /// **REQUIREMENTS**:
     /// - The pointer must be a valid kernel pointer.
     pub inline fn toPtr(self: KernelVirtualAddress, comptime PtrT: type) PtrT {
+        // this is the sanctioned kernel-address-to-pointer convension.
         return @ptrFromInt(self.value);
     }
 
@@ -45,7 +46,7 @@ pub const KernelVirtualAddress = extern struct {
     ///
     /// The resulting address might no longer be a vaild kernel address, use `VirtualAddress.getType` to check.
     pub inline fn applyKernelOffset(self: KernelVirtualAddress) root.VirtualAddress {
-        return self.toVirtualAddress().moveBackward(innigkeit.mem.globals.kernel_virtual_offset);
+        return self.toVirtualAddress().moveBackward(innigkeit.memory.globals.kernel_virtual_offset);
     }
 
     pub const aligned: fn (address: @This(), alignment: std.mem.Alignment) callconv(.@"inline") bool = Mixin.aligned;

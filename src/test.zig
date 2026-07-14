@@ -7,9 +7,9 @@
 //! The kernel boots via Limine; `stage4` runs all tests and exits
 //! QEMU via the ISA debug-exit device. This `main()` is never
 //! actually called by the kernel.
-const std = @import("std");
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 pub const panic = innigkeit.debug.panic_interface;
 
@@ -36,3 +36,25 @@ comptime {
 }
 
 pub fn main() void {}
+
+/// `std.testing.fuzz(...)` resolves against `@import("root").fuzz`; this test
+/// binary's root is this file (a "simple"-mode custom test runner), not the
+/// standard `compiler/test_runner.zig`, so it needs its own implementation.
+/// There's no libFuzzer/coverage-instrumentation support here, as no host
+/// process exists inside QEMU to feed a corpus or read coverage back, so
+/// this runs `testOne` once per corpus entry plus one empty-input smoke test,
+/// matching `std`'s own non-`--fuzz` fallback exactly. Real fuzzing (many
+/// random inputs exploring edge cases) only happens for host-testable code
+/// exercised via `zig build test_native --fuzz`.
+pub fn fuzz(
+    context: anytype,
+    comptime testOne: fn (context: @TypeOf(context), *std.testing.Smith) anyerror!void,
+    options: std.testing.FuzzInputOptions,
+) anyerror!void {
+    for (options.corpus) |input| {
+        var smith: std.testing.Smith = .{ .in = input };
+        try testOne(context, &smith);
+    }
+    var smith: std.testing.Smith = .{ .in = "" };
+    try testOne(context, &smith);
+}

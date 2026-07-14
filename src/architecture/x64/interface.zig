@@ -45,7 +45,7 @@ pub const functions: architecture.Functions = .{
         .createPageTable = x64.paging.PageTable.create,
 
         .loadPageTable = struct {
-            fn loadPageTable(physical_page: innigkeit.mem.PhysicalPage.Index) void {
+            fn loadPageTable(physical_page: innigkeit.memory.PhysicalPage.Index) void {
                 x64.registers.Cr3.writeAddress(physical_page.baseAddress());
             }
         }.loadPageTable,
@@ -174,6 +174,7 @@ pub const functions: architecture.Functions = .{
 };
 
 const size_of_address_space_half = @import("core").Size.from(128, .tib).subtract(x64.paging.PageTable.small_page_size);
+const size_of_user_address_space_half = size_of_address_space_half.subtract(x64.paging.PageTable.small_page_size);
 
 pub const decls: architecture.Decls = .{
     .PerExecutor = x64.PerExecutor,
@@ -187,7 +188,7 @@ pub const decls: architecture.Decls = .{
         .standard_page_size = x64.paging.PageTable.small_page_size,
         .largest_page_size = x64.paging.PageTable.large_page_size,
         .kernel_memory_range = .from(
-            innigkeit.VirtualAddress.from(0xffff800000000000),
+            innigkeit.VirtualAddress.from(0xFFFF800000000000),
             size_of_address_space_half,
         ),
         .PageTable = x64.paging.PageTable,
@@ -207,7 +208,7 @@ pub const decls: architecture.Decls = .{
         .SyscallFrame = x64.user.SyscallFrame,
         .user_memory_range = .from(
             innigkeit.VirtualAddress.zero.moveForward(x64.paging.PageTable.small_page_size),
-            size_of_address_space_half,
+            size_of_user_address_space_half,
         ),
     },
 

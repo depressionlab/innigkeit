@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 
 const x64 = @import("../x64.zig");
 pub const PageFaultErrorCode = @import("PageFaultErrorCode.zig").PageFaultErrorCode;
@@ -11,7 +11,7 @@ pub const PageTable = @import("PageTable.zig").PageTable;
 ///
 /// Records the recovery label `1:` into `target.*` before the copy: if a page
 /// fault during the `rep movsb` is unhandleable, the page-fault handler sets
-/// `rip` to that label (and flips the active `mem.safe.ResultSlot`), so the copy
+/// `rip` to that label (and flips the active `memory.safe.ResultSlot`), so the copy
 /// aborts and returns instead of panicking. The explicit rsi/rdi/rcx clobbers
 /// are required for correctness (a "+{reg}" tie alone miscompiles).
 pub fn safeMemcpy(
@@ -38,7 +38,7 @@ pub fn safeMemcpy(
 ///
 /// Records the recovery label `1:` into `target.*` before the load: on a fault
 /// the page-fault handler sets `rip` there (and flips the active
-/// `mem.safe.ResultSlot`) so the access aborts and returns instead of panicking.
+/// `memory.safe.ResultSlot`) so the access aborts and returns instead of panicking.
 /// An aligned 32-bit `mov` is a single atomic load with acquire ordering on
 /// x86-64 (TSO), as the futex word check requires.
 pub fn safeAtomicLoad32(

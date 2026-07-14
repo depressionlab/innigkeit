@@ -1,6 +1,6 @@
-const std = @import("std");
-const innigkeit = @import("innigkeit");
 const Error = @import("Error.zig");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 /// The required signature for a spawned thread entry point.
 ///
@@ -197,6 +197,9 @@ pub const InnigkeitThreadImpl = struct {
             fn_args: Args,
 
             fn entryFn(raw_arg: usize) callconv(.c) noreturn {
+                // `raw_arg` is always `@intFromPtr(instance)`, passed through
+                // `innigkeit.thread.spawn` below (the thread-entry ABI takes
+                // a plain `usize`).
                 const self: *@This() = @ptrFromInt(raw_arg);
 
                 // Dispatch the thread function, handling all valid return types.
@@ -236,13 +239,13 @@ pub const InnigkeitThreadImpl = struct {
 
             fn destroyFn(c: *Completion) void {
                 const self: *@This() = @fieldParentPtr("completion", c);
-                innigkeit.mem.page_allocator.destroy(self);
+                innigkeit.memory.page_allocator.destroy(self);
             }
         };
 
         const id = next_id.fetchAdd(1, .monotonic);
-        const instance = try innigkeit.mem.page_allocator.create(Instance);
-        errdefer innigkeit.mem.page_allocator.destroy(instance);
+        const instance = try innigkeit.memory.page_allocator.create(Instance);
+        errdefer innigkeit.memory.page_allocator.destroy(instance);
 
         instance.* = .{
             .completion = .{

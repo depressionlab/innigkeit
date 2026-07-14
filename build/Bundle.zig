@@ -67,6 +67,7 @@ pub const Architecture = enum {
                 .abi = .none,
                 .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.generic },
                 .cpu_features_sub = std.Target.aarch64.featureSet(&.{ .neon, .fp_armv8 }),
+                .cpu_features_add = std.Target.aarch64.featureSet(&.{.strict_align}),
             }),
             .riscv => b.resolveTargetQuery(.{
                 .cpu_arch = .riscv64,

@@ -254,7 +254,7 @@ pub const TPM2 = extern struct {
             }
 
             comptime {
-                core.testing.expectSize(CommandResponseBufferWithSMCHVC, 12);
+                core.testing.expectSize(CommandResponseBufferWithSMCHVC, .from(12, .byte));
             }
         };
 
@@ -304,7 +304,7 @@ pub const TPM2 = extern struct {
             }
 
             comptime {
-                core.testing.expectSize(CommandResponseBufferWithAMDMailbox, 16);
+                core.testing.expectSize(CommandResponseBufferWithAMDMailbox, .from(16, .byte));
             }
         };
 
@@ -379,12 +379,12 @@ pub const TPM2 = extern struct {
             }
 
             comptime {
-                core.testing.expectSize(CommandResponseBufferWithARMFirmwareFrameworkA, 12);
+                core.testing.expectSize(CommandResponseBufferWithARMFirmwareFrameworkA, .from(12, .byte));
             }
         };
 
         comptime {
-            core.testing.expectSize(StartMethodSpecificParameters, 16);
+            core.testing.expectSize(StartMethodSpecificParameters, .from(16, .byte));
         }
     };
 
@@ -513,6 +513,6 @@ pub const TPM2 = extern struct {
     }
 
     comptime {
-        core.testing.expectSize(TPM2, 80);
+        core.testing.expectSize(TPM2, .from(80, .byte));
     }
 };

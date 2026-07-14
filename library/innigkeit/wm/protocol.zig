@@ -13,8 +13,8 @@
 
 const std = @import("std");
 
-const geometry = @import("geometry.zig");
 const caps = @import("../capabilities.zig");
+const geometry = @import("geometry.zig");
 
 const Message = caps.Message;
 const Handle = caps.Handle;

@@ -6,8 +6,8 @@
 //! readers and writers allowing us to wake all readers when a write lock is released
 const RwLock = @This();
 
-const std = @import("std");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 state: usize = 0,
 mutex: innigkeit.sync.Mutex = .{},
@@ -27,7 +27,12 @@ pub fn tryUpgradeLock(self: *RwLock) bool {
         const state = @atomicRmw(usize, &self.state, .Sub, READER, .release);
 
         if (state & READER_MASK == READER) {
-            _ = @atomicRmw(usize, &self.state, .Or, IS_WRITING, .acquire);
+            // Fold "we're no longer a pending writer" into the same atomic op
+            // as setting IS_WRITING, mirroring writeLock()'s IS_WRITING -% WRITER
+            // trick. A bare `.Or, IS_WRITING` would leak the WRITER count this
+            // function added above, permanently misreporting a pending writer
+            // to every future reader on this lock after we unlock.
+            _ = @atomicRmw(usize, &self.state, .Add, IS_WRITING -% WRITER, .acquire);
             return true;
         }
 
@@ -192,9 +197,23 @@ test "RwLock: tryUpgradeLock upgrades a sole reader, fails with a concurrent rea
     rwlock.writeUnlock();
 }
 
+test "RwLock: tryUpgradeLock does not leak the WRITER count on success" {
+    var rwlock: RwLock = .{};
+
+    try std.testing.expect(rwlock.tryReadLock());
+    try std.testing.expect(rwlock.tryUpgradeLock());
+    rwlock.writeUnlock();
+
+    // The pending-writer count tryUpgradeLock() adds up front must be paired
+    // off on the success path (like writeLock()'s IS_WRITING -% WRITER
+    // trick). Otherwise, every later reader spuriously sees a phantom
+    // pending writer and permanently falls back to the slow (mutex) path.
+    try std.testing.expectEqual(@as(usize, 0), rwlock.state & WRITER_MASK);
+}
+
 const IS_WRITING: usize = 1;
 const WRITER: usize = 1 << 1;
 const READER: usize = 1 << (1 + @bitSizeOf(Count));
 const WRITER_MASK: usize = std.math.maxInt(Count) << @ctz(WRITER);
 const READER_MASK: usize = std.math.maxInt(Count) << @ctz(READER);
-const Count = std.meta.Int(.unsigned, @divFloor(@bitSizeOf(usize) - 1, 2));
+const Count = @Int(.unsigned, @divFloor(@bitSizeOf(usize) - 1, 2));

@@ -130,6 +130,9 @@ export fn uacpi_kernel_io_map(base: u64, len: usize, out_handle: **anyopaque) ua
 
     _ = len;
 
+    // `handle` is never dereferenced as memory. every `uacpi_kernel_io_*`
+    // callback below reconstitutes it via `@intFromPtr + offset` into a
+    // plain I/O port number for I/O instructions.
     out_handle.* = @ptrFromInt(base);
     return .ok;
 }
@@ -271,13 +274,13 @@ export fn uacpi_kernel_io_write32(
 export fn uacpi_kernel_map(physical_address: innigkeit.PhysicalAddress, len: usize) ?[*]u8 {
     log.verbose("uacpi_kernel_map called", .{});
 
-    if (!innigkeit.mem.globals.memory_system_initialized) {
+    if (!innigkeit.memory.globals.memory_system_initialized) {
         // early calls to `uacpi_kernel_map` occur only to map ACPI tables, so using the direct map is fine
         @branchHint(.cold);
         return physical_address.toDirectMap().toPtr([*]u8);
     }
 
-    const virtual_range = innigkeit.mem.heap.allocateSpecial(
+    const virtual_range = innigkeit.memory.heap.allocateSpecial(
         .{
             .physical_range = .from(physical_address, .from(len, .byte)),
             .protection = .{ .read = true, .write = true },
@@ -299,13 +302,13 @@ export fn uacpi_kernel_map(physical_address: innigkeit.PhysicalAddress, len: usi
 export fn uacpi_kernel_unmap(ptr: [*]u8, len: usize) void {
     log.verbose("uacpi_kernel_unmap called", .{});
 
-    if (!innigkeit.mem.globals.memory_system_initialized) {
+    if (!innigkeit.memory.globals.memory_system_initialized) {
         // early calls to `uacpi_kernel_unmap` occur only to unmap ACPI tables, so using the direct map is fine
         @branchHint(.cold);
         return;
     }
 
-    innigkeit.mem.heap.deallocateSpecial(.fromSlice(u8, ptr[0..len]));
+    innigkeit.memory.heap.deallocateSpecial(.fromSlice(u8, ptr[0..len]));
 }
 
 /// Allocate a block of memory of 'size' bytes.
@@ -313,7 +316,7 @@ export fn uacpi_kernel_unmap(ptr: [*]u8, len: usize) void {
 /// The contents of the allocated memory are unspecified.
 export fn uacpi_kernel_alloc(size: usize) ?[*]u8 {
     log.verbose("uacpi_kernel_alloc called: {f}", .{core.Size.from(size, .byte)});
-    return innigkeit.mem.heap.c.mallocWithSizedFree(size);
+    return innigkeit.memory.heap.c.mallocWithSizedFree(size);
 }
 
 /// Free a previously allocated memory block.
@@ -321,7 +324,7 @@ export fn uacpi_kernel_alloc(size: usize) ?[*]u8 {
 /// 'mem' might be a NULL pointer. In this case, the call is assumed to be a no-op.
 export fn uacpi_kernel_free(opt_mem: ?[*]u8, size: usize) void {
     log.verbose("uacpi_kernel_free called: {*} {f}", .{ opt_mem, core.Size.from(size, .byte) });
-    innigkeit.mem.heap.c.sizedFree(opt_mem, size);
+    innigkeit.memory.heap.c.sizedFree(opt_mem, size);
 }
 
 export fn uacpi_kernel_log(uacpi_log_level: uacpi.LogLevel, c_msg: [*:0]const u8) void {
@@ -378,17 +381,21 @@ export fn uacpi_kernel_stall(usec: u8) void {
 }
 
 /// Sleep for N milliseconds.
+///
+/// Unlike `uacpi_kernel_stall`, callers may be context-switched away while
+/// sleeping (this is the AML `Sleep()` opcode, not `Stall()`), so this blocks
+/// the calling task via the nanosleep queue rather than busy-waiting.
 export fn uacpi_kernel_sleep(msec: u64) void {
     log.verbose("uacpi_kernel_sleep called", .{});
 
-    std.debug.panic("uacpi_kernel_sleep(msec={})", .{msec});
+    innigkeit.sync.nanosleep.wait(innigkeit.time.init.getUptimeMs() + msec);
 }
 
 /// Create an opaque non-recursive kernel mutex object.
 export fn uacpi_kernel_create_mutex() *innigkeit.sync.Mutex {
     log.verbose("uacpi_kernel_create_mutex called", .{});
 
-    const mutex = innigkeit.mem.heap.allocator.create(innigkeit.sync.Mutex) catch unreachable;
+    const mutex = innigkeit.memory.heap.allocator.create(innigkeit.sync.Mutex) catch unreachable;
     mutex.* = .{};
     return mutex;
 }
@@ -397,7 +404,7 @@ export fn uacpi_kernel_create_mutex() *innigkeit.sync.Mutex {
 export fn uacpi_kernel_free_mutex(mutex: *innigkeit.sync.Mutex) void {
     log.verbose("uacpi_kernel_free_mutex called", .{});
 
-    innigkeit.mem.heap.allocator.destroy(mutex);
+    innigkeit.memory.heap.allocator.destroy(mutex);
 }
 
 /// Create/free an opaque kernel (semaphore-like) event object.
@@ -410,6 +417,8 @@ export fn uacpi_kernel_create_event() *anyopaque {
         var value: std.atomic.Value(usize) = .init(1);
     };
 
+    // dummy implementation (see TODO above): a unique small integer standing
+    // in for a real event handle, never dereferenced as memory.
     return @ptrFromInt(static.value.fetchAdd(1, .monotonic));
 }
 
@@ -581,7 +590,7 @@ export fn uacpi_kernel_uninstall_interrupt_handler(
 export fn uacpi_kernel_create_spinlock() *innigkeit.sync.TicketSpinLock {
     log.verbose("uacpi_kernel_create_spinlock called", .{});
 
-    const lock = innigkeit.mem.heap.allocator.create(innigkeit.sync.TicketSpinLock) catch unreachable;
+    const lock = innigkeit.memory.heap.allocator.create(innigkeit.sync.TicketSpinLock) catch unreachable;
     lock.* = .{};
     return lock;
 }
@@ -592,7 +601,7 @@ export fn uacpi_kernel_create_spinlock() *innigkeit.sync.TicketSpinLock {
 export fn uacpi_kernel_free_spinlock(spinlock: *innigkeit.sync.TicketSpinLock) void {
     log.verbose("uacpi_kernel_free_spinlock called", .{});
 
-    innigkeit.mem.heap.allocator.destroy(spinlock);
+    innigkeit.memory.heap.allocator.destroy(spinlock);
 }
 
 /// Lock a spinlock.

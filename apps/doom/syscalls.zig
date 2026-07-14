@@ -18,6 +18,8 @@ export fn innigkeit_mmap(size: usize) callconv(.c) ?*anyopaque {
     const result = innigkeit.Syscall.invoke(.mmap, .{ size, 0x3 }); // PROT_READ|WRITE
     const addr = innigkeit.Syscall.decode(result) catch return null;
     if (addr == 0) return null;
+    // addr is the virtual address the kernel itself just mapped for this
+    // mmap call, not user-chosen.
     return @ptrFromInt(addr);
 }
 

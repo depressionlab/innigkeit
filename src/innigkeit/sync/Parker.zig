@@ -1,9 +1,9 @@
 //! A synchronization primitive that allows a single task to block (park) and any other task to wake it (unpark).
 const Parker = @This();
 
-const std = @import("std");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 lock: innigkeit.sync.TicketSpinLock = .{},
 parked_task: ?*innigkeit.Task,
@@ -55,6 +55,7 @@ pub fn park(self: *Parker) void {
     scheduler_handle.block(.{
         .action = struct {
             fn action(old_task: *innigkeit.Task, arg: usize) void {
+                // `arg` is always `@intFromPtr(self)` from the single call site below.
                 const inner_parker: *Parker = @ptrFromInt(arg);
 
                 old_task.state = .blocked;

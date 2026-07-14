@@ -1,10 +1,10 @@
 //! Stack Size Feature
 
-const root = @import("root.zig");
 const core = @import("core");
+const root = @import("root.zig");
 
 pub const Request = extern struct {
-    id: [4]u64 = root.id(0x224ef0460a8e8926, 0xe1cb0fc25f46ea3d),
+    id: [4]u64 = root.id(0x224EF0460A8E8926, 0xE1CB0FC25F46EA3D),
     revision: u64 = 0,
 
     response: ?*const Response = null,

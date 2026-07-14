@@ -4,9 +4,9 @@
 //! translates scan-code set 1 make codes to ASCII bytes pushed to
 //! `keyboard_buffer`. The BIOS has already reset and enabled the keyboard,
 //! so init only flushes stale bytes and installs the IRQ handler.
-const std = @import("std");
 const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 const log = innigkeit.debug.log.scoped(.ps2);
 

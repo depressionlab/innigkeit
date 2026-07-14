@@ -10,8 +10,8 @@
 //!   2. Build:
 //!        zig build
 
-const std = @import("std");
 const sdk = @import("innigkeit_sdk");
+const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});

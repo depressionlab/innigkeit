@@ -1,7 +1,7 @@
-const root = @import("root.zig");
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
+const root = @import("root.zig");
 
 /// A basic write only 16550/16450 UART.
 ///

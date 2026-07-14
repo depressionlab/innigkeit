@@ -1,13 +1,10 @@
 const Header = @This();
 
-const std = @import("std");
-const builtin = @import("builtin");
-
-const architecture = @import("architecture");
 const core = @import("core");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
-const log = innigkeit.debug.log.scoped(.user);
+const RawHeader = @import("RawHeader.zig");
 
 is_64: bool,
 endian: std.builtin.Endian,
@@ -48,60 +45,27 @@ section_header_entry_count: u16,
 /// Section header table index of the entry associated with the section name string table.
 section_name_string_table_index: u16,
 
-pub const ParseError = error{
-    TruncatedInput,
-    InvalidMagic,
-    InvalidVersion,
-    InvalidEndian,
-    InvalidClass,
-};
+pub const ParseError = RawHeader.ParseError;
 
 /// Parse the given slice into an ELF header.
 ///
 /// The slice must be atleast 64 bytes long.
 pub fn parse(elf_header_slice: []const u8) ParseError!Header {
-    if (elf_header_slice.len < 64) return error.TruncatedInput;
-
-    const ident: HeaderIdent = .from(elf_header_slice);
-    if (!std.mem.eql(u8, ident.magic(), HeaderIdent.MAGIC)) return error.InvalidMagic;
-    if (ident.version() != .current) return error.InvalidVersion;
-
-    const endian: std.builtin.Endian = switch (ident.endian()) {
-        .little => .little,
-        .big => .big,
-        else => return error.InvalidEndian,
-    };
-
-    const is_64: bool = switch (ident.class()) {
-        .@"32" => false,
-        .@"64" => true,
-        else => return error.InvalidClass,
-    };
-
-    return if (is_64)
-        innerParse(elf_header_slice, true, endian)
-    else
-        innerParse(elf_header_slice, false, endian);
-}
-
-fn innerParse(elf_header_slice: []const u8, comptime is_64: bool, endian: std.builtin.Endian) ParseError!Header {
-    const HeaderT = if (is_64) RawElf64Header else RawElf32Header;
-    const FileOffset = if (is_64) u64 else u32;
-    const raw_elf_header: *align(1) const HeaderT = std.mem.bytesAsValue(HeaderT, elf_header_slice);
+    const raw = try RawHeader.parse(elf_header_slice);
 
     return .{
-        .is_64 = is_64,
-        .endian = endian,
-        .type = @enumFromInt(std.mem.toNative(u16, raw_elf_header.e_type, endian)),
-        .machine = @enumFromInt(std.mem.toNative(u16, raw_elf_header.e_machine, endian)),
-        .entry = .from(std.mem.toNative(FileOffset, raw_elf_header.e_entry, endian)),
-        .program_header_offset = .from(std.mem.toNative(FileOffset, raw_elf_header.e_phoff, endian), .byte),
-        .program_header_entry_size = .from(std.mem.toNative(u16, raw_elf_header.e_phentsize, endian), .byte),
-        .program_header_entry_count = std.mem.toNative(u16, raw_elf_header.e_phnum, endian),
-        .section_header_offset = .from(std.mem.toNative(FileOffset, raw_elf_header.e_shoff, endian), .byte),
-        .section_header_entry_size = .from(std.mem.toNative(u16, raw_elf_header.e_shentsize, endian), .byte),
-        .section_header_entry_count = std.mem.toNative(u16, raw_elf_header.e_shnum, endian),
-        .section_name_string_table_index = std.mem.toNative(u16, raw_elf_header.e_shstrndx, endian),
+        .is_64 = raw.is_64,
+        .endian = raw.endian,
+        .type = @enumFromInt(raw.type),
+        .machine = @enumFromInt(raw.machine),
+        .entry = .from(raw.entry),
+        .program_header_offset = .from(raw.program_header_offset, .byte),
+        .program_header_entry_size = .from(raw.program_header_entry_size, .byte),
+        .program_header_entry_count = raw.program_header_entry_count,
+        .section_header_offset = .from(raw.section_header_offset, .byte),
+        .section_header_entry_size = .from(raw.section_header_entry_size, .byte),
+        .section_header_entry_count = raw.section_header_entry_count,
+        .section_name_string_table_index = raw.section_name_string_table_index,
     };
 }
 
@@ -125,19 +89,30 @@ pub fn programHeaderTableLocation(self: *const Header) TableLocation {
 /// Iterates over the program header table and returns a `LoadableRegion` for each region that must be loaded.
 ///
 /// The provided slice must match the location and size given by `programHeaderTableLocation`.
-pub fn loadableRegionIterator(self: *const Header, program_header_table: []const u8) innigkeit.user.elf.LoadableRegion.Iterator {
-    return .{
-        .program_header_iterator = self.iterateProgramHeaders(program_header_table),
-    };
+pub fn loadableRegionIterator(self: *const Header, program_header_table: []const u8) IterateError!innigkeit.user.elf.LoadableRegion.Iterator {
+    return .{ .program_header_iterator = try self.iterateProgramHeaders(program_header_table) };
 }
+
+pub const IterateError = error{
+    /// The file declares a per-entry size (`e_phentsize`) too small to hold the fields this
+    /// parser reads for the file's ELF class. Trusting it would read past the entry into the
+    /// next one (or past the table).
+    ProgramHeaderEntryTooSmall,
+    /// `program_header_table` is shorter than `program_header_entry_size * program_header_entry_count`
+    /// and the caller-provided slice doesn't actually match `programHeaderTableLocation`.
+    ProgramHeaderTableTruncated,
+};
 
 /// Iterates over the program header table.
 ///
 /// The provided slice must match the location and size given by `programHeaderTableLocation`.
-pub fn iterateProgramHeaders(self: *const Header, program_header_table: []const u8) innigkeit.user.elf.ProgramHeader.Iterator {
-    if (builtin.mode == .Debug) std.debug.assert(
-        program_header_table.len >= self.program_header_entry_size.multiplyScalar(self.program_header_entry_count).value,
-    );
+pub fn iterateProgramHeaders(self: *const Header, program_header_table: []const u8) IterateError!innigkeit.user.elf.ProgramHeader.Iterator {
+    if (self.program_header_entry_size.value < innigkeit.user.elf.ProgramHeader.requiredEntrySize(self.is_64)) {
+        return error.ProgramHeaderEntryTooSmall;
+    }
+    if (program_header_table.len < self.program_header_entry_size.multiplyScalar(self.program_header_entry_count).value) {
+        return error.ProgramHeaderTableTruncated;
+    }
 
     return .{
         .header = self,
@@ -199,85 +174,3 @@ pub fn print(self: *const Header, writer: *std.Io.Writer, indent: usize) !void {
 pub fn format(self: *const Header, writer: *std.Io.Writer) !void {
     return self.print(writer, 0);
 }
-
-const RawElf64Header = extern struct {
-    e_ident: HeaderIdent,
-    e_type: u16,
-    e_machine: u16,
-    e_version: u32,
-    e_entry: u64,
-    e_phoff: u64,
-    e_shoff: u64,
-    e_flags: u32,
-    e_ehsize: u16,
-    e_phentsize: u16,
-    e_phnum: u16,
-    e_shentsize: u16,
-    e_shnum: u16,
-    e_shstrndx: u16,
-};
-
-const RawElf32Header = extern struct {
-    e_ident: HeaderIdent,
-    e_type: u16,
-    e_machine: u16,
-    e_version: u32,
-    e_entry: u32,
-    e_phoff: u32,
-    e_shoff: u32,
-    e_flags: u32,
-    e_ehsize: u16,
-    e_phentsize: u16,
-    e_phnum: u16,
-    e_shentsize: u16,
-    e_shnum: u16,
-    e_shstrndx: u16,
-};
-
-const HeaderIdent = extern struct {
-    value: [header_ident_size]u8,
-
-    inline fn from(slice: []const u8) HeaderIdent {
-        return .{ .value = slice[0..header_ident_size].* };
-    }
-
-    const MAGIC = "\x7fELF";
-
-    fn magic(self: *const HeaderIdent) []const u8 {
-        return self.value[0..4];
-    }
-
-    fn class(self: *const HeaderIdent) Class {
-        return @enumFromInt(self.value[4]);
-    }
-
-    fn endian(self: *const HeaderIdent) Endian {
-        return @enumFromInt(self.value[5]);
-    }
-
-    fn version(self: *const HeaderIdent) innigkeit.user.elf.Version {
-        return @enumFromInt(self.value[6]);
-    }
-
-    fn osABI(self: *const HeaderIdent) innigkeit.user.elf.OSABI {
-        return @enumFromInt(self.value[7]);
-    }
-
-    fn abiVersion(self: *const HeaderIdent) u8 {
-        return self.value[8];
-    }
-
-    const Class = enum(u8) {
-        none = 0,
-        @"32" = 1,
-        @"64" = 2,
-    };
-
-    const Endian = enum(u8) {
-        none = 0,
-        little = 1,
-        big = 2,
-    };
-
-    const header_ident_size = 16;
-};

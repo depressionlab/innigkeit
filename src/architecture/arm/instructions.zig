@@ -17,26 +17,32 @@ pub inline fn readPhysicalCount() u64 {
 // elided; the same helpers also back the virtio legacy memory-BAR `PortIo`.
 
 pub inline fn readPciU8(address: innigkeit.KernelVirtualAddress) u8 {
+    // ECAM window, see comment above
     return @as(*const volatile u8, @ptrFromInt(address.value)).*;
 }
 
 pub inline fn readPciU16(address: innigkeit.KernelVirtualAddress) u16 {
+    // ECAM window, see comment above
     return @as(*const volatile u16, @ptrFromInt(address.value)).*;
 }
 
 pub inline fn readPciU32(address: innigkeit.KernelVirtualAddress) u32 {
+    // ECAM window, see comment above
     return @as(*const volatile u32, @ptrFromInt(address.value)).*;
 }
 
 pub inline fn writePciU8(address: innigkeit.KernelVirtualAddress, value: u8) void {
+    // ECAM window, see comment above
     @as(*volatile u8, @ptrFromInt(address.value)).* = value;
 }
 
 pub inline fn writePciU16(address: innigkeit.KernelVirtualAddress, value: u16) void {
+    // ECAM window, see comment above
     @as(*volatile u16, @ptrFromInt(address.value)).* = value;
 }
 
 pub inline fn writePciU32(address: innigkeit.KernelVirtualAddress, value: u32) void {
+    // ECAM window, see comment above
     @as(*volatile u32, @ptrFromInt(address.value)).* = value;
 }
 

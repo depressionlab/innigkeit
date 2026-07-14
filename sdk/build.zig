@@ -63,7 +63,7 @@ pub const CreatedApp = struct {
 ///
 /// Sets up:
 /// - Correct freestanding target (CPU arch, features, ABI)
-/// - The `innigkeit` runtime module (syscalls, IPC, net, etc.)
+/// - The `innigkeit` runtime module (syscalls, IPC, network, etc.)
 /// - Entry-point boilerplate via the innigkeit prelude
 /// - A codesign step that signs the ELF with `manifest.toml`
 ///
@@ -96,6 +96,13 @@ pub fn createApp(b: *std.Build, opts: CreateOptions) CreatedApp {
         .target = target,
         .optimize = opts.optimize,
     });
+    // Left unset, this silently takes Zig's implicit Debug-mode default
+    // (.full), which breaks compilation on the freestanding soft-float
+    // target (ubsan_rt.zig's f128 path has no backend support without
+    // SSE). createApp has no C-linking capability (see CreateOptions), so
+    // unlike build/App.zig's app_module this is unconditionally .off, not
+    // derived from whether C sources are present.
+    app_mod.sanitize_c = .off;
     app_mod.addImport("innigkeit", innigkeit_mod);
     app_mod.addImport(opts.name, app_mod);
     app_mod.addImport("is_internal", is_internal_mod);
@@ -107,6 +114,7 @@ pub fn createApp(b: *std.Build, opts: CreateOptions) CreatedApp {
         .target = target,
         .optimize = opts.optimize,
     });
+    prelude_mod.sanitize_c = .off; // see app_mod above
     prelude_mod.addImport("app", app_mod);
     prelude_mod.addImport("innigkeit", innigkeit_mod);
     prelude_mod.addImport("is_internal", is_internal_mod);
@@ -173,6 +181,7 @@ fn resolveTarget(b: *std.Build, arch: CreateOptions.Arch) std.Build.ResolvedTarg
             .abi = .none,
             .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.generic },
             .cpu_features_sub = std.Target.aarch64.featureSet(&.{ .neon, .fp_armv8 }),
+            .cpu_features_add = std.Target.aarch64.featureSet(&.{.strict_align}),
         }),
         .riscv => b.resolveTargetQuery(.{
             .cpu_arch = .riscv64,

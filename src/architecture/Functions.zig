@@ -2,9 +2,9 @@
 //!
 //! Any optional functions that are not implemented will result in runtime panics when called.
 
-const innigkeit = @import("innigkeit");
-const core = @import("core");
 const architecture = @import("architecture");
+const core = @import("core");
+const innigkeit = @import("innigkeit");
 
 /// Issues an architecture specific hint to the executor that we are spinning in a loop.
 spinLoopHint: ?fn () callconv(.@"inline") void = null,
@@ -107,9 +107,9 @@ paging: struct {
     ///
     /// **REQUIREMENTS**:
     /// - The provided physical page must be accessible in the direct map.
-    createPageTable: ?fn (physical_page: innigkeit.mem.PhysicalPage.Index) *architecture.current_decls.paging.PageTable = null,
+    createPageTable: ?fn (physical_page: innigkeit.memory.PhysicalPage.Index) *architecture.current_decls.paging.PageTable = null,
 
-    loadPageTable: ?fn (physical_page: innigkeit.mem.PhysicalPage.Index) void = null,
+    loadPageTable: ?fn (physical_page: innigkeit.memory.PhysicalPage.Index) void = null,
 
     /// Copies the top level of `page_table` into `target_page_table`.
     copyTopLevelIntoPageTable: ?fn (
@@ -130,10 +130,10 @@ paging: struct {
     mapSinglePage: ?fn (
         page_table: *architecture.current_decls.paging.PageTable,
         virtual_address: innigkeit.VirtualAddress,
-        physical_page: innigkeit.mem.PhysicalPage.Index,
-        map_type: innigkeit.mem.MapType,
-        physical_page_allocator: innigkeit.mem.PhysicalPage.Allocator,
-    ) innigkeit.mem.MapError!void = null,
+        physical_page: innigkeit.memory.PhysicalPage.Index,
+        map_type: innigkeit.memory.MapType,
+        physical_page_allocator: innigkeit.memory.PhysicalPage.Allocator,
+    ) innigkeit.memory.MapError!void = null,
 
     /// Unmaps the given virtual range.
     ///
@@ -147,8 +147,8 @@ paging: struct {
         virtual_range: innigkeit.VirtualRange,
         backing_page_decision: core.CleanupDecision,
         top_level_decision: core.CleanupDecision,
-        flush_batch: *innigkeit.mem.VirtualRangeBatch,
-        deallocate_page_list: *innigkeit.mem.PhysicalPage.List,
+        flush_batch: *innigkeit.memory.VirtualRangeBatch,
+        deallocate_page_list: *innigkeit.memory.PhysicalPage.List,
     ) void = null,
 
     /// Changes the protection of the given virtual range.
@@ -162,9 +162,9 @@ paging: struct {
     changeProtection: ?fn (
         page_table: *architecture.current_decls.paging.PageTable,
         virtual_range: innigkeit.VirtualRange,
-        previous_map_type: innigkeit.mem.MapType,
-        new_map_type: innigkeit.mem.MapType,
-        flush_batch: *innigkeit.mem.VirtualRangeBatch,
+        previous_map_type: innigkeit.memory.MapType,
+        new_map_type: innigkeit.memory.MapType,
+        flush_batch: *innigkeit.memory.VirtualRangeBatch,
     ) void = null,
 
     /// Flushes the cache for the given virtual range on the current executor.
@@ -189,7 +189,7 @@ paging: struct {
     ///
     /// Before copying, stores into `target.*` the address the page-fault handler
     /// should resume at if an unhandleable fault occurs mid-copy; the handler
-    /// also flips the active `mem.safe.ResultSlot` to unsuccessful.
+    /// also flips the active `memory.safe.ResultSlot` to unsuccessful.
     safeMemcpy: ?fn (
         destination: innigkeit.VirtualRange,
         source: innigkeit.VirtualRange,
@@ -198,7 +198,7 @@ paging: struct {
 
     /// Atomically load a `u32` from `address` (acquire) into `out`, recording in
     /// `target.*` the resume address if the load faults. The engine behind
-    /// `mem.safe.atomicLoadU32`; the load must be a single atomic access.
+    /// `memory.safe.atomicLoadU32`; the load must be a single atomic access.
     safeAtomicLoad32: ?fn (
         address: innigkeit.VirtualAddress,
         out: *u32,
@@ -219,7 +219,7 @@ paging: struct {
         fillTopLevel: ?fn (
             page_table: *architecture.current_decls.paging.PageTable,
             range: innigkeit.VirtualRange,
-            physical_page_allocator: innigkeit.mem.PhysicalPage.Allocator,
+            physical_page_allocator: innigkeit.memory.PhysicalPage.Allocator,
         ) anyerror!void = null,
 
         /// Maps the `virtual_range` to the `physical_range` with mapping type given by `map_type`.
@@ -239,8 +239,8 @@ paging: struct {
             page_table: *architecture.current_decls.paging.PageTable,
             virtual_range: innigkeit.VirtualRange,
             physical_range: innigkeit.PhysicalRange,
-            map_type: innigkeit.mem.MapType,
-            physical_page_allocator: innigkeit.mem.PhysicalPage.Allocator,
+            map_type: innigkeit.memory.MapType,
+            physical_page_allocator: innigkeit.memory.PhysicalPage.Allocator,
         ) anyerror!void = null,
     },
 },
@@ -253,7 +253,7 @@ user: struct {
     /// This function is called in the `Thread` cache constructor.
     createThread: ?fn (
         thread: *innigkeit.user.Thread,
-    ) innigkeit.mem.cache.ConstructorError!void = null,
+    ) innigkeit.memory.cache.ConstructorError!void = null,
 
     /// Destroy the `PerThread` data of a thread.
     ///

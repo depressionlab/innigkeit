@@ -2,17 +2,18 @@
 //!
 //! Listens on port 7777 and echoes every byte back to the sender.
 //! Each accepted connection runs in its own thread; the server runs indefinitely.
-
-const std = @import("std");
+// zlinter-disable no_swallow_error - every catch here is a console print
+// with no meaningful recovery path in this demo server.
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 const PORT: u16 = 7777;
 const IDLE_NS: u64 = 30 * std.time.ns_per_s;
 
 pub fn main() void {
-    innigkeit.net.setIp(.{ 10, 0, 2, 15 });
+    innigkeit.network.setIp(.{ 10, 0, 2, 15 });
 
-    const listener = innigkeit.net.TcpSocket.listen(PORT) catch |err| {
+    const listener = innigkeit.network.TcpSocket.listen(PORT) catch |err| {
         innigkeit.io.stdout.print("tcp_echo: listen :{}: {s}\n", .{ PORT, @errorName(err) }) catch {};
         return;
     };
@@ -34,7 +35,7 @@ pub fn main() void {
     }
 }
 
-fn echoConn(conn: innigkeit.net.TcpSocket) void {
+fn echoConn(conn: innigkeit.network.TcpSocket) void {
     defer conn.close();
     var buf: [4096]u8 = undefined;
     while (true) {

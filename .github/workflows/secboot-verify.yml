@@ -1,0 +1,39 @@
+name: Secure Boot verify (scheduled)
+
+# This suite needs extra host packages ci.yml doesn't install and
+# runs three sequential QEMU boots, so it's kept out of the per-push/PR
+# job and run on a schedule + on demand instead. See
+# docs/verification-and-ci.md for more information.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  secboot_verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "git: checkout"
+        uses: actions/checkout@v6
+
+      - name: "zig: setup"
+        uses: mlugg/setup-zig@v2
+
+      - name: "apt: install QEMU/AAVMF/swtpm/secboot tools"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-system-arm qemu-efi-aarch64 ovmf swtpm swtpm-tools mtools sbsigntool
+          pip install virt-firmware
+
+      - name: "rust: bare-metal target"
+        run: rustup target add x86_64-unknown-none
+
+      - name: "zig: generate codesign keypair"
+        run: zig build codesign -- keygen
+
+      - name: "zig: verify (secboot + arm)"
+        run: zig build verify -Dsecboot=true -Darm=true --summary all

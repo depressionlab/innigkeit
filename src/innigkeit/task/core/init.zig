@@ -1,6 +1,6 @@
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const globals = @import("globals.zig");
+const innigkeit = @import("innigkeit");
 const SchedClass = @import("../SchedClass.zig");
 
 const init_log = innigkeit.debug.log.scoped(.task_init);

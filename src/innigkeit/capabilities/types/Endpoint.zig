@@ -9,8 +9,8 @@
 //! TODO: seL4-style Reply token for zero-overhead call+replyRecv.
 const Endpoint = @This();
 
-const std = @import("std");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 const Message = @import("../Message.zig").Message;
 
 /// Revocation generation counter. See `Notify.generation` for semantics.
@@ -34,7 +34,7 @@ pending_msg: Message = .{},
 pending_sender: ?*innigkeit.Task = null,
 
 pub fn create() error{OutOfMemory}!*Endpoint {
-    const self = innigkeit.mem.heap.allocator.create(Endpoint) catch return error.OutOfMemory;
+    const self = try innigkeit.memory.heap.allocator.create(Endpoint);
     self.* = .{};
     return self;
 }
@@ -67,7 +67,7 @@ pub fn unref(self: *Endpoint) void {
         r.wakeFromBlocked();
     }
     self.lock.unlock();
-    innigkeit.mem.heap.allocator.destroy(self);
+    innigkeit.memory.heap.allocator.destroy(self);
 }
 
 fn transferCaps(msg: *Message, sender_task: *innigkeit.Task, receiver_task: *innigkeit.Task) void {
@@ -185,6 +185,8 @@ fn parkAndUnlock(spinlock: *innigkeit.sync.TicketSpinLock) void {
     scheduler_handle.block(.{
         .action = struct {
             fn action(old_task: *innigkeit.Task, arg: usize) void {
+                // safe: `arg` is always `@intFromPtr(spinlock)` from the one
+                // call site below (`.arg = @intFromPtr(spinlock)`).
                 const lock: *innigkeit.sync.TicketSpinLock = @ptrFromInt(arg);
                 old_task.state = .blocked;
                 old_task.spinlocks_held -= 1;

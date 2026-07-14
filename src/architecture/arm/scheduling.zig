@@ -13,11 +13,11 @@
 //!   [old/new + 96] kernel SP
 //! ```
 
-const std = @import("std");
-const builtin = @import("builtin");
-const innigkeit = @import("innigkeit");
-const core = @import("core");
 const arm = @import("arm.zig");
+const builtin = @import("builtin");
+const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 /// Prepares a fresh task so that when first scheduled it calls `type_erased_call`.
 ///

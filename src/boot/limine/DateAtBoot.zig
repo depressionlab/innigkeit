@@ -1,10 +1,10 @@
 //! Date at Boot Feature
 
-const std = @import("std");
 const root = @import("root.zig");
+const std = @import("std");
 
 pub const Request = extern struct {
-    id: [4]u64 = root.id(0x502746e184c088aa, 0xfbc5ec83e6327893),
+    id: [4]u64 = root.id(0x502746E184C088AA, 0xFBC5EC83E6327893),
     revision: u64 = 0,
 
     response: ?*const Response = null,

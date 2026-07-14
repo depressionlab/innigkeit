@@ -29,10 +29,10 @@
 //! entirely under the spinlock.
 const FdTable = @This();
 
-const std = @import("std");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
-const vfs = innigkeit.fs.vfs;
+const vfs = innigkeit.filesystem.vfs;
 
 pub const max_descriptors = 32;
 
@@ -184,7 +184,7 @@ pub fn readFile(self: *FdTable, fd: usize, buf: []u8) Error!usize {
         else => return error.BadFd,
     };
 
-    vfs.setPos(&file.node, file.offset) catch return error.InvalidArgument;
+    try vfs.setPos(&file.node, file.offset);
     const n = vfs.read(&file.node, buf) catch |err| return switch (err) {
         error.NoDevice => error.NoDevice,
         else => error.Io,
@@ -205,7 +205,7 @@ pub fn writeFile(self: *FdTable, fd: usize, buf: []const u8) Error!usize {
     };
     if (!file.writable) return error.NotWritable;
 
-    vfs.setPos(&file.node, file.offset) catch return error.InvalidArgument;
+    try vfs.setPos(&file.node, file.offset);
     const n = vfs.write(&file.node, buf) catch |err| return switch (err) {
         error.PermissionDenied => error.NotWritable,
         error.NoDevice => error.NoDevice,

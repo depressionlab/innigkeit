@@ -3,12 +3,13 @@
 //! Libraries are constructed by `Library.getLibraries`, which topologically
 //! sorts the dependency graph declared in `library/root.zig` and panics on
 //! cycles or missing names.
+// zlinter-disable require_errdefer_dealloc - every allocation here goes through b.allocator, an arena for the whole build graph's lifetime; there is no per-allocation free to add.
 const Library = @This();
 
-const std = @import("std");
 const Bundle = @import("Bundle.zig");
 const LibraryDescription = @import("LibraryDescription.zig");
 const Options = @import("Options.zig");
+const std = @import("std");
 const Wrapper = @import("Wrapper.zig");
 
 const Modules = std.AutoHashMapUnmanaged(Bundle.Architecture, *std.Build.Module);
@@ -269,8 +270,8 @@ fn createModule(
 
     for (dependencies) |dep| {
         module.addImport(dep.name, switch (bundle.context) {
-            .internal => dep.internal_modules.get(bundle.architecture) orelse unreachable,
-            .external => dep.external_modules.get(bundle.architecture) orelse unreachable,
+            .internal => dep.internal_modules.get(bundle.architecture).?,
+            .external => dep.external_modules.get(bundle.architecture).?,
         });
     }
 

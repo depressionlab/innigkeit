@@ -1,5 +1,5 @@
-const std = @import("std");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 var buffer: [256]u8 = undefined;
 

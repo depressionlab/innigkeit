@@ -1,7 +1,7 @@
-const std = @import("std");
-const innigkeit = @import("innigkeit");
-const core = @import("core");
 const architecture = @import("architecture");
+const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 /// Architecture specific per-task data.
 pub const PerTask = architecture.current_decls.scheduling.PerTask;

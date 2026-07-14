@@ -1,6 +1,5 @@
 //! Example Innigkeit app built with the out-of-tree SDK.
 
-const std = @import("std");
 const innigkeit = @import("innigkeit");
 
 pub fn main() void {

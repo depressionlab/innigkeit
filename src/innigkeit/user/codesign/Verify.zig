@@ -7,8 +7,8 @@ const std = @import("std");
 const Blake3 = std.crypto.hash.Blake3;
 const Ed25519 = std.crypto.sign.Ed25519;
 const SigBlob = @import("SigBlob.zig").SigBlob;
-const Manifest = @import("Manifest.zig");
 const keys = @import("keys.zig");
+const Manifest = @import("Manifest.zig");
 
 pub const VerifyError = error{
     /// No .codesig sidecar was found in initfs.

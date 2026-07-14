@@ -1,10 +1,10 @@
 //! SMBIOS Feature
 
-const root = @import("root.zig");
 const boot = @import("boot");
+const root = @import("root.zig");
 
 pub const Request = extern struct {
-    id: [4]u64 = root.id(0x9e9046f11e095391, 0xaa4a520fefbde5ee),
+    id: [4]u64 = root.id(0x9E9046F11E095391, 0xAA4A520FEFBDE5EE),
     revision: u64 = 0,
 
     response: ?*const Response = null,

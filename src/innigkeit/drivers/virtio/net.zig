@@ -20,13 +20,11 @@
 //! descriptor `addr` fields can carry real physical addresses; the CPU
 //! touches them through the direct map.
 
-const std = @import("std");
-const innigkeit = @import("innigkeit");
 const architecture = @import("architecture");
-const core = @import("core");
-const net = innigkeit.net;
-const PortIo = @import("PortIo.zig");
+const innigkeit = @import("innigkeit");
 const legacy = @import("legacy.zig");
+const PortIo = @import("PortIo.zig");
+const std = @import("std");
 
 const log = innigkeit.debug.log.scoped(.virtio_net);
 
@@ -78,7 +76,7 @@ comptime {
     std.debug.assert(NET_HDR_LEN <= TX_HDR_STRIDE);
 }
 
-const PageIndex = innigkeit.mem.PhysicalPage.Index;
+const PageIndex = innigkeit.memory.PhysicalPage.Index;
 
 const Device = struct {
     io: PortIo,
@@ -308,12 +306,12 @@ pub fn waitRx() bool {
 
 /// Allocate all RX and TX buffer pages, freeing everything on failure.
 fn allocBufferPages(rx_pages: *[BUF_PAGES]PageIndex, tx_pages: *[BUF_PAGES]PageIndex) bool {
-    var allocated: innigkeit.mem.PhysicalPage.List = .{};
+    var allocated: innigkeit.memory.PhysicalPage.List = .{};
     var ok = true;
 
     for ([_]*[BUF_PAGES]PageIndex{ rx_pages, tx_pages }) |pages| {
         for (pages) |*p| {
-            p.* = innigkeit.mem.PhysicalPage.allocator.allocate() catch {
+            p.* = innigkeit.memory.PhysicalPage.allocator.allocate() catch {
                 ok = false;
                 break;
             };
@@ -322,7 +320,7 @@ fn allocBufferPages(rx_pages: *[BUF_PAGES]PageIndex, tx_pages: *[BUF_PAGES]PageI
         if (!ok) break;
     }
     if (!ok) {
-        if (allocated.count > 0) innigkeit.mem.PhysicalPage.allocator.deallocate(allocated);
+        if (allocated.count > 0) innigkeit.memory.PhysicalPage.allocator.deallocate(allocated);
         return false;
     }
 

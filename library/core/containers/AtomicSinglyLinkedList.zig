@@ -1,8 +1,6 @@
 const std = @import("std");
 const Node = std.SinglyLinkedList.Node;
 
-const core = @import("core");
-
 /// An atomic singly linked list.
 ///
 /// Uses the node type `std.SinglyLinkedList.Node` to allow the same node to be used in multiple list implementations.

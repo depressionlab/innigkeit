@@ -5,9 +5,9 @@
 //! Preemption is disabled while locked.
 const Mutex = @This();
 
-const std = @import("std");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 // Lead with a cache-line-aligned zero-size marker so the lock's atomics never
 // share a cache line with a preceding field when this struct is embedded in a

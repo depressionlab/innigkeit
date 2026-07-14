@@ -1,5 +1,5 @@
-const std = @import("std");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 pub const Color = struct {
     r: u8,

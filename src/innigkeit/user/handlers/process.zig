@@ -22,14 +22,7 @@ pub fn exitThread(_: Context) Error.Syscall!usize {
 /// return.
 pub fn exitProcess(context: Context) Error.Syscall!usize {
     const status: u8 = @truncate(context.arg(.one));
-    context.process().exit_status = status;
-
-    // TODO (multi-core): IPI sibling threads and force-terminate them before
-    // deallocating process state. For now terminate the calling thread; process
-    // cleanup runs automatically when the reference count reaches zero.
-    const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
-    scheduler_handle.terminate();
-    unreachable;
+    context.process().terminateCallingThread(status);
 }
 
 /// spawn_thread(entry, arg) -> 0 : start a new thread in the current process at
@@ -100,7 +93,7 @@ pub fn processKill(context: Context) Error.Syscall!usize {
     const slot = try lookupNotify(context, .no_read_check);
     defer innigkeit.capabilities.CapabilityTable.unrefObject(slot.cap_type, slot.ptr);
     // Bit 0 = exited, bits 8..15 = exit status.
-    slot.notify.signal(@as(u64, 1) | (@as(u64, 130) << 8));
+    slot.notify.signal(@as(u64, 1) | (@as(u64, Process.ExitStatus.sigint) << 8));
     return 0;
 }
 

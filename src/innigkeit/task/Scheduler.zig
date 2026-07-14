@@ -1,9 +1,9 @@
 const Scheduler = @This();
 
-const std = @import("std");
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 pub const Handle = @import("Handle.zig");
 pub const Runqueue = @import("Runqueue.zig");

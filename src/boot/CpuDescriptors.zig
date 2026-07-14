@@ -1,5 +1,5 @@
-const limine = @import("limine/interface.zig");
 const _boot = @import("boot");
+const limine = @import("limine/interface.zig");
 
 pub const CpuDescriptors = union {
     unknown: void,

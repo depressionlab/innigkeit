@@ -39,6 +39,7 @@ pub fn protectiveMBR(
     const size_in_lba_clamped: u32 = if (number_of_lba > 0xFFFFFFFF)
         0xFFFFFFFF
     else
+        // Safe: the `if` above already bounds `number_of_lba <= 0xFFFFFFFF`.
         @truncate(number_of_lba - 1);
 
     // TODO: calulate this from the `number_of_lba`

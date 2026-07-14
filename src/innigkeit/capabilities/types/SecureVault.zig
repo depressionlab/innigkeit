@@ -24,10 +24,11 @@
 const SecureVault = @This();
 
 const builtin = @import("builtin");
-const std = @import("std");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 const Aead = std.crypto.aead.chacha_poly.XChaCha20Poly1305;
+const log = innigkeit.debug.log.scoped(.secure_vault);
 
 generation: std.atomic.Value(u32) = .init(0),
 refcount: std.atomic.Value(usize) = .init(1),
@@ -38,19 +39,45 @@ tpm_backed: bool,
 /// 256-bit vault-specific wrapping key. Never leaves the kernel.
 wrapping_key: [Aead.key_length]u8,
 
-/// Allocate a new SecureVault. If a TPM is present (`tpm_phys_addr != null`)
-/// the wrapping key is derived from the TPM's endorsement hierarchy; otherwise
-/// a CSPRNG-seeded software key is used.
-pub fn create(tpm_phys_addr: ?innigkeit.PhysicalAddress) error{OutOfMemory}!*SecureVault {
-    const self = innigkeit.mem.heap.allocator.create(SecureVault) catch return error.OutOfMemory;
+/// Allocate a new `SecureVault`. When a TPM 2.0 device is present the wrapping
+/// key's entropy is rooted in the TPM's hardware RNG (folded into the software
+/// key) and the vault is recorded as `tpm_backed`; otherwise a CSPRNG-seeded
+/// software-only key is used.
+///
+/// Persisting a vault key by sealing it under a TPM primary + PCR policy is a
+/// later step; this only governs the in-kernel session key, which never crosses
+/// the user boundary.
+pub fn create() error{OutOfMemory}!*SecureVault {
+    const self = try innigkeit.memory.heap.allocator.create(SecureVault);
     var key: [Aead.key_length]u8 = undefined;
     fillRandomKey(&key);
+    const tpm_backed = mixTpmEntropy(&key);
+
     self.* = .{
-        .tpm_backed = tpm_phys_addr != null,
+        .tpm_backed = tpm_backed,
         .wrapping_key = key,
     };
-    // TODO(secure_vault): derive key from TPM primary key when tpm_phys_addr is set.
     return self;
+}
+
+/// Fold TPM hardware-RNG bytes into `key` (`key = SHA256(software_key ||
+/// tpm_random)`) when a TPM is available. Returns true when the TPM
+/// contributed entropy. Best-effort: a TPM error leaves the software key
+/// intact and the vault software-backed.
+fn mixTpmEntropy(key: *[Aead.key_length]u8) bool {
+    const tpm = innigkeit.drivers.tpm.device() orelse return false;
+    var hw: [Aead.key_length]u8 = undefined;
+    const random = tpm.getRandom(&hw) catch |err| {
+        log.warn("TPM present but GetRandom failed: {t}; using software key", .{err});
+        return false;
+    };
+    if (random.len == 0) return false;
+
+    var hash = std.crypto.hash.sha2.Sha256.init(.{});
+    hash.update(key);
+    hash.update(random);
+    hash.final(key);
+    return true;
 }
 
 pub fn ref(self: *SecureVault) void {
@@ -62,7 +89,7 @@ pub fn unref(self: *SecureVault) void {
     // Zero the wrapping key before freeing: defense in depth against heap
     // inspection after the capability is revoked.
     @memset(&self.wrapping_key, 0);
-    innigkeit.mem.heap.allocator.destroy(self);
+    innigkeit.memory.heap.allocator.destroy(self);
 }
 
 /// Selectors for cap_invoke on a SecureVault capability.
@@ -194,7 +221,10 @@ inline fn hwRand64() ?u64 {
             var v: u64 = undefined;
             var ok: u64 = undefined;
             asm volatile (
-                \\ mrs %[v], rndr
+            // RNDR by architectural encoding (S3_3_C2_C4_0); the `rndr` mnemonic
+            // only assembles when the target enables FEAT_RNG (+rand), which the
+            // freestanding aarch64 target does not.
+                \\ mrs %[v], S3_3_C2_C4_0
                 \\ cset %[ok], ne
                 : [v] "=r" (v),
                   [ok] "=r" (ok),
@@ -242,7 +272,7 @@ inline fn counterFallback(slot_index: usize) u64 {
 }
 
 test "secure_vault: seal/unseal roundtrip" {
-    const vault = try SecureVault.create(null);
+    const vault: *SecureVault = try .create();
     defer vault.unref();
 
     const plaintext = "this is a kernel secret";
@@ -257,7 +287,7 @@ test "secure_vault: seal/unseal roundtrip" {
 }
 
 test "secure_vault: tampered blob fails authentication" {
-    const vault = try SecureVault.create(null);
+    const vault: *SecureVault = try .create();
     defer vault.unref();
 
     const plaintext = "secret data";
@@ -273,9 +303,10 @@ test "secure_vault: tampered blob fails authentication" {
 }
 
 test "secure_vault: seal rejects oversized plaintext" {
-    const vault = try SecureVault.create(null);
+    const vault: *SecureVault = try .create();
     defer vault.unref();
 
+    // never dereferenced: seal() must reject on size alone before reading.
     const fake_ptr: [*]const u8 = @ptrFromInt(0x1000);
     const too_big = fake_ptr[0 .. MAX_PLAINTEXT + 1];
     var blob: [OVERHEAD + 1]u8 = undefined;
@@ -283,9 +314,9 @@ test "secure_vault: seal rejects oversized plaintext" {
 }
 
 test "secure_vault: two vaults cannot cross-unseal" {
-    const v1 = try SecureVault.create(null);
+    const v1: *SecureVault = try .create();
     defer v1.unref();
-    const v2 = try SecureVault.create(null);
+    const v2: *SecureVault = try .create();
     defer v2.unref();
 
     const plaintext = "vault isolation check";

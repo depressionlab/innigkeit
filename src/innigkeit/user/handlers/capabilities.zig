@@ -12,8 +12,8 @@
 //! pointer is dereferenced outside those helpers. There is no entitlement gate:
 //! authority comes from holding the capability with the right bits.
 
-const std = @import("std");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 const validate = @import("../validate.zig");
 const Error = @import("libinnigkeit").Error;
@@ -73,10 +73,8 @@ pub fn capInvoke(context: Context) Error.Syscall!usize {
             switch (reply_op) {
                 .send => {
                     if (!slot_info.rights.write) return Error.Syscall.PermissionDenied;
-                    const msg = validate.readUser(Message, arg3) catch
-                        return Error.Syscall.BadAddress;
-                    reply_cap.send(msg) catch
-                        return Error.Syscall.InvalidArgument; // already replied
+                    const msg = try validate.readUser(Message, arg3);
+                    reply_cap.send(msg) catch return Error.Syscall.InvalidArgument; // already replied
                     return 0;
                 },
             }
@@ -91,8 +89,7 @@ pub fn capInvoke(context: Context) Error.Syscall!usize {
                 .send => {
                     if (!slot_info.rights.write) return Error.Syscall.PermissionDenied;
                     // Copy message out of user memory before blocking.
-                    const msg = validate.readUser(Message, arg3) catch
-                        return Error.Syscall.BadAddress;
+                    const msg = try validate.readUser(Message, arg3);
                     endpoint.send(msg);
                     return 0;
                 },
@@ -100,12 +97,11 @@ pub fn capInvoke(context: Context) Error.Syscall!usize {
                     if (!slot_info.rights.read) return Error.Syscall.PermissionDenied;
                     // Validate before blocking so a bad buffer faults
                     // without consuming a message.
-                    if (!validate.validateUserBuffer(arg3, @sizeOf(Message)))
+                    if (!validate.userBuffer(arg3, @sizeOf(Message)))
                         return Error.Syscall.BadAddress;
                     // Block first, then copy into user memory.
                     const msg = endpoint.recv();
-                    validate.writeUser(arg3, msg) catch
-                        return Error.Syscall.BadAddress;
+                    try validate.writeUser(arg3, msg);
                     return 0;
                 },
                 .call => {
@@ -113,19 +109,15 @@ pub fn capInvoke(context: Context) Error.Syscall!usize {
                     // arg3 = pointer to Message (in: request, out: reply).
                     // Copy the request out before blocking; copy the
                     // reply back after unblocking.
-                    const request = validate.readUser(Message, arg3) catch
-                        return Error.Syscall.BadAddress;
+                    const request = try validate.readUser(Message, arg3);
                     const reply = endpoint.call(request);
-                    validate.writeUser(arg3, reply) catch
-                        return Error.Syscall.BadAddress;
+                    try validate.writeUser(arg3, reply);
                     return 0;
                 },
                 .reply => {
                     if (!slot_info.rights.write) return Error.Syscall.PermissionDenied;
-                    const msg = validate.readUser(Message, arg3) catch
-                        return Error.Syscall.BadAddress;
-                    endpoint.reply(msg) catch
-                        return Error.Syscall.InvalidArgument; // no pending sender
+                    const msg = try validate.readUser(Message, arg3);
+                    endpoint.reply(msg) catch return Error.Syscall.InvalidArgument; // no pending sender
                     return 0;
                 },
                 .reply_recv => {
@@ -133,24 +125,21 @@ pub fn capInvoke(context: Context) Error.Syscall!usize {
                     // arg3 = pointer to Message (in: reply to send, out: next request).
                     // Copy the reply out before blocking; copy the
                     // next request back after unblocking.
-                    const reply_msg = validate.readUser(Message, arg3) catch
-                        return Error.Syscall.BadAddress;
+                    const reply_msg = try validate.readUser(Message, arg3);
                     const next_request = endpoint.replyRecv(reply_msg);
-                    validate.writeUser(arg3, next_request) catch
-                        return Error.Syscall.BadAddress;
+                    try validate.writeUser(arg3, next_request);
                     return 0;
                 },
                 .recv_call => {
                     if (!slot_info.rights.read) return Error.Syscall.PermissionDenied;
                     // Validate before blocking so a bad buffer faults
                     // without consuming a message.
-                    if (!validate.validateUserBuffer(arg3, @sizeOf(Message)))
+                    if (!validate.userBuffer(arg3, @sizeOf(Message)))
                         return Error.Syscall.BadAddress;
                     // Block until a message arrives.
                     const result = endpoint.recvCall();
                     // Copy message to user memory.
-                    validate.writeUser(arg3, result.msg) catch
-                        return Error.Syscall.BadAddress;
+                    try validate.writeUser(arg3, result.msg);
                     // If the sender used call(), create a Reply cap for them.
                     if (result.sender) |sender_task| {
                         const reply_cap = Reply.create(sender_task) catch {
@@ -191,8 +180,8 @@ pub fn capInvoke(context: Context) Error.Syscall!usize {
                     // rejected the same way `seal` would (TooBig).
                     if (src_len > Vault.MAX_PLAINTEXT)
                         return Error.Syscall.InvalidArgument;
-                    if (!validate.validateUserBuffer(src_ptr, src_len) or
-                        !validate.validateUserBuffer(dst_ptr, dst_len))
+                    if (!validate.userBuffer(src_ptr, src_len) or
+                        !validate.userBuffer(dst_ptr, dst_len))
                     {
                         return Error.Syscall.BadAddress;
                     }
@@ -201,20 +190,18 @@ pub fn capInvoke(context: Context) Error.Syscall!usize {
                     // touches user memory: a bad/unmapped user page is a
                     // BadAddress from the fault-safe copies, not a panic.
                     const out_cap = @min(dst_len, Vault.MAX_PLAINTEXT + Vault.OVERHEAD);
-                    const heap = innigkeit.mem.heap.allocator;
-                    const in_buf = heap.alloc(u8, src_len) catch
-                        return Error.Syscall.OutOfMemory;
+                    const heap = innigkeit.memory.heap.allocator;
+                    const in_buf = try heap.alloc(u8, src_len);
                     defer heap.free(in_buf);
-                    const out_buf = heap.alloc(u8, out_cap) catch
-                        return Error.Syscall.OutOfMemory;
+                    const out_buf = try heap.alloc(u8, out_cap);
                     defer heap.free(out_buf);
 
-                    validate.copyFromUser(in_buf, src_ptr) catch return Error.Syscall.BadAddress;
+                    try validate.copyFromUser(in_buf, src_ptr);
                     const written = vault.seal(in_buf, out_buf) catch |err| return switch (err) {
                         error.TooBig => Error.Syscall.InvalidArgument,
                         error.BufferTooSmall => Error.Syscall.InvalidArgument,
                     };
-                    validate.copyToUser(dst_ptr, out_buf[0..written]) catch return Error.Syscall.BadAddress;
+                    try validate.copyToUser(dst_ptr, out_buf[0..written]);
                     return @intCast(written);
                 },
                 .unseal => {
@@ -225,27 +212,27 @@ pub fn capInvoke(context: Context) Error.Syscall!usize {
                     const dst_len = context.arg(.six);
 
                     if (src_len > Vault.MAX_PLAINTEXT + Vault.OVERHEAD) return Error.Syscall.InvalidArgument;
-                    if (!validate.validateUserBuffer(src_ptr, src_len) or
-                        !validate.validateUserBuffer(dst_ptr, dst_len))
+                    if (!validate.userBuffer(src_ptr, src_len) or
+                        !validate.userBuffer(dst_ptr, dst_len))
                     {
                         return Error.Syscall.BadAddress;
                     }
 
                     // Bounce through kernel buffers (fault-safe copies).
                     const out_cap = @min(dst_len, Vault.MAX_PLAINTEXT);
-                    const heap = innigkeit.mem.heap.allocator;
-                    const in_buf = heap.alloc(u8, src_len) catch return Error.Syscall.OutOfMemory;
+                    const heap = innigkeit.memory.heap.allocator;
+                    const in_buf = try heap.alloc(u8, src_len);
                     defer heap.free(in_buf);
-                    const out_buf = heap.alloc(u8, out_cap) catch return Error.Syscall.OutOfMemory;
+                    const out_buf = try heap.alloc(u8, out_cap);
                     defer heap.free(out_buf);
 
-                    validate.copyFromUser(in_buf, src_ptr) catch return Error.Syscall.BadAddress;
+                    try validate.copyFromUser(in_buf, src_ptr);
                     const written = vault.unseal(in_buf, out_buf) catch |err| return switch (err) {
                         error.TooSmall => Error.Syscall.InvalidArgument,
                         error.BufferTooSmall => Error.Syscall.InvalidArgument,
                         error.AuthFailed => Error.Syscall.PermissionDenied,
                     };
-                    validate.copyToUser(dst_ptr, out_buf[0..written]) catch return Error.Syscall.BadAddress;
+                    try validate.copyToUser(dst_ptr, out_buf[0..written]);
                     return @intCast(written);
                 },
             }
@@ -363,8 +350,7 @@ pub fn capCreate(context: Context) Error.Syscall!usize {
     switch (cap_type) {
         .null => return Error.Syscall.InvalidArgument,
         .notify => {
-            const notify = innigkeit.capabilities.Notify.create() catch
-                return Error.Syscall.OutOfMemory;
+            const notify: *innigkeit.capabilities.Notify = try .create();
             cap_table.lock.lock();
             defer cap_table.lock.unlock();
             const idx = cap_table.insertLocked(.notify, notify, .all) catch {
@@ -374,8 +360,7 @@ pub fn capCreate(context: Context) Error.Syscall!usize {
             return @intCast(idx);
         },
         .endpoint => {
-            const endpoint = innigkeit.capabilities.Endpoint.create() catch
-                return Error.Syscall.OutOfMemory;
+            const endpoint: *innigkeit.capabilities.Endpoint = try .create();
             cap_table.lock.lock();
             defer cap_table.lock.unlock();
             const idx = cap_table.insertLocked(.endpoint, endpoint, .all) catch {
@@ -386,8 +371,7 @@ pub fn capCreate(context: Context) Error.Syscall!usize {
         },
         .frame => {
             // Physical frame allocation requires a size; use cap_invoke on a Vmem capability.
-            const frame = innigkeit.capabilities.Frame.create() catch
-                return Error.Syscall.OutOfMemory;
+            const frame: *innigkeit.capabilities.Frame = try .create();
             cap_table.lock.lock();
             defer cap_table.lock.unlock();
             const idx = cap_table.insertLocked(.frame, frame, .all) catch {
@@ -400,11 +384,11 @@ pub fn capCreate(context: Context) Error.Syscall!usize {
         .reply => return Error.Syscall.InvalidArgument,
         .secure_vault => {
             if (!context.entitled("secure_vault")) return Error.Syscall.PermissionDenied;
-            // arg2: 0 = software-only, 1 = prefer TPM-backed. TPM-backed mode is
-            // wired up once the TPM 2.0 CRB driver lands; for now software-only.
+            // arg2 reserved (was a software-only/prefer-TPM hint): create() now
+            // roots the key in the TPM hardware RNG automatically whenever a
+            // TPM 2.0 device is present.
             _ = context.arg(.two);
-            const vault = innigkeit.capabilities.SecureVault.create(null) catch
-                return Error.Syscall.OutOfMemory;
+            const vault: *innigkeit.capabilities.SecureVault = try .create();
             cap_table.lock.lock();
             defer cap_table.lock.unlock();
             const idx = cap_table.insertLocked(.secure_vault, vault, .all) catch {
@@ -419,10 +403,7 @@ pub fn capCreate(context: Context) Error.Syscall!usize {
             const page_count = context.arg(.two);
             const usage_raw = context.arg32(.three);
             if (page_count == 0) return Error.Syscall.InvalidArgument;
-            const gpu = innigkeit.capabilities.GpuBuffer.create(
-                page_count,
-                @bitCast(usage_raw),
-            ) catch return Error.Syscall.OutOfMemory;
+            const gpu: *innigkeit.capabilities.GpuBuffer = try .create(page_count, @bitCast(usage_raw));
             cap_table.lock.lock();
             defer cap_table.lock.unlock();
             const idx = cap_table.insertLocked(.gpu_buffer, gpu, .all) catch {

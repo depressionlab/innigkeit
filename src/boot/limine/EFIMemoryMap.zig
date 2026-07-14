@@ -2,13 +2,13 @@
 //!
 //! This feature provides data suitable for use with RT->SetVirtualAddressMap(), provided HHDM offset is subtracted from memmap.
 
-const std = @import("std");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 const root = @import("root.zig");
+const std = @import("std");
 
 pub const Request = extern struct {
-    id: [4]u64 = root.id(0x7df62a431d6872d5, 0xa4fcdfb3e57306c8),
+    id: [4]u64 = root.id(0x7DF62A431D6872D5, 0xA4FCDFB3E57306C8),
     revision: u64 = 0,
 
     response: ?*const Response = null,
@@ -51,6 +51,24 @@ pub const Response = extern struct {
     }
 
     pub inline fn format(self: *const Response, writer: *std.Io.Writer) !void {
-        return self.print(self, writer, 0);
+        return self.print(writer, 0);
     }
 };
+
+test "EFIMemoryMap.Response.format compiles and runs" {
+    // format() is never called by anything in the kernel itself; calling it
+    // here is what forces Zig to analyze its body and this file had the same
+    // self.print(self, ...) double-self-argument bug MP.zig and
+    // Framebuffer.zig also had.
+    const resp: Response = .{
+        .revision = 0,
+        .memmap = .{ .value = 0 },
+        .memmap_size = .{ .value = 0 },
+        .desc_size = .{ .value = 0 },
+        .desc_version = 0,
+    };
+
+    var buf: [256]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try writer.print("{f}", .{resp});
+}

@@ -1,6 +1,6 @@
 const architecture = @import("architecture");
-const innigkeit = @import("innigkeit");
 const core = @import("core");
+const innigkeit = @import("innigkeit");
 const kernel_options = @import("kernel_options");
 
 pub const innigkeit_version = kernel_options.innigkeit_version;
@@ -18,9 +18,9 @@ pub const executor = struct {
     pub const interrupt_source_panic_buffer_size = architecture.paging.standard_page_size;
 };
 
-pub const mem = struct {
+pub const memory = struct {
     // This must be kept in sync with the linker scripts.
-    pub const kernel_base_address: innigkeit.KernelVirtualAddress = .from(0xffffffff80000000);
+    pub const kernel_base_address: innigkeit.KernelVirtualAddress = .from(0xFFFFFFFF80000000);
 
     pub const maximum_number_of_memory_map_entries = 128;
 
@@ -89,5 +89,5 @@ pub const security = struct {
     pub const enforce_entitlements: bool = builtin.mode != .Debug;
 };
 
-const std = @import("std");
 const builtin = @import("builtin");
+const std = @import("std");

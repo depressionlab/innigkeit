@@ -5,10 +5,10 @@
 //! [Technical Reference Manual](https://developer.arm.com/documentation/ddi0183/latest/)
 const PL011 = @This();
 
-const root = @import("root.zig");
+const architecture = @import("architecture");
 const core = @import("core");
 const innigkeit = @import("innigkeit");
-const architecture = @import("architecture");
+const root = @import("root.zig");
 
 write_register: [*]volatile u32,
 flag_register: [*]volatile u32,
@@ -157,7 +157,7 @@ const RegisterOffset = enum(usize) {
     Flag = 0x018 / 4,
     IntegerBaudRate = 0x024 / 4,
     FractionalBaudRate = 0x028 / 4,
-    LineControl = 0x02c / 4,
+    LineControl = 0x02C / 4,
     Control = 0x030 / 4,
     InterruptMask = 0x038 / 4,
     PrimeCellIdentification0 = 0xFF0 / 4,

@@ -17,11 +17,11 @@
 //! Every wait in this file is bounded by a wallclock watchdog so a deadlock
 //! fails the test loudly instead of hanging the suite.
 
-const std = @import("std");
-const builtin = @import("builtin");
 const architecture = @import("architecture");
 const boot = @import("boot");
+const builtin = @import("builtin");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 const wallclock = innigkeit.time.wallclock;
 const log = innigkeit.debug.log.scoped(.smp_test);

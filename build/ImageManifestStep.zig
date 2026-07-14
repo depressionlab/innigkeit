@@ -1,5 +1,6 @@
 //! A custom build step that produces the JSON image description consumed by
 //! the `image_builder` tool. The output is content-addressed and cached.
+// zlinter-disable require_errdefer_dealloc - every allocation here goes through b.allocator, an arena for the whole build graph's lifetime; there is no per-allocation free to add.
 const ImageManifestStep = @This();
 
 const std = @import("std");
@@ -10,14 +11,25 @@ const Bundle = @import("Bundle.zig");
 const Kernel = @import("Kernel.zig");
 const LimineConfigStep = @import("LimineConfigStep.zig");
 
+/// The internal `.custom` `Step` underlying `ImageManifestStep`.
 step: Step,
 
+/// The target `Bundle.Architecture` for this image manifest.
 architecture: Bundle.Architecture,
+
+/// The internal `GeneratedFile` underlying `manifest_file`.
 generated_manifest_file: std.Build.GeneratedFile,
-/// Stable lazy path pointing to the cached JSON manifest.
+
+/// Stable `LazyPath` pointing to the cached JSON manifest.
 manifest_file: std.Build.LazyPath,
+
+/// The built kernel executable this image manfiest is pointing towards.
 kernel: Kernel,
+
+/// The resolved dependency pointing to the binary release of Limine.
 limine_dep: *std.Build.Dependency,
+
+/// The resolved Limine configuration file this image manifest is pointing towards.
 limine_conf: *LimineConfigStep,
 
 pub fn create(
@@ -67,12 +79,12 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
     // Content-address the manifest so unchanged images are a cache hit.
     var hash = b.graph.cache.hash;
-    hash.add(@as(u32, 0xde92a821)); // bump this if the serialisation format changes
+    hash.add(@as(u32, 0xDE92A821)); // bump this if the serialisation format changes
     hash.addBytes(manifest_bytes);
     const sub_path =
-        "innigkeit" ++ std.fs.path.sep_str ++
-        "idesc" ++ std.fs.path.sep_str ++
-        hash.final() ++ std.fs.path.sep_str ++
+        "innigkeit" ++ std.Io.Dir.path.sep_str ++
+        "idesc" ++ std.Io.Dir.path.sep_str ++
+        hash.final() ++ std.Io.Dir.path.sep_str ++
         "image_description.json";
 
     self.generated_manifest_file.path = try b.cache_root.join(b.allocator, &.{sub_path});
@@ -82,14 +94,14 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         return;
     } else |outer_err| switch (outer_err) {
         std.Io.Dir.AccessError.FileNotFound => {
-            const sub_dir = std.fs.path.dirname(sub_path).?;
+            const sub_dir = std.Io.Dir.path.dirname(sub_path).?;
             b.cache_root.handle.createDirPath(io, sub_dir) catch |e|
                 return step.fail("unable to create cache directory '{f}{s}': {t}", .{ b.cache_root, sub_dir, e });
 
             var rand: u64 = undefined;
             io.random(std.mem.asBytes(&rand));
-            const tmp = "tmp" ++ std.fs.path.sep_str ++ std.fmt.hex(rand) ++ std.fs.path.sep_str ++ "image_description.json";
-            const tmp_dir = std.fs.path.dirname(tmp).?;
+            const tmp = "tmp" ++ std.Io.Dir.path.sep_str ++ std.fmt.hex(rand) ++ std.Io.Dir.path.sep_str ++ "image_description.json";
+            const tmp_dir = std.Io.Dir.path.dirname(tmp).?;
 
             b.cache_root.handle.createDirPath(io, tmp_dir) catch |e|
                 return step.fail("unable to create temp directory '{f}{s}': {t}", .{ b.cache_root, tmp_dir, e });
@@ -124,43 +136,67 @@ fn buildManifest(self: *ImageManifestStep) ![]const u8 {
 
     try efi.addFile(.{
         .destination_path = "/limine.conf",
-        .source_path = self.limine_conf.limine_conf
-            .getPath2(self.step.owner, &self.step),
+        .source_path = deriveSourcePath(
+            self.limine_conf.limine_conf,
+            self.step.owner,
+            &self.step,
+        ),
     });
 
     switch (self.architecture) {
         .arm => try efi.addFile(.{
             .destination_path = "/EFI/BOOT/BOOTAA64.EFI",
-            .source_path = self.limine_dep.path("BOOTAA64.EFI")
-                .getPath2(b, &self.step),
+            .source_path = deriveSourcePath(
+                self.limine_dep.path("BOOTAA64.EFI"),
+                b,
+                &self.step,
+            ),
         }),
         .riscv => try efi.addFile(.{
             .destination_path = "/EFI/BOOT/BOOTRISCV64.EFI",
-            .source_path = self.limine_dep.path("BOOTRISCV64.EFI")
-                .getPath2(b, &self.step),
+            .source_path = deriveSourcePath(
+                self.limine_dep.path("BOOTRISCV64.EFI"),
+                b,
+                &self.step,
+            ),
         }),
         .x64 => {
             try efi.addFile(.{
                 .destination_path = "/limine-bios.sys",
-                .source_path = self.limine_dep.path("limine-bios.sys")
-                    .getPath2(b, &self.step),
+                .source_path = deriveSourcePath(
+                    self.limine_dep.path("limine-bios.sys"),
+                    b,
+                    &self.step,
+                ),
             });
             try efi.addFile(.{
                 .destination_path = "/EFI/BOOT/BOOTX64.EFI",
-                .source_path = self.limine_dep.path("BOOTX64.EFI")
-                    .getPath2(b, &self.step),
+                .source_path = deriveSourcePath(
+                    self.limine_dep.path("BOOTX64.EFI"),
+                    b,
+                    &self.step,
+                ),
             });
         },
     }
 
     try efi.addFile(.{
         .destination_path = "/kernel",
-        .source_path = self.kernel.kernel_binary
-            .getPath2(b, &self.step),
+        .source_path = deriveSourcePath(
+            self.kernel.kernel_binary,
+            b,
+            &self.step,
+        ),
     });
 
     var out: std.Io.Writer.Allocating = .init(b.allocator);
-    errdefer out.deinit();
     try builder.serialize(&out.writer);
     return try out.toOwnedSlice();
+}
+
+fn deriveSourcePath(lazy_path: std.Build.LazyPath, src_builder: *std.Build, asking_step: ?*Step) []const u8 {
+    const p = lazy_path.getPath4(src_builder, asking_step) catch |err| switch (err) {
+        error.Canceled => std.process.exit(1),
+    };
+    return src_builder.pathResolve(&.{ p.root_dir.path orelse ".", p.sub_path });
 }

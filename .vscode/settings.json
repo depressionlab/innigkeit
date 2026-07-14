@@ -24,5 +24,6 @@
 	"rust-analyzer.cargo.target": "x86_64-unknown-none",
 	"rust-analyzer.check.allTargets": false,
 	"clangd.enable": false,
-	"nix.enableLanguageServer": false
+	"nix.enableLanguageServer": false,
+	"ruff.enable": false,
 }

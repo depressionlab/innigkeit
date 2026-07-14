@@ -1,7 +1,7 @@
-const std = @import("std");
-const innigkeit = @import("innigkeit");
-const core = @import("core");
 const architecture = @import("architecture");
+const core = @import("core");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 
 /// The standard page size for the architecture.
 pub const standard_page_size: core.Size = architecture.current_decls.paging.standard_page_size;
@@ -25,14 +25,14 @@ comptime {
 }
 
 pub const PageTable = struct {
-    physical_page: innigkeit.mem.PhysicalPage.Index,
+    physical_page: innigkeit.memory.PhysicalPage.Index,
     arch_specific: *architecture.current_decls.paging.PageTable,
 
     /// Create a page table in the given physical page.
     ///
     /// **REQUIREMENTS**:
     /// - The provided physical page must be accessible in the direct map.
-    pub fn create(physical_page: innigkeit.mem.PhysicalPage.Index) callconv(core.inline_in_non_debug) PageTable {
+    pub fn create(physical_page: innigkeit.memory.PhysicalPage.Index) callconv(core.inline_in_non_debug) PageTable {
         return .{
             .physical_page = physical_page,
             .arch_specific = architecture.getFunction(
@@ -73,10 +73,10 @@ pub const PageTable = struct {
     pub fn mapSinglePage(
         page_table: PageTable,
         virtual_address: innigkeit.VirtualAddress,
-        physical_page: innigkeit.mem.PhysicalPage.Index,
-        map_type: innigkeit.mem.MapType,
-        physical_page_allocator: innigkeit.mem.PhysicalPage.Allocator,
-    ) callconv(core.inline_in_non_debug) innigkeit.mem.MapError!void {
+        physical_page: innigkeit.memory.PhysicalPage.Index,
+        map_type: innigkeit.memory.MapType,
+        physical_page_allocator: innigkeit.memory.PhysicalPage.Allocator,
+    ) callconv(core.inline_in_non_debug) innigkeit.memory.MapError!void {
         return architecture.getFunction(
             architecture.current_functions.paging,
             "mapSinglePage",
@@ -101,8 +101,8 @@ pub const PageTable = struct {
         virtual_range: innigkeit.VirtualRange,
         backing_page_decision: core.CleanupDecision,
         top_level_decision: core.CleanupDecision,
-        flush_batch: *innigkeit.mem.VirtualRangeBatch,
-        deallocate_page_list: *innigkeit.mem.PhysicalPage.List,
+        flush_batch: *innigkeit.memory.VirtualRangeBatch,
+        deallocate_page_list: *innigkeit.memory.PhysicalPage.List,
     ) callconv(core.inline_in_non_debug) void {
         architecture.getFunction(
             architecture.current_functions.paging,
@@ -128,9 +128,9 @@ pub const PageTable = struct {
     pub fn changeProtection(
         page_table: PageTable,
         virtual_range: innigkeit.VirtualRange,
-        previous_map_type: innigkeit.mem.MapType,
-        new_map_type: innigkeit.mem.MapType,
-        flush_batch: *innigkeit.mem.VirtualRangeBatch,
+        previous_map_type: innigkeit.memory.MapType,
+        new_map_type: innigkeit.memory.MapType,
+        flush_batch: *innigkeit.memory.VirtualRangeBatch,
     ) callconv(core.inline_in_non_debug) void {
         architecture.getFunction(
             architecture.current_functions.paging,
@@ -218,7 +218,7 @@ pub const init = struct {
     pub fn fillTopLevel(
         page_table: PageTable,
         range: innigkeit.VirtualRange,
-        physical_page_allocator: innigkeit.mem.PhysicalPage.Allocator,
+        physical_page_allocator: innigkeit.memory.PhysicalPage.Allocator,
     ) callconv(core.inline_in_non_debug) anyerror!void {
         return architecture.getFunction(
             architecture.current_functions.paging.init,
@@ -243,8 +243,8 @@ pub const init = struct {
         page_table: PageTable,
         virtual_range: innigkeit.VirtualRange,
         physical_range: innigkeit.PhysicalRange,
-        map_type: innigkeit.mem.MapType,
-        physical_page_allocator: innigkeit.mem.PhysicalPage.Allocator,
+        map_type: innigkeit.memory.MapType,
+        physical_page_allocator: innigkeit.memory.PhysicalPage.Allocator,
     ) callconv(core.inline_in_non_debug) anyerror!void {
         if (core.is_debug) std.debug.assert(!map_type.protection.equal(.none));
         return architecture.getFunction(

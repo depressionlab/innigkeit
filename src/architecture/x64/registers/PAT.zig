@@ -35,7 +35,7 @@ pub const PAT = packed struct(u64) {
     _reserved59_63: u5,
 
     pub const MemoryType = enum(u3) {
-        unchacheable = 0x0,
+        uncacheable = 0x0,
         write_combining = 0x1,
         write_through = 0x4,
         write_protected = 0x5,

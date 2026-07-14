@@ -32,10 +32,10 @@
 //! size of its own choosing; after the first wrap the driver and device
 //! would disagree about which slot is current.
 
-const std = @import("std");
-const innigkeit = @import("innigkeit");
 const architecture = @import("architecture");
+const innigkeit = @import("innigkeit");
 const PortIo = @import("PortIo.zig");
+const std = @import("std");
 
 const log = innigkeit.debug.log.scoped(.virtio_legacy);
 
@@ -109,7 +109,7 @@ pub const LegacyQueue = struct {
     /// ring modulus.
     queue_num: u16,
     /// Physically contiguous pages backing the vring, ascending PFN order.
-    ring_pages: [MAX_RING_PAGES]innigkeit.mem.PhysicalPage.Index,
+    ring_pages: [MAX_RING_PAGES]innigkeit.memory.PhysicalPage.Index,
     ring_page_count: usize,
     /// Driver shadow of avail.idx (free-running, wraps at 65536).
     avail_idx: u16,
@@ -157,9 +157,9 @@ pub const LegacyQueue = struct {
     /// Release the ring pages. The caller must have reset the device (or at
     /// least cleared REG_QUEUE_PFN) first so the device no longer DMAs here.
     pub fn destroy(q: *LegacyQueue) void {
-        var list: innigkeit.mem.PhysicalPage.List = .{};
+        var list: innigkeit.memory.PhysicalPage.List = .{};
         for (q.ring_pages[0..q.ring_page_count]) |pg| list.prepend(pg);
-        if (list.count > 0) innigkeit.mem.PhysicalPage.allocator.deallocate(list);
+        if (list.count > 0) innigkeit.memory.PhysicalPage.allocator.deallocate(list);
         q.ring_page_count = 0;
     }
 
@@ -338,16 +338,16 @@ pub fn setupIrq(
 /// popFirst() returns pages in descending order within a contiguous region.
 /// We therefore accept consecutive pages in either direction and sort at the
 /// end. All non-matching pages are returned to the allocator.
-fn allocContiguousPages(pages: []innigkeit.mem.PhysicalPage.Index) bool {
+fn allocContiguousPages(pages: []innigkeit.memory.PhysicalPage.Index) bool {
     std.debug.assert(pages.len > 0 and pages.len <= MAX_RING_PAGES);
 
-    var run: [MAX_RING_PAGES]innigkeit.mem.PhysicalPage.Index = undefined;
+    var run: [MAX_RING_PAGES]innigkeit.memory.PhysicalPage.Index = undefined;
     var run_len: usize = 0;
-    var spares: innigkeit.mem.PhysicalPage.List = .{};
+    var spares: innigkeit.memory.PhysicalPage.List = .{};
 
     var attempts: usize = 0;
     while (attempts < 256) : (attempts += 1) {
-        const page = innigkeit.mem.PhysicalPage.allocator.allocate() catch break;
+        const page = innigkeit.memory.PhysicalPage.allocator.allocate() catch break;
         const pfn = @intFromEnum(page);
 
         if (run_len > 0) {
@@ -370,7 +370,7 @@ fn allocContiguousPages(pages: []innigkeit.mem.PhysicalPage.Index) bool {
                             }
                         }
                     }
-                    if (spares.count > 0) innigkeit.mem.PhysicalPage.allocator.deallocate(spares);
+                    if (spares.count > 0) innigkeit.memory.PhysicalPage.allocator.deallocate(spares);
                     return true;
                 }
                 continue;
@@ -384,7 +384,7 @@ fn allocContiguousPages(pages: []innigkeit.mem.PhysicalPage.Index) bool {
 
     // Failed: release everything.
     for (0..run_len) |i| spares.prepend(run[i]);
-    if (spares.count > 0) innigkeit.mem.PhysicalPage.allocator.deallocate(spares);
+    if (spares.count > 0) innigkeit.memory.PhysicalPage.allocator.deallocate(spares);
     return false;
 }
 

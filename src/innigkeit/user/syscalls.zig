@@ -6,7 +6,6 @@ const libinnigkeit = @import("libinnigkeit");
 
 const Syscall = libinnigkeit.Syscall;
 const Error = libinnigkeit.Error;
-const Process = @import("Process.zig");
 const handlers = @import("handlers/root.zig");
 
 pub const Context = @import("Context.zig");

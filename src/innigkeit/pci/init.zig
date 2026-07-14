@@ -1,6 +1,6 @@
-const std = @import("std");
-const innigkeit = @import("innigkeit");
 const ECAM = @import("ECAM.zig");
+const innigkeit = @import("innigkeit");
+const std = @import("std");
 const Function = @import("Function.zig").Function;
 const globals = @import("globals.zig");
 
@@ -23,11 +23,21 @@ pub fn initializeECAM() !void {
 
     const base_allocations = mcfg.baseAllocations();
 
-    var ecams: std.ArrayList(ECAM) = try .initCapacity(innigkeit.mem.heap.allocator, base_allocations.len);
-    defer ecams.deinit(innigkeit.mem.heap.allocator);
-    errdefer for (ecams.items) |ecam| innigkeit.mem.heap.deallocateSpecial(ecam.config_space);
+    var ecams: std.ArrayList(ECAM) = try .initCapacity(innigkeit.memory.heap.allocator, base_allocations.len);
+    defer ecams.deinit(innigkeit.memory.heap.allocator);
+    errdefer for (ecams.items) |ecam| innigkeit.memory.heap.deallocateSpecial(ecam.config_space);
 
     for (mcfg.baseAllocations()) |base_allocation| {
+        // end_pci_bus/start_pci_bus come straight from the firmware-supplied
+        // MCFG table; a malformed entry with end < start would otherwise
+        // underflow this subtraction (u8 - u8) and panic.
+        if (base_allocation.end_pci_bus < base_allocation.start_pci_bus) {
+            init_log.warn("MCFG: malformed base allocation (start_bus={} > end_bus={}), skipping", .{
+                base_allocation.start_pci_bus, base_allocation.end_pci_bus,
+            });
+            continue;
+        }
+
         const ecam = ecams.addOneAssumeCapacity();
 
         const number_of_buses = base_allocation.end_pci_bus - base_allocation.start_pci_bus;
@@ -44,7 +54,7 @@ pub fn initializeECAM() !void {
             .start_bus = base_allocation.start_pci_bus,
             .end_bus = base_allocation.end_pci_bus,
             .segment_group = base_allocation.segment_group,
-            .config_space = try innigkeit.mem.heap.allocateSpecial(
+            .config_space = try innigkeit.memory.heap.allocateSpecial(
                 .{
                     .physical_range = ecam_config_space_physical_range,
                     .protection = .{ .read = true, .write = true },
@@ -61,5 +71,5 @@ pub fn initializeECAM() !void {
         });
     }
 
-    globals.ecams = try ecams.toOwnedSlice(innigkeit.mem.heap.allocator);
+    globals.ecams = try ecams.toOwnedSlice(innigkeit.memory.heap.allocator);
 }

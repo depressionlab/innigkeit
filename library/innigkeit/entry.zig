@@ -1,7 +1,7 @@
-const std = @import("std");
 const builtin = @import("builtin");
-const root = @import("root");
 const innigkeit = @import("innigkeit");
+const root = @import("root");
+const std = @import("std");
 
 // TODO: align this more with zig's standard library: `start.zig`!!!
 
@@ -107,6 +107,10 @@ fn callMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
                     else => {},
                 }
             }
+            // `std.elf.Phdr`, not `std.elf.ElfN.Phdr` as `std.pie.relocate`'s
+            // own parameter type is fixed to the old alias (std hasn't
+            // migrated that signature yet), so this has to match it.
+            // zlinter-disable-next-line no_deprecated
             break :init @as([*]const std.elf.Phdr, @ptrFromInt(at_phdr))[0..at_phnum];
         };
         @call(.always_inline, std.pie.relocate, .{phdrs});
@@ -144,7 +148,7 @@ const use_debug_allocator = switch (builtin.mode) {
 
 // Module-level so that its backing memory is in BSS rather than on the call stack.
 var debug_allocator: std.heap.DebugAllocator(.{}) = .{
-    .backing_allocator = innigkeit.mem.page_allocator,
+    .backing_allocator = innigkeit.memory.page_allocator,
 };
 
 inline fn callMain(args: std.process.Args.Vector, environ: std.process.Environ.Block) u8 {
@@ -160,7 +164,7 @@ inline fn callMain(args: std.process.Args.Vector, environ: std.process.Environ.B
     else if (builtin.link_libc)
         std.heap.c_allocator
     else
-        innigkeit.mem.page_allocator;
+        innigkeit.memory.page_allocator;
     // else if (builtin.link_libc)
     //     std.heap.c_allocator
     // else if (!builtin.single_threaded)
@@ -195,7 +199,7 @@ inline fn callMain(args: std.process.Args.Vector, environ: std.process.Environ.B
     for (innigkeit.process._envp[0..innigkeit.process._envp_count]) |maybe_entry| {
         const env_str: [*:0]const u8 = maybe_entry orelse continue;
         const env_slice = std.mem.span(env_str);
-        const eq_pos = std.mem.indexOfScalar(u8, env_slice, '=') orelse continue;
+        const eq_pos = std.mem.findScalar(u8, env_slice, '=') orelse continue;
         environ_map.put(env_slice[0..eq_pos], env_slice[eq_pos + 1 ..]) catch {};
     }
 

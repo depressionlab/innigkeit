@@ -7,9 +7,10 @@
 //! [ELF Object File Format Version 4.3 DRAFT](https://gabi.xinuos.com/)
 
 pub const Header = @import("Header.zig");
-pub const ProgramHeader = @import("ProgramHeader.zig");
 pub const LoadableRegion = @import("LoadableRegion.zig");
+pub const ProgramHeader = @import("ProgramHeader.zig");
 pub const ObjectType = @import("ObjectType.zig").ObjectType;
 pub const Machine = @import("Machine.zig").Machine;
 pub const Version = @import("Version.zig").Version;
 pub const OSABI = @import("OSABI.zig").OSABI;
+pub const loader = @import("loader.zig");

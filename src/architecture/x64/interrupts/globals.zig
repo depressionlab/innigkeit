@@ -1,6 +1,6 @@
 const Handler = @import("architecture").interrupts.Interrupt.Handler;
-const innigkeit = @import("innigkeit");
 const Idt = @import("Idt.zig");
+const innigkeit = @import("innigkeit");
 const Interrupt = @import("Interrupt.zig").Interrupt;
 const interrupt_handlers = @import("handlers.zig");
 
@@ -44,4 +44,4 @@ pub var handlers: [Idt.number_of_handlers]Handler = handlers: {
 
     break :handlers temp_handlers;
 };
-pub var interrupt_arena: innigkeit.mem.arena.Arena(.none) = undefined; // initialized by `init.initializeInterruptRouting`
+pub var interrupt_arena: innigkeit.memory.arena.Arena(.none) = undefined; // initialized by `init.initializeInterruptRouting`

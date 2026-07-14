@@ -1,0 +1,78 @@
+name: Release (signed, attested)
+
+# Production Secure Boot signing: build the release image, enroll
+# the config hash into Limine's BOOTX64.EFI and sign it with the `db` key held in
+# repository secrets, then emit a SLSA build-provenance attestation for the
+# signed image. Dev builds use throwaway keys via `zig build secureboot -- keygen`;
+# production keys never leave CI secrets.
+#
+# Required repository secrets:
+# - SECUREBOOT_DB_KEY: PEM private key for the Secure Boot `db` entry
+# - SECUREBOOT_DB_CERT: PEM certificate for the same `db` entry
+# The matching db certificate is what a deployment enrolls into target firmware.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write # attach the signed image to the release
+  id-token: write # OIDC token for attestation
+  attestations: write # record the build provenance
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "git: checkout"
+        uses: actions/checkout@v6
+
+      - name: "zig: setup"
+        uses: mlugg/setup-zig@v2
+
+      - name: "apt: install signing tools"
+        run: sudo apt-get update && sudo apt-get install -y mtools sbsigntool
+
+      - name: "zig: generate codesign keypair"
+        # The kernel embeds keys/codesign_public.key at build time. For a real
+        # release this should be a fixed production key from a secret; a fresh
+        # keypair is generated here as a fallback so the build is self-contained.
+        run: zig build codesign -- keygen
+
+      - name: "rust: bare-metal target"
+        run: rustup target add x86_64-unknown-none
+
+      - name: "zig: build release image (x64)"
+        run: zig build image_x64 -Doptimize=ReleaseSafe
+
+      - name: "gh: write Secure Boot db key"
+        env:
+          DB_KEY: ${{ secrets.SECUREBOOT_DB_KEY }}
+          DB_CERT: ${{ secrets.SECUREBOOT_DB_CERT }}
+        run: |
+          test -n "$DB_KEY" -a -n "$DB_CERT" || { echo "SECUREBOOT_DB_KEY/CERT secrets not set"; exit 1; }
+          umask 077
+          printf '%s' "$DB_KEY" > "$RUNNER_TEMP/db.key"
+          printf '%s' "$DB_CERT" > "$RUNNER_TEMP/db.crt"
+
+      - name: "zig: enroll config + sign bootloader"
+        run: zig build secureboot -- sign zig-out/x64/innigkeit_x64.hdd "$RUNNER_TEMP/db.key" "$RUNNER_TEMP/db.crt"
+
+      - name: "gh: shred key material"
+        if: always()
+        run: shred -u "$RUNNER_TEMP/db.key" 2>/dev/null || true
+
+      - name: "gh: attest build provenance"
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: zig-out/x64/innigkeit_x64.hdd
+
+      - name: "gh: attach signed image to release"
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            zig-out/x64/innigkeit_x64.hdd
+            zig-out/x64/kernel.codesig

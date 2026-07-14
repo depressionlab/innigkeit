@@ -16,8 +16,8 @@
 //! microseconds; without them it waits for the waker's executor to be
 //! preempted at a timer tick (up to 5 ms).
 
-const std = @import("std");
 const innigkeit = @import("innigkeit");
+const std = @import("std");
 const wallclock = innigkeit.time.wallclock;
 
 const log = innigkeit.debug.log.scoped(.sched_bench);
