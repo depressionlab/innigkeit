@@ -1,0 +1,47 @@
+{
+	"permissions": {
+		"allow": [
+			"Bash(zig build*)",
+			"Bash(zig fmt*)",
+			"Bash(qemu-system-x86_64*)",
+			"Bash(qemu-system-aarch64*)",
+			"Bash(cat /tmp/*.log)",
+			"Bash(grep* /tmp/*.log)",
+			"Bash(objdump*)",
+			"Bash(readelf*)",
+			"Bash(nm *)",
+			"Bash(rg * src/ library/ apps/)",
+			"Bash(git log*)",
+			"Bash(git diff*)",
+			"Bash(git status)",
+			"Bash(git add*)",
+			"Bash(git commit*)"
+		],
+		"deny": [
+			"Bash(git push*)",
+			"Bash(rm -rf *)"
+		]
+	},
+	"hooks": {
+		"SessionStart": [
+			{
+				"matcher": "startup|resume",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
+					}
+				]
+			},
+			{
+				"matcher": "compact",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "echo 'INNIGKEIT CONTEXT RESTORED AFTER COMPACTION\nPlease don't just blindly continue work: RE-ORIENT YOURSELF\nVerification gate: zig build verify -Darm=true\nBaseline: x64 135/135, arm 95 (+10 skipped), host test_native 63\nQEMU: zig build test_x64/test_arm/run_x64/run_arm are safe to use directly now: build/Platform.zig picks host QEMU + host AAVMF automatically (no more bundled-QEMU gotcha).\nzig build check does NOT validate inline assembly. Run a real kernel build after touching arch asm.\n-Dtpm=true/-Dsecboot=true: TPM2_StartAuthSession rc=0x95 bug FIXED (tpm.zig:289 .sessions -> .no_sessions); baseline now x64 152/152 with -Dtpm=true.\nPatches go in /tmp/patches/ (numbered, append-only). Never push without a green gate.\nCurrent focus: /code-review pass over the build-system integration is queued (see docs/roadmap.md), prerequisite to restarting the comprehensive test-running/test-harness system (docs/test-harness-plan.md's TH-1..TH-5 draft will be redone from scratch, not resumed as-is).'"
+					}
+				]
+			}
+		]
+	}
+}

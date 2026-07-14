@@ -1,0 +1,13 @@
+{
+	"name": "innigkeit",
+	"owner": {
+		"name": "Innigkeit"
+	},
+	"plugins": [
+		{
+			"name": "zig-lsp",
+			"source": "./.claude/skills/zig-lsp",
+			"description": "ZLS-powered code intelligence (go-to-definition, find references, hover, diagnostics) for the Innigkeit kernel."
+		}
+	]
+}

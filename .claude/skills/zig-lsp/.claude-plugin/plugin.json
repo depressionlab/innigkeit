@@ -1,0 +1,14 @@
+{
+	"name": "zig-lsp",
+	"description": "ZLS-powered code intelligence (go-to-definition, find references, hover, diagnostics) for the Innigkeit kernel. The zls binary is provisioned on PATH by .claude/hooks/session-start.sh.",
+	"version": "0.1.0",
+	"author": {
+		"name": "Innigkeit"
+	},
+	"keywords": [
+		"zig",
+		"zls",
+		"lsp"
+	],
+	"lspServers": "./.lsp.json"
+}
