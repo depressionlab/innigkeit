@@ -65,7 +65,7 @@ jobs:
         run: shred -u "$RUNNER_TEMP/db.key" 2>/dev/null || true
 
       - name: "gh: attest build provenance"
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: zig-out/x64/innigkeit_x64.hdd
 
