@@ -39,12 +39,20 @@ fn waitForNotify(notify: *innigkeit.capabilities.Notify, clear_mask: u64) !u64 {
 }
 
 test "integration: spawn itest_spawn_wait and observe its exit status" {
-    // x64-only: spawning a *second* process at runtime (as opposed to the
-    // single boot-time process stage4 loads inline) has never been exercised
-    // on arm before this test, and it panics from a recursive/looping
-    // synchronous exception at EL1 on SP_EL1 inside arm.vectors.vector_common
-    // itself, not a bug in this test or in spawnFromInitfs specifically. See
-    // docs/test-harness-plan.md for tracking
+    // x64-only: The old failure mode here (a recursive/looping SP_EL1
+    // synchronous exception) was actually `task/Handle.zig`'s per-task
+    // switch calling the generic `page_table.load()`, which on arm hit the
+    // boot-only TTBR1 kernel-root installer instead of TTBR0, so a freshly
+    // spawned process's user mappings were never actually active, and the
+    // ELF-segment copy faulted against stale/absent TTBR0 state. Fixed via
+    // the new `loadUserPageTable`/`PageTable.loadUser()` interface slot
+    // (`architecture/{Functions,paging}.zig`, `arm/interface.zig`,
+    // `task/Handle.zig`). Spawn and ELF load now succeed on arm! (Confirmed
+    // by re-running this test with the skip temporarily lifted, the
+    // `loadAndJump failed: BadAddress` error is gone). However, the process's
+    // first syscall (SVC from EL0) still panics, because arm has no syscall
+    // dispatch path at all yet (Stage 9 "EL0 synchronous exceptions other than
+    // data aborts" section). Re-enable this test after Stage 9.
     if (comptime builtin.cpu.arch != .x86_64) return error.SkipZigTest;
 
     const result = try innigkeit.user.Process.spawnFromInitfs(.{ .path = "itest_spawn_wait" });

@@ -50,6 +50,14 @@ pub const functions: architecture.Functions = .{
             }
         }.loadPageTable,
 
+        // x64 has one PageTable root register (`CR3`). The per-task switch
+        // function is the same operation as installing the kernel root.
+        .loadUserPageTable = struct {
+            fn loadUserPageTable(physical_page: innigkeit.memory.PhysicalPage.Index) void {
+                x64.registers.Cr3.writeAddress(physical_page.baseAddress());
+            }
+        }.loadUserPageTable,
+
         .copyTopLevelIntoPageTable = x64.paging.PageTable.copyTopLevelIntoPageTable,
         .mapSinglePage = x64.paging.PageTable.map4KiB,
         .unmap = x64.paging.PageTable.unmap,

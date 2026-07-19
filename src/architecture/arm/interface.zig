@@ -64,6 +64,7 @@ pub const functions: architecture.Functions = .{
     .paging = .{
         .createPageTable = arm.PageTable.create,
         .loadPageTable = arm.PageTable.loadPageTable,
+        .loadUserPageTable = arm.PageTable.loadUserPageTable,
         .copyTopLevelIntoPageTable = arm.PageTable.copyTopLevelIntoPageTable,
         .mapSinglePage = arm.PageTable.mapSinglePage,
         .unmap = arm.PageTable.unmap,
