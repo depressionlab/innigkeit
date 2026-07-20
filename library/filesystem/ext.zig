@@ -98,7 +98,7 @@ pub const Superblock = extern struct {
     /// Group ID allowed to use reserved blocks.
     reserved_group_id: u16 align(1),
 
-    // FIXME: Below here: Only valid if `major_version` >= 1
+    // TODO: FIXME: Below here: Only valid if `major_version` >= 1
 
     /// First non-reserved inode.
     ///

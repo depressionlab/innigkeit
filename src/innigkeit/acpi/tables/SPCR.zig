@@ -141,7 +141,7 @@ pub const SPCR = extern struct {
 
     pub fn pciAddress(spcr: *const SPCR) ?innigkeit.pci.Address {
         if (spcr.pci_vendor_id == .none) {
-            // FIXME: SPCR says if device id is 0xFFFF then it is not present but the PCI spec does not say that it is
+            // TODO: SPCR says if device id is 0xFFFF then it is not present but the PCI spec does not say that it is
             //        not a valid device ID
             return null;
         }

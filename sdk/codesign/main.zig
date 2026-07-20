@@ -13,7 +13,7 @@
 //!   codesign verify <elf_path> <sig_path>
 //!     Verify a .codesig blob against the ELF (uses the public key).
 //!
-//!   codesign sign-artifact <file> <out_sig_path>
+//!   codesign sign-artifact <file> <out_sig_path> [--store <dir>]
 //!     Sign an arbitrary file (e.g. the kernel image) with the private key.
 //!     Unlike `sign`, this carries no manifest/entitlements, it's a
 //!     supply-chain provenance signature for release distribution, not
@@ -128,11 +128,19 @@ pub fn main(init: std.process.Init) !void {
         }
         try cmdVerify(init, args[2], args[3]);
     } else if (std.mem.eql(u8, sub, "sign-artifact")) {
-        if (args.len != 4) {
-            std.debug.print("usage: codesign sign-artifact <file> <out_sig_path>\n", .{});
+        if (args.len != 4 and args.len != 6) {
+            std.debug.print("usage: codesign sign-artifact <file> <out_sig_path> [--store <dir>]\n", .{});
             std.process.exit(1);
         }
-        try cmdSignArtifact(init, args[2], args[3]);
+        var store_dir: ?[]const u8 = null;
+        if (args.len == 6) {
+            if (!std.mem.eql(u8, args[4], "--store")) {
+                std.debug.print("usage: codesign sign-artifact <file> <out_sig_path> [--store <dir>]\n", .{});
+                std.process.exit(1);
+            }
+            store_dir = args[5];
+        }
+        try cmdSignArtifact(init, args[2], args[3], store_dir);
     } else if (std.mem.eql(u8, sub, "verify-artifact")) {
         if (args.len != 4) {
             std.debug.print("usage: codesign verify-artifact <file> <sig_path>\n", .{});
@@ -158,7 +166,7 @@ fn usage() void {
         \\  codesign verify <elf> <sig.codesig>
         \\      Verify a .codesig blob against an ELF (uses keys/codesign_public.key)
         \\
-        \\  codesign sign-artifact <file> <out_sig_path>
+        \\  codesign sign-artifact <file> <out_sig_path> [--store <dir>]
         \\      Sign an arbitrary file (e.g. the kernel image) for supply-chain
         \\      provenance; not part of the boot-time verification chain
         \\
@@ -278,7 +286,12 @@ fn cmdVerify(init: std.process.Init, elf_path: []const u8, sig_path: []const u8)
     printEntitlements(blob.entitlements_raw);
 }
 
-fn cmdSignArtifact(init: std.process.Init, file_path: []const u8, out_path: []const u8) !void {
+fn cmdSignArtifact(
+    init: std.process.Init,
+    file_path: []const u8,
+    out_path: []const u8,
+    store_dir: ?[]const u8,
+) !void {
     const io = init.io;
     const arena = init.arena.allocator();
 
@@ -294,6 +307,21 @@ fn cmdSignArtifact(init: std.process.Init, file_path: []const u8, out_path: []co
 
     try writeFile(io, out_path, std.mem.asBytes(&blob));
     std.debug.print("Signed artifact: {s} -> {s}\n", .{ file_path, out_path });
+
+    // TODO: docs/nixos-design-plan/design.md Stage 1a
+    if (store_dir) |dir| {
+        const cwd = std.Io.Dir.cwd();
+        cwd.createDirPath(io, dir) catch |err| switch (err) {
+            error.PathAlreadyExists => {},
+            else => return err,
+        };
+        const hash_hex = std.fmt.bytesToHex(blob.file_hash, .lower);
+        const basename = std.Io.Dir.path.basename(file_path);
+        const store_name = try std.fmt.allocPrint(arena, "{s}-{s}", .{ hash_hex, basename });
+        const store_path = try std.Io.Dir.path.join(arena, &.{ dir, store_name });
+        try writeFile(io, store_path, data);
+        std.debug.print("Store copy: {s} -> {s}\n", .{ file_path, store_path });
+    }
 }
 
 fn cmdVerifyArtifact(init: std.process.Init, file_path: []const u8, sig_path: []const u8) !void {

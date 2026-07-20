@@ -272,11 +272,15 @@ pub const EevdfRunqueue = struct {
         self.zero_vruntime = self.min_vruntime;
     }
 
-    /// Eligibility check: is se's vruntime <= weighted average?
+    /// Eligibility check if `se's vruntime` <= weighted average.
+    /// ```
+    ///   lag_i >= 0  <->  V >= v_i
+    /// ```
     ///
-    /// lag_i >= 0  <->  V >= v_i
     /// Using the exact Linux formula to avoid loss-of-precision from division:
+    /// ```
     ///   eligible  <->  avg >= key * load
+    /// ```
     /// where avg = sum_w_vruntime (+ curr contribution), load = sum_weight.
     fn vruntimeEligible(self: *const EevdfRunqueue, vruntime: u64) bool {
         var avg: i128 = self.sum_w_vruntime;

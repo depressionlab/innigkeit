@@ -1,6 +1,6 @@
 //! A basic write only PrimeCell PL011 UART.
 //!
-//! 24 Mhz?
+//! TODO: 24 Mhz?
 //!
 //! [Technical Reference Manual](https://developer.arm.com/documentation/ddi0183/latest/)
 const PL011 = @This();

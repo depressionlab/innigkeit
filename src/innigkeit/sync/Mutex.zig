@@ -93,7 +93,7 @@ pub fn tryLock(self: *Mutex) bool {
     if (locked_by == current_task.task) {
         @branchHint(.cold);
         if (core.is_debug) {
-            // this could only happen if we were queued for the mutex but then how would we call tryLock?
+            // TODO: this could only happen if we were queued for the mutex but then how would we call tryLock?
             std.debug.assert(self.unlock_type != .passed_to_waiter);
         }
         @panic("recursive lock!");

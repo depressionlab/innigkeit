@@ -135,6 +135,9 @@ fn buildKernel(
         sign_kernel_run.addArg("sign-artifact");
         sign_kernel_run.addFileArg(kernel_exe.getEmittedBin());
         const kernel_sig = sign_kernel_run.addOutputFileArg("kernel.codesig");
+        // --store provides out a content-addressed store path as a side effect for now.
+        // see: docs/nixos-design-plan/design.md Stage 1a.
+        sign_kernel_run.addArgs(&.{ "--store", b.getInstallPath(.prefix, "store") });
         const install_sig = b.addInstallFile(
             kernel_sig,
             b.pathJoin(&.{ @tagName(architecture), "kernel.codesig" }),

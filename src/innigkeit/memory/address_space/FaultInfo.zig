@@ -196,7 +196,7 @@ pub fn faultObjectOrZeroFill(self: *FaultInfo) error{ Restart, OutOfMemory }!voi
             });
         }
 
-        // we have a backing object are we going to promote to an anonymous page?
+        // TODO: we have a backing object are we going to promote to an anonymous page?
         self.promote_to_anonymous_map = self.access_type == .write and self.entry.copy_on_write;
 
         break :blk object_page;

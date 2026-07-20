@@ -302,9 +302,11 @@ pub fn changeProtection(
 /// (e.g. a bad user pointer passed to a syscall), returns `error.BadAddress`
 /// instead of panicking the kernel.
 ///
-/// Fault recovery currently takes effect on x64 (whose page-fault path routes
-/// here); on arm the copy works but an unhandleable fault still panics until the
-/// arm data-abort path is routed to `onPageFault`.
+/// Fault recovery is wired on both x64 and arm (whose page-fault/data-abort
+/// paths both route here). On arm it is not yet exercised by any passing test:
+/// doing so needs a running user process to trigger a fault from within a
+/// syscall handler, which is bloked on the separate, already-tracked arm runtime-
+/// spawn panic.
 pub const safe = struct {
     pub const MemcpyError = error{BadAddress};
 
@@ -361,7 +363,7 @@ pub const safe = struct {
     /// fixed up immediately, without demand-paging or re-enabling interrupts.
     /// Used by the futex word check, where the load must be atomic (for
     /// lost-wakeup correctness) and happens under the futex bucket lock.
-    /// (Fault recovery is active on x64; see the arm note above.)
+    /// (Fault recovery is wired up on both x64 and arm; see the arm note above).
     pub fn atomicLoadU32(address: innigkeit.VirtualAddress) MemcpyError!u32 {
         if (address.value % @alignOf(u32) != 0) return error.BadAddress;
 

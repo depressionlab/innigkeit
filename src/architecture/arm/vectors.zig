@@ -30,7 +30,11 @@ comptime {
 /// and the vector index (0–15).
 export fn arm_handle_exception(frame: *arm.InterruptFrame, vector_idx: u8) callconv(.c) void {
     // IRQ vectors (indices 1, 5, 9, 13) are dispatched through the GIC.
-    // All other exceptions still panic until full handlers are implemented.
+    // Vectors 4 (current-EL `SP_EL1` synchronous, i.e. a fault taken while
+    // the kernel itself was running) and 8 (lower-EL AArch64 synchronous,
+    // i.e. a fault or SVC taken from a user task) get a data-abort sub-dispatch.
+    // Anything that isn't a recognized data abort falls through to the diagnostic
+    // panic below. All other exceptions still panic until full handlers are implemented.
     switch (vector_idx) {
         1, 5, 9, 13 => {
             // Bracket IRQ dispatch with the generic interrupt-entry/exit hooks
@@ -46,37 +50,97 @@ export fn arm_handle_exception(frame: *arm.InterruptFrame, vector_idx: u8) callc
             defer state_before_interrupt.onInterruptExit();
             gic.handleIrq(frame, state_before_interrupt);
         },
-        else => {
-            // Dump fault state via semihosting first: during early init no
-            // output device is registered yet, so a bare @panic would be
-            // silent. ESR/FAR/ELR are the minimum needed to classify the
-            // fault (EC field of ESR, faulting address, faulting PC).
-            arm.semihost.write("\narm64 EXCEPTION vector=");
-            arm.semihost.writeHex(vector_idx);
-            arm.semihost.write(" ESR=");
-            arm.semihost.writeHex(arm.registers.ESR_EL1.read());
-            arm.semihost.write(" FAR=");
-            arm.semihost.writeHex(arm.registers.FAR_EL1.read());
-            arm.semihost.write(" ELR=");
-            arm.semihost.writeHex(frame.elr);
-            arm.semihost.write("\n");
-            @panic(switch (vector_idx) {
-                0 => "arm64: exception: current-EL SP_EL0 synchronous",
-                2 => "arm64: exception: current-EL SP_EL0 FIQ",
-                3 => "arm64: exception: current-EL SP_EL0 SError",
-                4 => "arm64: exception: current-EL SP_EL1 synchronous",
-                6 => "arm64: exception: current-EL SP_EL1 FIQ",
-                7 => "arm64: exception: current-EL SP_EL1 SError",
-                8 => "arm64: exception: lower-EL AArch64 synchronous",
-                10 => "arm64: exception: lower-EL AArch64 FIQ",
-                11 => "arm64: exception: lower-EL AArch64 SError",
-                12 => "arm64: exception: lower-EL AArch32 synchronous",
-                14 => "arm64: exception: lower-EL AArch32 FIQ",
-                15 => "arm64: exception: lower-EL AArch32 SError",
-                else => "arm64: exception: unknown vector",
-            });
+        4, 8 => {
+            const esr: arm.EsrEl1 = .read();
+            switch (esr.ec) {
+                .data_abort_lower_el, .data_abort_same_el => {
+                    if (handleDataAbort(frame, esr, vector_idx == 8)) return;
+                },
+                else => {},
+            }
+            // Not a recognized or routable data abort (SVC, illegal instruction,
+            // an `ESR.EC` we don't decode yet, or a data abort with FnV set/an
+            // unmapped DFSC class). We fall through to the diagnostic panic below.
+            dumpAndPanic(frame, vector_idx);
         },
+        else => dumpAndPanic(frame, vector_idx),
     }
+}
+
+/// Dump fault state via semihosting and panic. Shared tail for every
+/// exception vector not otherwise handled above.
+fn dumpAndPanic(frame: *arm.InterruptFrame, vector_idx: u8) noreturn {
+    // Dump fault state via semihosting first: during early init no output
+    // device is registered yet, so a bare @panic would be silent. ESR/FAR/ELR
+    // are the minimum needed to classify the fault (EC field of ESR, faulting
+    // address, faulting PC).
+    arm.semihost.write("\narm64 EXCEPTION vector=");
+    arm.semihost.writeHex(vector_idx);
+    arm.semihost.write(" ESR=");
+    arm.semihost.writeHex(arm.registers.ESR_EL1.read());
+    arm.semihost.write(" FAR=");
+    arm.semihost.writeHex(arm.registers.FAR_EL1.read());
+    arm.semihost.write(" ELR=");
+    arm.semihost.writeHex(frame.elr);
+    arm.semihost.write("\n");
+    @panic(switch (vector_idx) {
+        0 => "arm64: exception: current-EL SP_EL0 synchronous",
+        2 => "arm64: exception: current-EL SP_EL0 FIQ",
+        3 => "arm64: exception: current-EL SP_EL0 SError",
+        4 => "arm64: exception: current-EL SP_EL1 synchronous",
+        6 => "arm64: exception: current-EL SP_EL1 FIQ",
+        7 => "arm64: exception: current-EL SP_EL1 SError",
+        8 => "arm64: exception: lower-EL AArch64 synchronous",
+        10 => "arm64: exception: lower-EL AArch64 FIQ",
+        11 => "arm64: exception: lower-EL AArch64 SError",
+        12 => "arm64: exception: lower-EL AArch32 synchronous",
+        14 => "arm64: exception: lower-EL AArch32 FIQ",
+        15 => "arm64: exception: lower-EL AArch32 SError",
+        else => "arm64: exception: unknown vector",
+    });
+}
+
+/// Decodes and, if possible, routes a data-abort exception to
+/// `innigkeit.memory.onPageFault`.
+///
+/// Returns `true` if the fault was routed (caller returns from the
+/// exception normally); `false` if this fault isn't one the kernel's fault
+/// handler knows how to satisfy (an unrecognised `DataAbortIss.FaultClass`,
+/// or `FnV` set so `FAR_EL1` can't be trusted) — the caller falls back to
+/// the diagnostic panic exactly as before this routing existed.
+///
+/// `from_lower_el` is `true` for vector 8 (a fault taken from a user task
+/// running at EL0), `false` for vector 4 (a fault taken while the kernel
+/// itself was running at EL1 — e.g. `memory.safe.memcpy` touching a bad
+/// user pointer).
+fn handleDataAbort(frame: *arm.InterruptFrame, esr: arm.EsrEl1, from_lower_el: bool) bool {
+    const iss = esr.dataAbort();
+    if (iss.fnv) return false;
+
+    const fault_class = iss.faultClass();
+    if (fault_class == .other) return false;
+
+    const state_before_interrupt = innigkeit.Task.Current.onInterruptEntry();
+    defer state_before_interrupt.onInterruptExit();
+
+    innigkeit.memory.onPageFault(.{
+        .faulting_address = .from(arm.registers.FAR_EL1.read()),
+
+        .access_type = if (iss.wnr) .write else .read,
+
+        .fault_type = if (fault_class == .permission) .protection else .invalid,
+
+        .faulting_context = if (from_lower_el)
+            .user
+        else
+            .{
+                .kernel = .{
+                    .access_to_user_memory_enabled = state_before_interrupt.enable_access_to_user_memory_count != 0,
+                },
+            },
+    }, .{ .arch_specific = frame });
+
+    return true;
 }
 
 /// One 128-byte vector slot: allocate the frame, stash x0/x1 (so x1 can carry
@@ -97,6 +161,8 @@ fn vectorStub(comptime idx: u8) []const u8 {
         \\
     ;
 }
+
+// TODO: make sure all of this assembly is correct and the best way to do things
 
 /// Shared out-of-line exception entry: completes the register save begun by the
 /// stub (x0/x1 already stored at [sp,#0]), saves the remaining GPRs and the
