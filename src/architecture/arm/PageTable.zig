@@ -1144,41 +1144,61 @@ pub fn flushCacheImpl(virtual_range: innigkeit.VirtualRange) void {
 
 /// Copy `source.size` bytes from `source` to `destination`.
 ///
-/// NOTE: currently a plain copy. The fault-fixup that makes this *safe* (return
-/// instead of panic on a bad pointer) needs the arm data-abort path to route to
-/// `innigkeit.memory.onPageFault`, which does not exist yet (data aborts hit the
-/// diagnostic panic handler in `vectors.zig`). Until that routing lands, a fault
-/// here panics exactly as a direct access would today (no regression), so valid
-/// copies work and `memory.safe.memcpy` is usable on arm; the DoS-hardening only
-/// takes effect on x64 for now. `target` is unused until then.
+/// Records the recovery label `1:` into `target.*` before the copy. If a data
+/// abort during the byte loop is routed to `innigkeit.memory.onPageFault` (
+/// `vectors.zig`'s vector-4 handler, for a fault while this code itself is
+/// running), the handler sets `elr` to that label so the copy aborts and
+/// returns rather than panicking. Byte-at-a-time rather than x64's `rep movsb`
+/// equivalent, as there is no single AArch64 instruction for an unbounded bulk
+/// copy, and this path is only used for small, fixed-size control structures,
+/// not a hot path.
+///
+/// See: `DESIGN.md` Part 3 - "Shrink the surface"
 pub fn safeMemcpyImpl(
     destination: innigkeit.VirtualRange,
     source: innigkeit.VirtualRange,
     target: *innigkeit.KernelVirtualAddress,
 ) void {
-    target.* = .{ .value = 0 };
-    const len = source.size.value;
-    // both addresses are already-typed VirtualAddress values, not raw
-    // integers (see the doc comment above for why fault-safety isn't
-    // wired up on arm yet).
-    const dst: [*]u8 = @ptrFromInt(destination.address.value);
-    const src: [*]const u8 = @ptrFromInt(source.address.value); // see comment above
-    @memcpy(dst[0..len], src[0..len]);
+    asm volatile (
+        \\ adr x9, 1f
+        \\ str x9, [%[target]]
+        \\
+        \\ cbz %[len], 1f
+        \\2:
+        \\ ldrb w9, [%[src]], #1
+        \\ strb w9, [%[dst]], #1
+        \\ subs %[len], %[len], #1
+        \\ b.ne 2b
+        \\1:
+        :
+        : [target] "r" (target),
+          [src] "+{x1}" (source.address.value),
+          [dst] "+{x2}" (destination.address.value),
+          [len] "+{x3}" (source.size.value),
+        : .{ .memory = true, .x1 = true, .x2 = true, .x3 = true, .x9 = true });
 }
 
 /// Atomically load a `u32` from `address` (acquire = `ldar`) into `out`.
 ///
-/// Like `safeMemcpyImpl`, the fault recovery is a no-op until arm data aborts
-/// route to `onPageFault`; `target` is unused and a fault on a bad address
-/// still panics (no regression). Valid loads work, so `memory.safe.atomicLoadU32`
-/// is usable on arm; the DoS-hardening only takes effect on x64 for now.
+/// Records the recovery label `1:` into `target.*` before the load, mirroring
+/// `safeMemcpyImpl`. On a fault, `vectors.zig`'s vector-4 handler redirects
+/// `elr` there rather than panicking.
 pub fn safeAtomicLoad32Impl(
     address: innigkeit.VirtualAddress,
     out: *u32,
     target: *innigkeit.KernelVirtualAddress,
 ) void {
-    target.* = .{ .value = 0 };
-    // already a typed VirtualAddress (see the doc comment above).
-    const ptr: *const u32 = @ptrFromInt(address.value);
-    out.* = @atomicLoad(u32, ptr, .acquire);
+    asm volatile (
+        \\ adr x9, 1f
+        \\ str x9, [%[target]]
+        \\
+        \\ ldar w9, [%[addr]]
+        \\ str w9, [%[out]]
+        \\
+        \\1:
+        :
+        : [target] "r" (target),
+          [addr] "r" (address.value),
+          [out] "r" (out),
+        : .{ .memory = true, .x9 = true });
 }

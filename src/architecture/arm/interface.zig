@@ -64,6 +64,7 @@ pub const functions: architecture.Functions = .{
     .paging = .{
         .createPageTable = arm.PageTable.create,
         .loadPageTable = arm.PageTable.loadPageTable,
+        .loadUserPageTable = arm.PageTable.loadUserPageTable,
         .copyTopLevelIntoPageTable = arm.PageTable.copyTopLevelIntoPageTable,
         .mapSinglePage = arm.PageTable.mapSinglePage,
         .unmap = arm.PageTable.unmap,
@@ -175,9 +176,9 @@ pub const functions: architecture.Functions = .{
 
                 // Reach the PL011 through the direct map (its MMIO is mapped by
                 // `arm.PageTable.mapDeviceMmio`).
-                const phys: innigkeit.PhysicalAddress = .from(arm.pl011.UART_BASE);
+                const phys: innigkeit.PhysicalAddress = .from(arm.Pl011.UART_BASE);
                 const virtual_base = phys.toDirectMap().toVirtualAddress().value;
-                return arm.pl011.getInitOutput(virtual_base);
+                return arm.Pl011.getInitOutput(virtual_base);
             }
         }.tryGetSerialOutput,
 

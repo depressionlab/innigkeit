@@ -419,7 +419,7 @@ fn beforeSwitchTask(
             if (core.is_debug) std.debug.assert(old_task_enable_access_to_user_memory_count == 0);
 
             const new_process: *innigkeit.user.Process = .from(transition.new_task);
-            new_process.address_space.page_table.load();
+            new_process.address_space.page_table.loadUser();
 
             if (new_task_enable_access_to_user_memory_count != 0) {
                 @branchHint(.unlikely); // we expect this to be 0 most of the time
@@ -439,7 +439,7 @@ fn beforeSwitchTask(
         .user_to_user => {
             const old_process: *const innigkeit.user.Process = .from(transition.old_task);
             const new_process: *innigkeit.user.Process = .from(transition.new_task);
-            if (old_process != new_process) new_process.address_space.page_table.load();
+            if (old_process != new_process) new_process.address_space.page_table.loadUser();
 
             if (old_task_enable_access_to_user_memory_count !=
                 new_task_enable_access_to_user_memory_count)

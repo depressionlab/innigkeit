@@ -109,7 +109,34 @@ paging: struct {
     /// - The provided physical page must be accessible in the direct map.
     createPageTable: ?fn (physical_page: innigkeit.memory.PhysicalPage.Index) *architecture.current_decls.paging.PageTable = null,
 
+    /// Install [`physical_page`] as the *kernel* address-space paging root.
+    ///
+    /// On architectures with a single PageTable root register (e.g. x64's `CR3`),
+    /// this is the only root, so it also serves as the per-task switch primitive
+    /// below.
+    ///
+    /// On architectures with a split kernel/user root (e.g. arm's `TTBR1/TTBR0`),
+    /// this must only ever be called with the kernel's own table. Calling it with
+    /// a process's table clobbers the shared kernel mapping instead of switching
+    /// the user address space.
+    ///
+    /// **REQUIREMENTS**:
+    /// - The provided physical page must be accessible in the direct map.
+    /// - The provided physical page must be within the kernel's own table.
     loadPageTable: ?fn (physical_page: innigkeit.memory.PhysicalPage.Index) void = null,
+
+    /// Install [`physical_page`] as the *user* (per-task) address-space paging root.
+    ///
+    /// This function is used by a task that wants to switch to or within userspace.
+    ///
+    /// On single-root architectures (x64), this is an alias of [`loadPageTable`].
+    /// On split-root architectures (arm), this targets the user-half register (`TTBR0`)
+    /// rather than the kernel-half of [`loadPageTable`].
+    ///
+    /// **REQUIREMENTS**:
+    /// - The provided physical page must be accessible in the direct map.
+    /// - The provided physical page must be within the user-space table.
+    loadUserPageTable: ?fn (physical_page: innigkeit.memory.PhysicalPage.Index) void = null,
 
     /// Copies the top level of `page_table` into `target_page_table`.
     copyTopLevelIntoPageTable: ?fn (

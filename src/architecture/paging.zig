@@ -42,6 +42,10 @@ pub const PageTable = struct {
         };
     }
 
+    /// Install [`page_table`] as the kernel root.
+    ///
+    /// Only the kernel's own table may be passed here. See [`loadUser`] for
+    /// switching to a process's address space.
     pub fn load(page_table: PageTable) callconv(core.inline_in_non_debug) void {
         architecture.getFunction(
             architecture.current_functions.paging,
@@ -49,7 +53,18 @@ pub const PageTable = struct {
         )(page_table.physical_page);
     }
 
+    /// Install [`page_table`] as the current task's user address-space root.
+    ///
+    /// This function is used by a task that wants to switch to or within userspace.
+    /// See `Functions.zig`: `loadUserPageTable` for more information.
     /// Copies the top level of `page_table` into `target_page_table`.
+    pub fn loadUser(page_table: PageTable) callconv(core.inline_in_non_debug) void {
+        architecture.getFunction(
+            architecture.current_functions.paging,
+            "loadUserPageTable",
+        )(page_table.physical_page);
+    }
+
     pub fn copyTopLevelInto(
         page_table: PageTable,
         target_page_table: PageTable,

@@ -504,7 +504,7 @@ pub const FADT = extern struct {
         return if (fadt._X_PM1a_CNT_BLK.address != 0)
             fadt._X_PM1a_CNT_BLK
         else
-            .{ // FIXME: non-x86?
+            .{ // TODO: non-x86?
                 .address_space = .io,
                 .address = @intCast(fadt._PM1a_CNT_BLK),
                 .register_bit_width = 16,
@@ -518,7 +518,7 @@ pub const FADT = extern struct {
         return if (fadt._X_PM1b_CNT_BLK.address != 0)
             fadt._X_PM1b_CNT_BLK
         else if (fadt._PM1b_CNT_BLK != 0)
-            .{ // FIXME: non-x86?
+            .{ // TODO: non-x86?
                 .address_space = .io,
                 .address = @intCast(fadt._PM1b_CNT_BLK),
                 .register_bit_width = 16,

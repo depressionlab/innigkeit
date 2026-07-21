@@ -77,7 +77,7 @@ pub inline fn enableInterrupts() void {
     asm volatile ("msr DAIFClr, #0b1111;");
 }
 
-/// Are interrupts enabled?
+/// Check if interrupts are enabled.
 pub inline fn interruptsEnabled() bool {
     const daif = asm ("mrs %[daif], DAIF"
         : [daif] "=r" (-> u64),

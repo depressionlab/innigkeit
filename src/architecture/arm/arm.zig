@@ -3,7 +3,7 @@ pub const init = @import("init.zig");
 pub const instructions = @import("instructions.zig");
 pub const interrupts = @import("interrupts.zig");
 pub const pan = @import("pan.zig");
-pub const pl011 = @import("pl011.zig");
+pub const Pl011 = @import("Pl011.zig");
 pub const registers = @import("registers.zig");
 pub const scheduling = @import("scheduling.zig");
 pub const semihost = @import("semihost.zig");
@@ -11,6 +11,7 @@ pub const timer = @import("timer.zig");
 pub const user = @import("user.zig");
 pub const vectors = @import("vectors.zig");
 
+pub const EsrEl1 = @import("EsrEl1.zig").EsrEl1;
 pub const InterruptFrame = @import("InterruptFrame.zig").InterruptFrame;
 pub const Interrupt = @import("Interrupt.zig").Interrupt;
 pub const PerTask = @import("PerTask.zig");

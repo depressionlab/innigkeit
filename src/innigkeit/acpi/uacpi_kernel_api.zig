@@ -543,7 +543,7 @@ export fn uacpi_kernel_install_interrupt_handler(
             inner_handler: uacpi.RawInterruptHandler,
             inner_ctx: *anyopaque,
         ) void {
-            _ = inner_handler(inner_ctx); // FIXME: should we do something with the return value?
+            _ = inner_handler(inner_ctx); // TODO: should we do something with the return value?
         }
     }.HandlerWrapper;
 

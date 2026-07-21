@@ -31,7 +31,7 @@ pub const Iterator = struct {
     pub fn next(it: *Iterator) !?LoadableRegion {
         while (it.program_header_iterator.next()) |program_header| {
             if (program_header.type != .load) continue;
-            if (program_header.memory_size.equal(.zero)) continue; // can this even happen with a loadable segment?
+            if (program_header.memory_size.equal(.zero)) continue; // TODO: can this even happen with a loadable segment?
 
             if (program_header.file_size.greaterThan(program_header.memory_size)) {
                 log.warn("PT_LOAD segment has file_size > memory_size: {f}", .{program_header});

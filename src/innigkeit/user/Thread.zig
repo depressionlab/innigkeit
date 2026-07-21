@@ -244,7 +244,7 @@ pub fn startProcess(self: *Thread, entry_point: innigkeit.UserVirtualAddress, in
 
 pub fn format(self: *const Thread, writer: *std.Io.Writer) !void {
     // TODO: these are user controlled strings...
-    // should we make like, an app registry idk?
+    // TODO: should we make like, an app registry idk?
     // on hold until the userspace api is better developed
 
     try writer.print("U<{s} - {s}>", .{

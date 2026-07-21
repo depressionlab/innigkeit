@@ -1,4 +1,4 @@
-// FIXME: we assume #address-cells and #size-cells are both two
+// TODO: we assume #address-cells and #size-cells are both two
 
 const std = @import("std");
 
@@ -128,7 +128,7 @@ fn getSerialOutputFromNS16550a(dt: DeviceTree, node: DeviceTree.Node, memory_sys
             return null;
         };
 
-        // FIXME: rather than assume address-cells and size-cells are both two, we should actually look at the parent
+        // TODO: rather than assume address-cells and size-cells are both two, we should actually look at the parent
         var reg_iter = try reg_property.value.regIterator(2, 2);
 
         const reg = reg_iter.next() orelse {
@@ -210,7 +210,7 @@ fn getSerialOutputFromPL011(dt: DeviceTree, node: DeviceTree.Node, memory_system
             return null;
         };
 
-        // FIXME: rather than assume address-cells and size-cells are both two, we should actually look at the parent
+        // TODO: rather than assume address-cells and size-cells are both two, we should actually look at the parent
         var reg_iter = try reg_property.value.regIterator(2, 2);
 
         const reg = reg_iter.next() orelse {
