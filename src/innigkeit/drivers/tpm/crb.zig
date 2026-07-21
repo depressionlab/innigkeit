@@ -16,7 +16,6 @@
 //! the control area (`TPM_CRB_CTRL_REQ`), so the locality registers sit
 //! `@sizeOf(RegsHead)` bytes below it.
 
-const builtin = @import("builtin");
 const std = @import("std");
 
 const architecture = @import("architecture");
@@ -278,7 +277,7 @@ fn readVolatile(src: [*]volatile u8, dst: []u8) void {
 }
 
 inline fn deviceBarrier() void {
-    switch (builtin.cpu.arch) {
+    switch (@import("builtin").cpu.arch) {
         .x86_64 => asm volatile ("mfence" ::: .{ .memory = true }),
         .aarch64 => asm volatile ("dsb sy" ::: .{ .memory = true }),
         else => asm volatile ("" ::: .{ .memory = true }),

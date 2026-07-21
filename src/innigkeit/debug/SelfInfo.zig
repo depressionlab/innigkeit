@@ -147,7 +147,9 @@ pub const can_unwind: bool = switch (architecture.current_arch) {
 };
 
 comptime {
-    if (can_unwind) std.debug.assert(Dwarf.supportsUnwinding(&@import("builtin").target));
+    if (can_unwind) std.debug.assert(Dwarf.supportsUnwinding(
+        &@import("builtin").target,
+    ));
 }
 
 fn getModule(si: *SelfInfo, gpa: std.mem.Allocator, address: usize) Error!*Module {

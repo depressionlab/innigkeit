@@ -14,7 +14,7 @@ const std = @import("std");
 /// }
 /// ```
 pub fn exportEntry() void {
-    comptime if (!@import("builtin").is_test and @import("is_internal").is_internal)
+    comptime if (!builtin.is_test and @import("is_internal").is_internal)
         @export(&_innigkeit_entry, .{ .name = "_start" });
 }
 

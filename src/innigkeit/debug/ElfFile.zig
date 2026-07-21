@@ -1,21 +1,15 @@
 //! A helper type for loading an ELF file and collecting its DWARF debug information, unwind
 //! information, and symbol table.
-
-const std = @import("std");
-const Endian = std.builtin.Endian;
-const Dwarf = std.debug.Dwarf;
-const Allocator = std.mem.Allocator;
-const elf = std.elf;
-const builtin = @import("builtin");
-
 const ElfFile = @This();
 
+const std = @import("std");
+
 is_64: bool,
-endian: Endian,
+endian: std.builtin.Endian,
 
 /// This is `null` iff any of the required DWARF sections were missing. `ElfFile.load` does *not*
 /// call `Dwarf.open`, `Dwarf.scanAllFunctions`, etc; that is the caller's responsibility.
-dwarf: ?Dwarf,
+dwarf: ?std.debug.Dwarf,
 
 /// If non-`null`, describes the `.eh_frame` section, which can be used with `Dwarf.Unwind`.
 eh_frame: ?UnwindSection,
@@ -89,7 +83,7 @@ pub const DebugInfoSearchPaths = struct {
     }
 };
 
-pub fn deinit(_: *ElfFile, _: Allocator) void {
+pub fn deinit(_: *ElfFile, _: std.mem.Allocator) void {
     @panic("deinit not supported!");
 }
 
@@ -115,7 +109,7 @@ pub const LoadError = error{
 };
 
 pub fn load(
-    gpa: Allocator,
+    gpa: std.mem.Allocator,
     mapped_elf: []align(std.heap.page_size_min) const u8,
 ) LoadError!ElfFile {
     var arena_instance: std.heap.ArenaAllocator = .init(gpa);
@@ -156,8 +150,8 @@ pub fn load(
             {
                 break :dwarf null; // debug info not present
             }
-            var sections: Dwarf.SectionArray = @splat(null);
-            inline for (@typeInfo(Dwarf.Section.Id).@"enum".fields) |f| {
+            var sections: std.debug.Dwarf.SectionArray = @splat(null);
+            inline for (@typeInfo(std.debug.Dwarf.Section.Id).@"enum".fields) |f| {
                 if (result.sections.get(@field(Section.Id, f.name))) |s| {
                     sections[f.value] = .{ .data = s.bytes, .owned = false };
                 }
@@ -184,7 +178,7 @@ pub fn load(
     };
 }
 
-pub fn searchSymtab(ef: *ElfFile, gpa: Allocator, vaddr: u64) error{
+pub fn searchSymtab(ef: *ElfFile, gpa: std.mem.Allocator, vaddr: u64) error{
     NoSymtab,
     NoStrtab,
     BadSymtab,
@@ -195,11 +189,11 @@ pub fn searchSymtab(ef: *ElfFile, gpa: Allocator, vaddr: u64) error{
 
     if (symtab.bytes.len % symtab.entry_size != 0) return error.BadSymtab;
 
-    const swap_endian = ef.endian != builtin.cpu.arch.endian();
+    const swap_endian = ef.endian != @import("builtin").cpu.arch.endian();
 
     switch (ef.is_64) {
         inline true, false => |is_64| {
-            const Sym = if (is_64) elf.Elf64.Sym else elf.Elf32.Sym;
+            const Sym = if (is_64) std.elf.Elf64.Sym else std.elf.Elf32.Sym;
             if (symtab.entry_size != @sizeOf(Sym)) return error.BadSymtab;
             const symbols: []align(1) const Sym = @ptrCast(symtab.bytes);
             if (ef.symbol_search_table == null) {
@@ -240,20 +234,25 @@ pub fn searchSymtab(ef: *ElfFile, gpa: Allocator, vaddr: u64) error{
     }
 }
 
-fn buildSymbolSearchTable(gpa: Allocator, endian: Endian, comptime Sym: type, symbols: []align(1) const Sym) error{
+fn buildSymbolSearchTable(
+    gpa: std.mem.Allocator,
+    endian: std.builtin.Endian,
+    comptime Sym: type,
+    symbols: []align(1) const Sym,
+) error{
     OutOfMemory,
     BadSymtab,
 }![]usize {
     var result: std.ArrayList(usize) = .empty;
     defer result.deinit(gpa);
 
-    const swap_endian = endian != builtin.cpu.arch.endian();
+    const swap_endian = endian != @import("builtin").cpu.arch.endian();
 
     for (symbols, 0..) |sym_orig, sym_index| {
         var sym = sym_orig;
         if (swap_endian) std.mem.byteSwapAllFields(Sym, &sym);
         if (sym.name == 0) continue;
-        if (sym.shndx == elf.SHN_UNDEF) continue;
+        if (sym.shndx == std.elf.SHN_UNDEF) continue;
         try result.append(gpa, sym_index);
     }
 
@@ -287,7 +286,7 @@ const Section = struct {
     // `SectionHeaderBufferIterator.next()` actually yields (std hasn't
     // migrated that iterator's return type yet).
     // zlinter-disable-next-line no_deprecated
-    header: elf.Elf64_Shdr,
+    header: std.elf.Elf64_Shdr,
     bytes: []const u8,
     const Id = enum {
         // DWARF sections: see `Dwarf.Section.Id`.
@@ -314,12 +313,12 @@ const Section = struct {
 
 const LoadInnerResult = struct {
     is_64: bool,
-    endian: Endian,
+    endian: std.builtin.Endian,
     sections: Section.Array,
     mapped_mem: []align(std.heap.page_size_min) const u8,
 };
 fn loadInner(
-    arena: Allocator,
+    arena: std.mem.Allocator,
     mapped_elf: []align(std.heap.page_size_min) const u8,
     opt_crc: ?u32,
 ) (LoadError || error{ CrcMismatch, Streaming, Canceled })!LoadInnerResult {
@@ -333,7 +332,7 @@ fn loadInner(
 
     var fr: std.Io.Reader = .fixed(mapped_mem);
 
-    const header = elf.Header.read(&fr) catch |err| switch (err) {
+    const header = std.elf.Header.read(&fr) catch |err| switch (err) {
         error.ReadFailed => unreachable,
         error.EndOfStream => return error.TruncatedElfFile,
 
@@ -352,11 +351,11 @@ fn loadInner(
     );
     fr.seek = std.math.cast(usize, shstrtab_shdr_off) orelse return error.Overflow;
     const shstrtab: []const u8 = if (header.is_64) shstrtab: {
-        const shdr = fr.takeStruct(elf.Elf64.Shdr, endian) catch return error.TruncatedElfFile;
+        const shdr = fr.takeStruct(std.elf.Elf64.Shdr, endian) catch return error.TruncatedElfFile;
         if (shdr.offset + shdr.size > mapped_mem.len) return error.TruncatedElfFile;
         break :shstrtab mapped_mem[@intCast(shdr.offset)..][0..@intCast(shdr.size)];
     } else shstrtab: {
-        const shdr = fr.takeStruct(elf.Elf32.Shdr, endian) catch return error.TruncatedElfFile;
+        const shdr = fr.takeStruct(std.elf.Elf32.Shdr, endian) catch return error.TruncatedElfFile;
         if (shdr.offset + shdr.size > mapped_mem.len) return error.TruncatedElfFile;
         break :shstrtab mapped_mem[@intCast(shdr.offset)..][0..@intCast(shdr.size)];
     };
@@ -377,17 +376,20 @@ fn loadInner(
 
         if (sections.get(section_id) != null) continue;
 
-        if (shdr.sh_offset + shdr.sh_size > mapped_mem.len) return error.TruncatedElfFile;
+        if (shdr.sh_offset + shdr.sh_size > mapped_mem.len)
+            return error.TruncatedElfFile;
         const raw_section_bytes = mapped_mem[@intCast(shdr.sh_offset)..][0..@intCast(shdr.sh_size)];
         const section_bytes: []const u8 = bytes: {
-            if ((shdr.sh_flags & elf.SHF_COMPRESSED) == 0) break :bytes raw_section_bytes;
+            if ((shdr.sh_flags & std.elf.SHF_COMPRESSED) == 0) break :bytes raw_section_bytes;
 
             var section_reader: std.Io.Reader = .fixed(raw_section_bytes);
-            const ch_type: elf.COMPRESS, const ch_size: u64 = if (header.is_64) ch: {
-                const chdr = section_reader.takeStruct(elf.Elf64.Chdr, endian) catch return error.InvalidCompressedSection;
+            const ch_type: std.elf.COMPRESS, const ch_size: u64 = if (header.is_64) ch: {
+                const chdr = section_reader.takeStruct(std.elf.Elf64.Chdr, endian) catch
+                    return error.InvalidCompressedSection;
                 break :ch .{ chdr.type, chdr.size };
             } else ch: {
-                const chdr = section_reader.takeStruct(elf.Elf32.Chdr, endian) catch return error.InvalidCompressedSection;
+                const chdr = section_reader.takeStruct(std.elf.Elf32.Chdr, endian) catch
+                    return error.InvalidCompressedSection;
                 break :ch .{ chdr.type, chdr.size };
             };
             if (ch_type != .ZLIB) {

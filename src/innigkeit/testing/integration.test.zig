@@ -5,7 +5,6 @@
 //! See `docs/test-harness-plan.md`: this is Stage 4 / TH-1, the harness
 //! proving it can launch a signed process and observe its result.
 
-const builtin = @import("builtin");
 const innigkeit = @import("innigkeit");
 const std = @import("std");
 
@@ -39,7 +38,7 @@ fn waitForNotify(notify: *innigkeit.capabilities.Notify, clear_mask: u64) !u64 {
 }
 
 test "integration: spawn itest_spawn_wait and observe its exit status" {
-    // x64-only: The old failure mode here (a recursive/looping SP_EL1
+    // TODO: x64-only: The old failure mode here (a recursive/looping SP_EL1
     // synchronous exception) was actually `task/Handle.zig`'s per-task
     // switch calling the generic `page_table.load()`, which on arm hit the
     // boot-only TTBR1 kernel-root installer instead of TTBR0, so a freshly
@@ -53,7 +52,7 @@ test "integration: spawn itest_spawn_wait and observe its exit status" {
     // first syscall (SVC from EL0) still panics, because arm has no syscall
     // dispatch path at all yet (Stage 9 "EL0 synchronous exceptions other than
     // data aborts" section). Re-enable this test after Stage 9.
-    if (comptime builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    if (comptime @import("builtin").cpu.arch != .x86_64) return error.SkipZigTest;
 
     const result = try innigkeit.user.Process.spawnFromInitfs(.{ .path = "itest_spawn_wait" });
     defer result.exit_notify.unref();
@@ -64,7 +63,7 @@ test "integration: spawn itest_spawn_wait and observe its exit status" {
 
 test "integration: unhandled user-mode exception isolates to the calling process, not the kernel" {
     // x64-only, same reason as the test above.
-    if (comptime builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    if (comptime @import("builtin").cpu.arch != .x86_64) return error.SkipZigTest;
 
     // If architecture.x64.interrupts.handlers.unhandledException's isolation
     // path regressed back to panicking the kernel, this test would never

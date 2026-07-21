@@ -1,4 +1,3 @@
-const builtin = @import("builtin");
 const std = @import("std");
 
 pub const containers = @import("containers/root.zig");
@@ -6,7 +5,6 @@ pub const endian_ = @import("endian.zig");
 pub const hash = @import("hash.zig");
 pub const lock = @import("lock.zig");
 pub const masking = @import("masking.zig");
-pub const simd = @import("simd.zig");
 pub const testing = @import("testing.zig");
 pub const Duration = @import("duration.zig").Duration;
 pub const Size = @import("size.zig").Size;
@@ -14,7 +12,7 @@ pub const TypeErasedCall = @import("containers/TypeErasedCall.zig").TypeErasedCa
 pub const RedBlackTree = @import("containers/RedBlackTree.zig");
 
 const Endian = std.builtin.Endian;
-pub const is_debug = builtin.mode == .Debug;
+pub const is_debug = @import("builtin").mode == .Debug;
 
 /// A calling convention that is `inline` in non-debug builds and `auto` in debug builds.
 ///
@@ -63,7 +61,7 @@ test readIntPartial {
     const hello_zero_padded: [8]u8 = hello.* ++ .{0} ** 3;
     const expected: u64 = @bitCast(hello_zero_padded);
 
-    const endian = builtin.cpu.arch.endian();
+    const endian = @import("builtin").cpu.arch.endian();
     const hello_int = readIntPartial(u64, hello, endian);
     try std.testing.expectEqual(expected, hello_int);
 }

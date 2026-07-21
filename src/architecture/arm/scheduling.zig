@@ -14,7 +14,6 @@
 //! ```
 
 const arm = @import("arm.zig");
-const builtin = @import("builtin");
 const core = @import("core");
 const innigkeit = @import("innigkeit");
 const std = @import("std");
@@ -125,7 +124,7 @@ pub inline fn switchTask(
           .x30 = true,
         });
     comptime {
-        std.debug.assert(builtin.omit_frame_pointer == false);
+        std.debug.assert(@import("builtin").omit_frame_pointer == false);
     }
 }
 
@@ -201,7 +200,7 @@ pub inline fn call(
           .x30 = true,
         });
     comptime {
-        std.debug.assert(builtin.omit_frame_pointer == false);
+        std.debug.assert(@import("builtin").omit_frame_pointer == false);
     }
 }
 

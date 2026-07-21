@@ -23,7 +23,6 @@
 
 const SecureVault = @This();
 
-const builtin = @import("builtin");
 const innigkeit = @import("innigkeit");
 const std = @import("std");
 
@@ -189,7 +188,7 @@ fn x64RdrandSupported() bool {
 /// Architecture-specific hardware random number.
 /// Returns null if not available or the instruction signals failure.
 inline fn hwRand64() ?u64 {
-    return switch (builtin.cpu.arch) {
+    return switch (@import("builtin").cpu.arch) {
         .x86_64 => blk: {
             // Guard: RDRAND is not universally supported on x86_64. It was
             // introduced with Ivy Bridge (Intel, 2012) and Jaguar (AMD, 2013).
@@ -241,7 +240,7 @@ inline fn hwRand64() ?u64 {
 /// `slot_index` is mixed in as a domain-separation constant so repeated calls
 /// with a stalled clock produce distinct output.
 inline fn counterFallback(slot_index: usize) u64 {
-    const raw: u64 = switch (builtin.cpu.arch) {
+    const raw: u64 = switch (@import("builtin").cpu.arch) {
         .x86_64 => blk: {
             var low: u32 = undefined;
             var high: u32 = undefined;

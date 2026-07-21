@@ -15,7 +15,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const aes = std.crypto.core.aes;
 
-// KNOWN BUG (pre-existing, orthogonal to the SB work): on the freestanding
+// TODO: KNOWN BUG (pre-existing, orthogonal to the SB work): on the freestanding
 // aarch64 *kernel* target, `std.crypto.core.aes` (software impl) computes the
 // WRONG value: a self-consistent but non-standard permutation (round-trips
 // succeed, but absolute known-answer vectors do not match). Leading hypothesis:

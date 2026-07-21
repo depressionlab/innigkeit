@@ -6,14 +6,13 @@
 //! separate package whose inline tests are never collected.
 
 const architecture = @import("architecture");
-const builtin = @import("builtin");
 const std = @import("std");
 
 // Regression test: arg4 was once read from rbx instead of r10. The x86-64
 // syscall ABI passes arguments in rdi, rsi, rdx, r10, r8, r9 (rcx is clobbered
 // by the `syscall` instruction itself, so r10 stands in for it).
 test "x64: syscall args 1-6 come from rdi, rsi, rdx, r10, r8, r9" {
-    if (comptime builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    if (comptime @import("builtin").cpu.arch != .x86_64) return error.SkipZigTest;
 
     const Frame = architecture.current_decls.user.SyscallFrame;
 

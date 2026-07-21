@@ -1,4 +1,3 @@
-const builtin = @import("builtin");
 const core = @import("core");
 const std = @import("std");
 
@@ -285,7 +284,7 @@ pub fn setBits(
     const peer_value: TargetType = value;
 
     // Panic if runtime safety is enabled and value exceeds bit range.
-    if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) {
+    if (@import("builtin").mode == .Debug or @import("builtin").mode == .ReleaseSafe) {
         if (getBits(peer_value, 0, (end_bit - start_bit)) != peer_value) {
             @panic("value exceeds bit range!");
         }
@@ -311,7 +310,7 @@ test setBits {
 }
 
 comptime {
-    if (builtin.cpu.arch.endian() != .little)
+    if (@import("builtin").cpu.arch.endian() != .little)
         @compileError("'bitjuggle' assumes little endian!");
 }
 

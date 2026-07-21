@@ -1,8 +1,5 @@
 const Module = @This();
-
 const std = @import("std");
-const Error = std.debug.SelfInfoError;
-const Dwarf = std.debug.Dwarf;
 
 // TODO: improve this or maybe integrate with std.
 
@@ -14,10 +11,10 @@ build_id: ?[]const u8,
 gnu_eh_frame: ?[]const u8,
 
 /// `null` means unwind information has not yet been loaded.
-unwind: ?(Error!UnwindSections),
+unwind: ?(std.debug.SelfInfoError!UnwindSections),
 
 /// `null` means the ELF file has not yet been loaded.
-loaded_elf: ?(Error!LoadedElf),
+loaded_elf: ?(std.debug.SelfInfoError!LoadedElf),
 
 mapped_elf: []align(std.heap.page_size_min) const u8,
 
@@ -29,7 +26,7 @@ const LoadedElf = struct {
 const ElfFile = @import("ElfFile.zig");
 
 const UnwindSections = struct {
-    buf: [2]Dwarf.Unwind,
+    buf: [2]std.debug.Dwarf.Unwind,
     len: usize,
 };
 
@@ -39,20 +36,20 @@ pub const Range = struct {
 };
 
 /// Assumes we already have the lock.
-pub fn getUnwindSections(mod: *Module, gpa: std.mem.Allocator) Error![]Dwarf.Unwind {
-    if (mod.unwind == null) mod.unwind = mod.loadUnwindSections(gpa);
+pub fn getUnwindSections(self: *Module, gpa: std.mem.Allocator) std.debug.SelfInfoError![]std.debugDwarf.Unwind {
+    if (self.unwind == null) self.unwind = self.loadUnwindSections(gpa);
     // Non-null: either already set, or the line above just set it.
-    const us = &(mod.unwind.? catch |err| return err);
+    const us = &(self.unwind.? catch |err| return err);
     return us.buf[0..us.len];
 }
-fn loadUnwindSections(mod: *Module, gpa: std.mem.Allocator) Error!UnwindSections {
+fn loadUnwindSections(self: *Module, gpa: std.mem.Allocator) std.debug.SelfInfoError!UnwindSections {
     var us: UnwindSections = .{
         .buf = undefined,
         .len = 0,
     };
-    if (mod.gnu_eh_frame) |section_bytes| {
-        const section_vaddr: u64 = @intFromPtr(section_bytes.ptr) - mod.load_offset;
-        const header = Dwarf.Unwind.EhFrameHeader.parse(section_vaddr, section_bytes, @sizeOf(usize), native_endian) catch |err| switch (err) {
+    if (self.gnu_eh_frame) |section_bytes| {
+        const section_vaddr: u64 = @intFromPtr(section_bytes.ptr) - self.load_offset;
+        const header = std.debug.Dwarf.Unwind.EhFrameHeader.parse(section_vaddr, section_bytes, @sizeOf(usize), native_endian) catch |err| switch (err) {
             error.ReadFailed => unreachable, // it's all fixed buffers
             error.InvalidDebugInfo => |e| return e,
             error.EndOfStream, error.Overflow => return error.InvalidDebugInfo,
@@ -61,13 +58,13 @@ fn loadUnwindSections(mod: *Module, gpa: std.mem.Allocator) Error!UnwindSections
         // `load_offset + eh_frame_vaddr` reconstructs this module's own
         // already-loaded `.eh_frame` runtime address from data this same
         // function just parsed out of its own section headers.
-        const section_bytes_ptr: [*]const u8 = @ptrFromInt(@as(usize, @intCast(mod.load_offset + header.eh_frame_vaddr)));
+        const section_bytes_ptr: [*]const u8 = @ptrFromInt(@as(usize, @intCast(self.load_offset + header.eh_frame_vaddr)));
         us.buf[us.len] = .initEhFrameHdr(header, section_vaddr, section_bytes_ptr);
         us.len += 1;
     } else {
         // There is no `.eh_frame_hdr` section. There may still be an `.eh_frame` or `.debug_frame`
         // section, but we'll have to load the binary to get at it.
-        const loaded = try mod.getLoadedElf(gpa);
+        const loaded = try self.getLoadedElf(gpa);
         // If both are present, we can't just pick one as the info could be split between them.
         // `.debug_frame` is likely to be the more complete section, so we'll prioritize that one.
         if (loaded.file.debug_frame) |*debug_frame| {
@@ -102,14 +99,14 @@ fn loadUnwindSections(mod: *Module, gpa: std.mem.Allocator) Error!UnwindSections
 }
 
 /// Assumes we already have the lock.
-pub fn getLoadedElf(mod: *Module, gpa: std.mem.Allocator) Error!*LoadedElf {
-    if (mod.loaded_elf == null) mod.loaded_elf = loadElf(mod, gpa);
+pub fn getLoadedElf(self: *Module, gpa: std.mem.Allocator) std.debug.SelfInfoError!*LoadedElf {
+    if (self.loaded_elf == null) self.loaded_elf = loadElf(self, gpa);
     // Non-null: either already set, or the line above just set it.
-    return if (mod.loaded_elf.?) |*elf| elf else |err| err;
+    return if (self.loaded_elf.?) |*elf| elf else |err| err;
 }
 
-fn loadElf(mod: *Module, gpa: std.mem.Allocator) Error!LoadedElf {
-    const load_result = ElfFile.load(gpa, mod.mapped_elf);
+fn loadElf(self: *Module, gpa: std.mem.Allocator) std.debug.SelfInfoError!LoadedElf {
+    const load_result = ElfFile.load(gpa, self.mapped_elf);
 
     var elf_file = load_result catch |err| switch (err) {
         error.OutOfMemory,
