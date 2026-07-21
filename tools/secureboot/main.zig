@@ -12,7 +12,6 @@
 //!     back into the ESP. Default --esp-lba is 4096 (GPT partition 2 start,
 //!     matching this repo's image layout).
 
-const builtin = @import("builtin");
 const std = @import("std");
 const Blake2b512 = std.crypto.hash.blake2.Blake2b512;
 
@@ -162,7 +161,7 @@ fn cmdSign(init: std.process.Init, image_path: []const u8, db_key: []const u8, d
         std.process.exit(1);
     }
 
-    switch (builtin.os.tag) {
+    switch (@import("builtin").os.tag) {
         .linux => _ = runChecked(arena, io, &.{
             "sbsign",    "--key",
             db_key,      "--cert",

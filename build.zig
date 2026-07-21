@@ -181,13 +181,12 @@ fn disableUnsupportedSteps(b: *std.Build) !void {
 const innigkeit_version = std.SemanticVersion.parse(metadata.version) catch unreachable;
 
 comptime {
-    const current_zig = @import("builtin").zig_version;
     const min_zig = std.SemanticVersion.parse(metadata.minimum_zig_version) catch unreachable;
 
-    if (current_zig.order(min_zig) == .lt) {
+    if (@import("builtin").zig_version.order(min_zig) == .lt) {
         @compileError(std.fmt.comptimePrint(
             "your zig version {} does not meet the minimum build requirement of {}",
-            .{ current_zig, min_zig },
+            .{ @import("builtin").zig_version, min_zig },
         ));
     }
 }

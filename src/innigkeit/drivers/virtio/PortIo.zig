@@ -12,7 +12,6 @@
 const PortIo = @This();
 
 const architecture = @import("architecture");
-const builtin = @import("builtin");
 const innigkeit = @import("innigkeit");
 
 /// Register-window base. On x86-64 this is the 16-bit I/O port base (only the
@@ -21,7 +20,7 @@ const innigkeit = @import("innigkeit");
 base: u64,
 
 /// AArch64 (and any non-x86 target) reaches the legacy registers via MMIO.
-const is_mmio = builtin.cpu.arch != .x86_64;
+const is_mmio = @import("builtin").cpu.arch != .x86_64;
 
 inline fn portBase(self: PortIo) u16 {
     return @truncate(self.base);

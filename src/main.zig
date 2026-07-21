@@ -2,8 +2,6 @@ const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 const std = @import("std");
 
-pub const panic = innigkeit.debug.panic_interface;
-
 pub const std_options: std.Options = .{
     .log_level = innigkeit.debug.log.log_level.toStd(),
     .logFn = innigkeit.debug.log.stdLogImpl,
@@ -21,6 +19,7 @@ pub const std_options: std.Options = .{
 
 pub const std_options_debug_io: std.Io = undefined;
 pub const debug = innigkeit.debug.interop;
+pub const panic = innigkeit.debug.panic_interface;
 
 comptime {
     @import("boot").exportEntryPoints();

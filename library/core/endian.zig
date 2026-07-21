@@ -1,8 +1,7 @@
-const builtin = @import("builtin");
 const std = @import("std");
 
 const Endian = std.builtin.Endian;
-const native_endian: Endian = builtin.cpu.arch.endian();
+const native_endian: Endian = @import("builtin").cpu.arch.endian();
 
 /// Converts an integer which has host endianness to the desired endianness.
 ///

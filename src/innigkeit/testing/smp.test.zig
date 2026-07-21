@@ -19,7 +19,6 @@
 
 const architecture = @import("architecture");
 const boot = @import("boot");
-const builtin = @import("builtin");
 const innigkeit = @import("innigkeit");
 const std = @import("std");
 
@@ -347,7 +346,7 @@ fn blkWorker(slot: usize) void {
 }
 
 test "smp: concurrent blk reads from two executors return identical data" {
-    if (comptime builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    if (comptime @import("builtin").cpu.arch != .x86_64) return error.SkipZigTest;
     if (!innigkeit.drivers.virtio.blk.isBootReady()) return error.SkipZigTest;
 
     blk_state = .{};

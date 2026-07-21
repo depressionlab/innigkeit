@@ -1,4 +1,3 @@
-const builtin = @import("builtin");
 const innigkeit = @import("innigkeit");
 const log = innigkeit.debug.log.scoped(.test_runner);
 
@@ -9,7 +8,7 @@ const log = innigkeit.debug.log.scoped(.test_runner);
 /// tests on single-executor configurations and disk tests without a boot
 /// device).
 pub fn runAll() u32 {
-    const test_fns = builtin.test_functions;
+    const test_fns = @import("builtin").test_functions;
     log.info("running {d} test(s)", .{test_fns.len});
     var failed: u32 = 0;
     var skipped: u32 = 0;

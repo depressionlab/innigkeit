@@ -7,9 +7,8 @@ const readIntPartial = @import("core").readIntPartial;
 // folded multiply with a faster 32-bit path
 // borrowed from foldhash and modified a bit
 pub inline fn mix(x: u64, y: u64) u64 {
-    const builtin = @import("builtin");
-    const target = builtin.target;
-    const cpu = builtin.cpu;
+    const target = @import("builtin").target;
+    const cpu = @import("builtin").cpu;
 
     // sparc64 and wasm64 do not have 128-bit widening multiplication
     // x86-64 and aarch64 should have it regardless of abi, but abi may reduce ptr bit width
@@ -24,7 +23,7 @@ pub inline fn mix(x: u64, y: u64) u64 {
         return lo ^ hi;
     }
 
-    // we don't need a super accurate approximation, so we do half the work here that foldhash does
+    // TODO: we don't need a super accurate approximation, so we do half the work here that foldhash does
     // this should still do a good job of mixing bits around, but it's a lot faster
 
     const lx: u32 = @truncate(x);

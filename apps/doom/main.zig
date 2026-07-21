@@ -4,13 +4,14 @@
 //! All C sources in `doomgeneric/` are compiled as part of this module
 //! via the custom App configuration in `apps/root.zig`.
 
-const builtin = @import("builtin");
-
 // Pull in the C syscall exports so they are linked.
 const _syscalls = @import("syscalls.zig");
 // libc.zig uses std.builtin.VaList which is disabled on non-x86_64 in stage2_llvm.
 // On other architectures doom uses doom_stub.c so the C-level libc exports aren't needed.
-const _libc = if (builtin.cpu.arch == .x86_64) @import("libc.zig") else struct {};
+const _libc = if (@import("builtin").cpu.arch == .x86_64)
+    @import("libc.zig")
+else
+    struct {};
 comptime {
     _ = _syscalls;
     _ = _libc;
