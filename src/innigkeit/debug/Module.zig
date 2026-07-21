@@ -36,7 +36,7 @@ pub const Range = struct {
 };
 
 /// Assumes we already have the lock.
-pub fn getUnwindSections(self: *Module, gpa: std.mem.Allocator) std.debug.SelfInfoError![]std.debugDwarf.Unwind {
+pub fn getUnwindSections(self: *Module, gpa: std.mem.Allocator) std.debug.SelfInfoError![]std.debug.Dwarf.Unwind {
     if (self.unwind == null) self.unwind = self.loadUnwindSections(gpa);
     // Non-null: either already set, or the line above just set it.
     const us = &(self.unwind.? catch |err| return err);
