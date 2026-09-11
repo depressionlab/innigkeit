@@ -18,13 +18,13 @@ container: Container align(std.atomic.cache_line) = .{ .full = 0 },
 holding_executor: ?*const innigkeit.Executor = null,
 
 pub fn lock(self: *TicketSpinLock) void {
-    const current_task: innigkeit.Task.Current = .get();
-
-    current_task.incrementInterruptDisable();
-
     if (core.is_debug) std.debug.assert(!self.isLockedByCurrent()); // recursive locks are not supported
-
     const ticket = @atomicRmw(u32, &self.container.contents.ticket, .Add, 1, .monotonic);
+
+    // Drawn prior to disabling interrupts. This narrows the interrupts-disabled window
+    // on this hot path to only the wait/held section below.
+    const current_task: innigkeit.Task.Current = .get();
+    current_task.incrementInterruptDisable();
 
     if (@atomicLoad(u32, &self.container.contents.current, .acquire) != ticket) {
         while (true) {
@@ -42,20 +42,17 @@ pub fn lock(self: *TicketSpinLock) void {
 pub fn tryLock(self: *TicketSpinLock) bool {
     // no need to check if we already have the lock as the below logic will not allow us
     // to acquire it again
-
-    const current_task: innigkeit.Task.Current = .get();
-
-    current_task.incrementInterruptDisable();
-
     const old_container: Container = @bitCast(@atomicLoad(u64, &self.container.full, .monotonic));
-
-    if (old_container.contents.current != old_container.contents.ticket) {
-        current_task.decrementInterruptDisable();
-        return false;
-    }
+    if (old_container.contents.current != old_container.contents.ticket) return false;
 
     var new_container = old_container;
     new_container.contents.ticket +%= 1;
+
+    // Disabled only once the CAS is about to be attempted, for the same reason
+    // as `lock()`. There's no point in paying for a disabled-interrupts window
+    // on the (common, uncontended-check) early-return path above.
+    const current_task: innigkeit.Task.Current = .get();
+    current_task.incrementInterruptDisable();
 
     if (@cmpxchgStrong(
         u64,

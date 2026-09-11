@@ -29,7 +29,7 @@ pub fn enterUserspace(options: architecture.user.EnterUserspaceOptions) noreturn
     per_thread.extended_state.load();
 
     asm volatile (
-        \\.cfi_sections .debug_frame
+        \\.cfi_sections .eh_frame, .debug_frame
         \\
         \\mov %[frame], %rsp
         \\.cfi_undefined rip
@@ -75,7 +75,7 @@ export fn syscallDispatch(syscall_frame: *SyscallFrame) callconv(.c) void {
 
 pub fn syscallEntry() callconv(.naked) noreturn {
     asm volatile (std.fmt.comptimePrint(
-            \\.cfi_sections .debug_frame
+            \\.cfi_sections .eh_frame, .debug_frame
             \\
             \\.cfi_undefined %rip
             \\.cfi_undefined %rsp

@@ -2,6 +2,10 @@ name: CI/CD
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches:
@@ -24,6 +28,7 @@ on:
 jobs:
   lint_and_test:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: "git: checkout"
         uses: actions/checkout@v6
@@ -41,7 +46,7 @@ jobs:
         run: zig build codesign -- keygen
 
       - name: "zig: lint"
-        run: zig fmt --check --ast-check .
+        run: zig fmt --check --ast-check apps build build.zig build.zig.zon library sdk src testing tools
 
       - name: "zig: build_all"
         run: zig build build_all --summary all

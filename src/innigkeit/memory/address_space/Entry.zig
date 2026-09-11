@@ -124,7 +124,7 @@ pub fn canMerge(first_entry: *const Entry, second_entry: *const Entry) bool {
         };
 
         const second_anonymous_map = second_entry.anonymous_map_reference.anonymous_map orelse {
-            if (first_anonymous_map.number_of_pages.count !=
+            if (@intFromEnum(first_anonymous_map.number_of_pages) !=
                 first_entry.anonymous_map_reference.start_offset
                     .add(first_entry.range.size)
                     .divide(architecture.paging.standard_page_size))
@@ -395,11 +395,11 @@ test "address space entry: shrink from beginning and from end" {
     // Shrinking from the beginning moves the address forward by the amount
     // removed and reduces the size to `new_size`.
     entry.shrink(.beginning, page.multiplyScalar(3));
-    try std.testing.expectEqual(base.value + page.value, entry.range.address.value);
-    try std.testing.expectEqual(page.multiplyScalar(3).value, entry.range.size.value);
+    try std.testing.expectEqual(base.value + @intFromEnum(page), entry.range.address.value);
+    try std.testing.expectEqual(@intFromEnum(page.multiplyScalar(3)), @intFromEnum(entry.range.size));
 
     // Shrinking from the end keeps the address and reduces only the size.
     entry.shrink(.end, page.multiplyScalar(1));
-    try std.testing.expectEqual(base.value + page.value, entry.range.address.value);
-    try std.testing.expectEqual(page.value, entry.range.size.value);
+    try std.testing.expectEqual(base.value + @intFromEnum(page), entry.range.address.value);
+    try std.testing.expectEqual(@intFromEnum(page), @intFromEnum(entry.range.size));
 }

@@ -4062,5 +4062,22 @@ inline fn makeInterfaceHandlerWrapper(
 
 comptime {
     std.debug.assert(@sizeOf(innigkeit.PhysicalAddress) == @sizeOf(c.uacpi_phys_addr));
-    std.debug.assert(@sizeOf(acpi.Address) == @sizeOf(c.acpi_gas));
+    // `c.acpi_gas` is opaque as of uACPI 6.0.0: `io.h` forward-declares
+    // `struct acpi_gas` instead of including `acpi.h` (header-pollution
+    // cleanup), and our synthetic import header doesn't pull `acpi.h` in
+    // either, so there is no `@sizeOf(c.acpi_gas)` left to compare
+    // `acpi.Address` against here - matches upstream's own resolution
+    // (CascadeOS's 6.0.0 bump commit 46cee6d dropped this same assert for
+    // the same reason). This does not leave the layout unverified:
+    //   - uACPI's own `acpi.h` carries `UACPI_EXPECT_SIZEOF(struct
+    //     acpi_gas, 12)`, a real C `_Static_assert` that fires whenever
+    //     any of the uACPI `.c` sources built by `custom.zig`
+    //     (`event.c`/`io.c`/`registers.c`/`resources.c`/`sleep.c`/
+    //     `tables.c`/`uacpi.c` all `#include <uacpi/acpi.h>`) are
+    //     compiled - i.e. on every real build, not opt-in.
+    //   - `acpi.Address`'s own `comptime` block (`acpi/Address.zig`)
+    //     independently asserts `@sizeOf(Address) == 12`, matching the
+    //     ACPI Generic Address Structure's spec-defined size.
+    // Both sides land on the same 12-byte figure by construction, just
+    // via two separate compile-time checks instead of one shared one.
 }

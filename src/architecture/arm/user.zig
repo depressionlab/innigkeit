@@ -59,12 +59,12 @@ pub fn enterUserspace(options: architecture.user.EnterUserspaceOptions) noreturn
     // so the user runs with interrupts enabled.
     const spsr: u64 = 0;
 
-    arm.registers.SP_EL0.write(options.stack_pointer.value);
-    arm.registers.ELR_EL1.write(options.entry_point.value);
+    arm.registers.SP_EL0.write(@intFromEnum(options.stack_pointer));
+    arm.registers.ELR_EL1.write(@intFromEnum(options.entry_point));
     arm.registers.SPSR_EL1.write(spsr);
 
     asm volatile (
-        \\.cfi_sections .debug_frame
+        \\.cfi_sections .eh_frame, .debug_frame
         \\.cfi_undefined lr
         \\ mov x0, %[arg]
         \\ mov x1, xzr

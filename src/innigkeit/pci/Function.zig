@@ -4,7 +4,7 @@ const innigkeit = @import("innigkeit");
 const std = @import("std");
 
 pub const Function = extern struct {
-    full_configuration_space: [enhanced_configuration_space_size.value]u8 align(enhanced_configuration_space_size.value),
+    full_configuration_space: [@intFromEnum(enhanced_configuration_space_size)]u8 align(@intFromEnum(enhanced_configuration_space_size)),
 
     pub const enhanced_configuration_space_size: core.Size = .from(4096, .byte);
 

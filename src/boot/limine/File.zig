@@ -19,7 +19,7 @@ pub const File = extern struct {
     _path: [*:0]const u8,
 
     /// A 0-terminated ASCII string associated with the file.
-    _string: ?[*:0]const u8,
+    _string: [*:0]const u8,
 
     media_type: File.MediaType,
 
@@ -58,10 +58,7 @@ pub const File = extern struct {
 
     /// A 0-terminated ASCII string associated with the file.
     pub fn string(self: *const File) ?[:0]const u8 {
-        const str = std.mem.sliceTo(
-            self._string orelse return null,
-            0,
-        );
+        const str = std.mem.sliceTo(self._string, 0);
         return if (str.len == 0) null else str;
     }
 
@@ -153,7 +150,7 @@ test "File.format compiles and runs" {
         .address = .{ .value = 0 },
         .size = .{ .value = 0 },
         ._path = "/test",
-        ._string = null,
+        ._string = "",
         .media_type = .generic,
         .unused = 0,
         .tftp_ipv4 = .{ 0, 0, 0, 0 },

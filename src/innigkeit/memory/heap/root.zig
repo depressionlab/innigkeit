@@ -29,7 +29,7 @@ pub fn allocateSpecial(
     const page_aligned_physical_range = options.physical_range.pageAlign();
 
     const allocation = globals.special_heap_address_space_arena.allocate(
-        page_aligned_physical_range.size.value,
+        @intFromEnum(page_aligned_physical_range.size),
         .instant_fit,
     ) catch |err| {
         @branchHint(.cold);

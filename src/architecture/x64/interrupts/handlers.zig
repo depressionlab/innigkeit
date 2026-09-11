@@ -76,7 +76,7 @@ pub fn flushRequestHandler(
     _: architecture.interrupts.InterruptFrame,
     _: innigkeit.Task.Current.StateBeforeInterrupt,
 ) void {
-    // eoi is called after this handler returns
+    // eoi is called before this handler runs (see the registration site)
     innigkeit.memory.FlushRequest.processFlushRequests();
 }
 

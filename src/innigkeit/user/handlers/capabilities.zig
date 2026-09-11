@@ -244,7 +244,7 @@ pub fn capInvoke(context: Context) Error.Syscall!usize {
             const gpu_op = std.enums.fromInt(GpuBuffer.Op, op) orelse
                 return Error.Syscall.InvalidArgument;
             switch (gpu_op) {
-                .phys_addr => return gpu.phys_base.value,
+                .phys_addr => return @intFromEnum(gpu.phys_base),
                 .size => return gpu.size_bytes,
                 .usage => return @as(u32, @bitCast(gpu.usage)),
             }
@@ -276,7 +276,7 @@ pub fn capInvoke(context: Context) Error.Syscall!usize {
                 .phys_addr => {
                     if (!slot_info.rights.read)
                         return Error.Syscall.PermissionDenied;
-                    return frame.physicalAddress().value;
+                    return @intFromEnum(frame.physicalAddress());
                 },
             }
         },

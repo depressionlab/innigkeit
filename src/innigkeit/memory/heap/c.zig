@@ -45,14 +45,14 @@ pub fn sizedFree(opt_ptr: ?[*]u8, size: usize) void {
 ///
 /// Freeing the memory must be done with 'nonSizedFree'.
 pub fn mallocWithNonSizedFree(size: usize) ?[*]u8 {
-    comptime std.debug.assert(standard_alignment.compare(.eq, .of(innigkeit.KernelVirtualRange)));
+    comptime std.debug.assert(standard_alignment.compare(.gte, .of(innigkeit.KernelVirtualRange)));
 
     const full_size = core.Size.from(size, .byte).add(.of(innigkeit.KernelVirtualRange));
 
     const mem = allocator.alignedAlloc(
         u8,
         standard_alignment,
-        full_size,
+        @intFromEnum(full_size),
     ) catch {
         @branchHint(.unlikely);
         return null;
@@ -72,7 +72,7 @@ pub fn nonSizedFree(opt_ptr: ?[*]u8) void {
         return;
     };
     allocator.rawFree(
-        getAllocationHeader(ptr).byteSlice(),
+        getAllocationHeader(@alignCast(ptr)).byteSlice(),
         standard_alignment,
         @returnAddress(),
     );
@@ -80,4 +80,15 @@ pub fn nonSizedFree(opt_ptr: ?[*]u8) void {
 
 inline fn getAllocationHeader(ptr: [*]align(@alignOf(innigkeit.KernelVirtualRange)) u8) *innigkeit.KernelVirtualRange {
     return @ptrCast(@alignCast(ptr - @sizeOf(innigkeit.KernelVirtualRange)));
+}
+
+test "mallocWithNonSizedFree/nonSizedFree round-trip" {
+    const ptr = mallocWithNonSizedFree(128) orelse return error.OutOfMemory;
+    defer nonSizedFree(ptr);
+
+    try std.testing.expect(std.mem.isAligned(@intFromPtr(ptr), standard_alignment.toByteUnits()));
+
+    const slice = ptr[0..128];
+    @memset(slice, 0xCC);
+    try std.testing.expect(std.mem.allEqual(u8, slice, 0xCC));
 }

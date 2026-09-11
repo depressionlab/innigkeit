@@ -80,7 +80,7 @@ pub fn RangeMixin(comptime Range: type) type {
 
             try writer.writeAll(comptime name ++ "{ 0x");
             try writer.printInt(
-                range.address.value,
+                root.AddressMixin(Address).toValue(range.address),
                 16,
                 .lower,
                 .{
@@ -90,7 +90,7 @@ pub fn RangeMixin(comptime Range: type) type {
             );
             try writer.writeAll(" - 0x");
             try writer.printInt(
-                range.last().value,
+                root.AddressMixin(Address).toValue(range.last()),
                 16,
                 .lower,
                 .{

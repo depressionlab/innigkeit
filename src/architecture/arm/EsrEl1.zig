@@ -26,6 +26,10 @@ pub const EsrEl1 = packed struct(u64) {
     }
 
     pub const ExceptionClass = enum(u6) {
+        /// "Unknown reason": covers `udf` and any other unallocated encoding.
+        unknown_reason = 0x00,
+        /// SVC instruction execution in AArch64 state.
+        svc_aarch64 = 0x15,
         data_abort_lower_el = 0x24,
         data_abort_same_el = 0x25,
         _,

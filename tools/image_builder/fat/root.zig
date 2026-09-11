@@ -29,7 +29,7 @@ pub fn create(allocator: std.mem.Allocator, io: std.Io, partition: ImageDescript
     const bpb = root.asPtr(*filesystem.fat.BPB, slice, 0, sector_size);
     bpb.* = filesystem.fat.BPB{
         .oem_identifier = [_]u8{ 'C', 'A', 'S', 'C', 'A', 'D', 'E', 0 },
-        .bytes_per_sector = @intCast(sector_size.value),
+        .bytes_per_sector = @intCast(@intFromEnum(sector_size)),
         .sectors_per_cluster = sectors_per_cluster,
         .reserved_sectors = reserved_sectors,
         .number_of_fats = number_of_fat,
@@ -82,12 +82,12 @@ pub fn create(allocator: std.mem.Allocator, io: std.Io, partition: ImageDescript
         .subtract(size_of_info);
 
     @memcpy(
-        slice[padding_before_backup_info.value..][0..size_of_info.value],
-        slice[0..size_of_info.value],
+        slice[@intFromEnum(padding_before_backup_info)..][0..@intFromEnum(size_of_info)],
+        slice[0..@intFromEnum(size_of_info)],
     );
 
     const fat_begin = reserved_sectors;
-    const number_of_fat_entries = (sectors_per_fat * sector_size.value) / 4;
+    const number_of_fat_entries = (sectors_per_fat * @intFromEnum(sector_size)) / 4;
 
     const cluster_begin_sector = reserved_sectors + (number_of_fat * sectors_per_fat);
 

@@ -30,7 +30,7 @@ pub fn safeMemcpy(
         : [target] "r" (target),
           [source_ptr] "+{rsi}" (source.address.value),
           [destination_ptr] "+{rdi}" (destination.address.value),
-          [count] "+{rcx}" (source.size.value),
+          [count] "+{rcx}" (@intFromEnum(source.size)),
         : .{ .rax = true, .rsi = true, .rdi = true, .rcx = true, .memory = true });
 }
 

@@ -2,11 +2,11 @@ const core = @import("core");
 const std = @import("std");
 
 /// Represents a size in bytes.
-pub const Size = extern struct {
-    value: u64,
+pub const Size = enum(u64) {
+    zero = 0,
+    one = 1,
 
-    pub const zero: Size = .{ .value = 0 };
-    pub const one: Size = .{ .value = 1 };
+    _,
 
     pub const Unit = enum(u64) {
         byte = 1,
@@ -17,72 +17,71 @@ pub const Size = extern struct {
     };
 
     pub inline fn of(comptime T: type) Size {
-        return .{ .value = @sizeOf(T) };
+        return @enumFromInt(@sizeOf(T));
     }
 
     pub fn from(amount: u64, unit: Size.Unit) Size {
-        return .{ .value = amount * @intFromEnum(unit) };
+        return @enumFromInt(amount * @intFromEnum(unit));
     }
 
     pub inline fn toAlignment(self: Size) std.mem.Alignment {
-        return .fromByteUnits(self.value);
+        return .fromByteUnits(@intFromEnum(self));
     }
 
     pub inline fn aligned(self: Size, alignment: std.mem.Alignment) bool {
-        return alignment.check(self.value);
+        return alignment.check(@intFromEnum(self));
     }
 
     pub inline fn alignForward(self: Size, alignment: std.mem.Alignment) Size {
-        return .{ .value = alignment.forward(self.value) };
+        return @enumFromInt(alignment.forward(@intFromEnum(self)));
     }
 
     pub inline fn alignForwardInPlace(self: *Size, alignment: std.mem.Alignment) void {
-        self.value = alignment.forward(self.value);
+        self.* = @enumFromInt(alignment.forward(@intFromEnum(self.*)));
     }
 
     pub inline fn alignBackward(self: Size, alignment: std.mem.Alignment) Size {
-        return .{ .value = alignment.backward(self.value) };
+        return @enumFromInt(alignment.backward(@intFromEnum(self)));
     }
 
     pub inline fn alignBackwardInPlace(self: *Size, alignment: std.mem.Alignment) void {
-        self.value = alignment.backward(self.value);
+        self.* = @enumFromInt(alignment.backward(@intFromEnum(self.*)));
     }
 
     /// Returns the amount of `self` sizes needed to cover `target`.
     ///
     /// Caller must ensure `self` is not zero.
     pub fn amountToCover(self: Size, target: Size) u64 {
-        const one_byte = core.Size{ .value = 1 };
-        return target.add(self.subtract(one_byte)).divide(self);
+        return target.add(self.subtract(.one)).divide(self);
     }
 
     test amountToCover {
         {
-            const size = Size{ .value = 10 };
-            const target = Size{ .value = 25 };
+            const size: Size = .from(10, .byte);
+            const target: Size = .from(25, .byte);
             const expected: u64 = 3;
 
             try std.testing.expectEqual(expected, size.amountToCover(target));
         }
 
         {
-            const size = Size{ .value = 1 };
-            const target = Size{ .value = 30 };
+            const size: Size = .one;
+            const target: Size = .from(30, .byte);
             const expected: u64 = 30;
 
             try std.testing.expectEqual(expected, size.amountToCover(target));
         }
 
         {
-            const size = Size{ .value = 100 };
-            const target = Size{ .value = 100 };
+            const size: Size = .from(100, .byte);
+            const target: Size = .from(100, .byte);
             const expected: u64 = 1;
 
             try std.testing.expectEqual(expected, size.amountToCover(target));
         }
 
         {
-            const size = Size{ .value = 512 };
+            const size: Size = .from(512, .byte);
             const target = core.Size.from(64, .mib);
             const expected: u64 = 131072;
 
@@ -91,27 +90,27 @@ pub const Size = extern struct {
     }
 
     pub inline fn equal(self: Size, other: Size) bool {
-        return self.value == other.value;
+        return @intFromEnum(self) == @intFromEnum(other);
     }
 
     pub inline fn notEqual(self: Size, other: Size) bool {
-        return self.value != other.value;
+        return @intFromEnum(self) != @intFromEnum(other);
     }
 
     pub inline fn lessThan(self: Size, other: Size) bool {
-        return self.value < other.value;
+        return @intFromEnum(self) < @intFromEnum(other);
     }
 
     pub inline fn lessThanOrEqual(self: Size, other: Size) bool {
-        return self.value <= other.value;
+        return @intFromEnum(self) <= @intFromEnum(other);
     }
 
     pub inline fn greaterThan(self: Size, other: Size) bool {
-        return self.value > other.value;
+        return @intFromEnum(self) > @intFromEnum(other);
     }
 
     pub inline fn greaterThanOrEqual(self: Size, other: Size) bool {
-        return self.value >= other.value;
+        return @intFromEnum(self) >= @intFromEnum(other);
     }
 
     pub fn compare(self: Size, other: Size) std.math.Order {
@@ -121,43 +120,43 @@ pub const Size = extern struct {
     }
 
     pub fn add(self: Size, other: Size) Size {
-        return .{ .value = self.value + other.value };
+        return @enumFromInt(@intFromEnum(self) + @intFromEnum(other));
     }
 
     pub fn addInPlace(self: *Size, other: Size) void {
-        self.value += other.value;
+        self.* = self.add(other);
     }
 
     pub fn subtract(self: Size, other: Size) Size {
-        return .{ .value = self.value - other.value };
+        return @enumFromInt(@intFromEnum(self) - @intFromEnum(other));
     }
 
     pub fn subtractInPlace(self: *Size, other: Size) void {
-        self.value -= other.value;
+        self.* = self.subtract(other);
     }
 
     pub fn multiplyScalar(self: Size, value: u64) Size {
-        return .{ .value = self.value * value };
+        return @enumFromInt(@intFromEnum(self) * value);
     }
 
     pub fn multiplyScalarInPlace(self: *Size, value: u64) void {
-        self.value *= value;
+        self.* = self.multiplyScalar(value);
     }
 
     pub fn divide(self: Size, other: Size) usize {
-        return self.value / other.value;
+        return @intFromEnum(self) / @intFromEnum(other);
     }
 
     pub fn divideInPlace(self: *Size, other: Size) void {
-        self.value /= other.value;
+        self.* = @enumFromInt(@intFromEnum(self.*) / @intFromEnum(other));
     }
 
     pub fn divideScalar(self: Size, value: u64) Size {
-        return .{ .value = self.value / value };
+        return @enumFromInt(@intFromEnum(self) / value);
     }
 
     pub fn divideScalarInPlace(self: *Size, value: u64) void {
-        self.value /= value;
+        self.* = self.divideScalar(value);
     }
 
     // Must be kept in descending size order due to the logic in `print`
@@ -170,7 +169,7 @@ pub const Size = extern struct {
     };
 
     pub fn print(self: Size, writer: *std.Io.Writer, _: usize) !void {
-        var value = self.value;
+        var value = @intFromEnum(self);
 
         if (value == 0) {
             try writer.writeAll("0 bytes");

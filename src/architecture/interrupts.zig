@@ -77,6 +77,18 @@ pub fn eoiType(external_interrupt: u32) callconv(core.inline_in_non_debug) ?Inte
     )(external_interrupt);
 }
 
+/// Get the EOI timing currently reigstered for the *internal* vector's
+/// handler (only on architectures that track one in a queryable table
+/// state). Returns `null` on an unsupported architecture.
+///
+/// @internal This is **only** to be used for debug and test introspection.
+pub fn eoiTimingForVectorForTesting(
+    interrupt: architecture.current_decls.interrupts.Interrupt,
+) ?Interrupt.Handler.EOI {
+    const f = architecture.current_functions.interrupts.eoiTimingForVector orelse return null;
+    return f(interrupt);
+}
+
 pub const Interrupt = struct {
     arch_specific: architecture.current_decls.interrupts.Interrupt,
 

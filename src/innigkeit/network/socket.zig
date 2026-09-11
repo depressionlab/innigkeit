@@ -94,8 +94,8 @@ pub fn closeSocket(id: u8) void {
     defer lock.unlock();
     const s = &sockets[id];
     s.in_use = false;
-    while (s.waiters.firstTask() != null)
-        s.waiters.wakeOne(&lock);
+    while (s.waiters.pop(&lock)) |task|
+        task.wakeFromBlocked();
 }
 
 /// Send a UDP datagram. Resolves the target IP via ARP (blocking with up to

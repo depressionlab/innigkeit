@@ -107,10 +107,10 @@ pub const IterateError = error{
 ///
 /// The provided slice must match the location and size given by `programHeaderTableLocation`.
 pub fn iterateProgramHeaders(self: *const Header, program_header_table: []const u8) IterateError!innigkeit.user.elf.ProgramHeader.Iterator {
-    if (self.program_header_entry_size.value < innigkeit.user.elf.ProgramHeader.requiredEntrySize(self.is_64)) {
+    if (@intFromEnum(self.program_header_entry_size) < innigkeit.user.elf.ProgramHeader.requiredEntrySize(self.is_64)) {
         return error.ProgramHeaderEntryTooSmall;
     }
-    if (program_header_table.len < self.program_header_entry_size.multiplyScalar(self.program_header_entry_count).value) {
+    if (program_header_table.len < @intFromEnum(self.program_header_entry_size.multiplyScalar(self.program_header_entry_count))) {
         return error.ProgramHeaderTableTruncated;
     }
 
@@ -147,19 +147,19 @@ pub fn print(self: *const Header, writer: *std.Io.Writer, indent: usize) !void {
     try writer.print("entry: 0x{x},\n", .{self.entry.value});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("program_header_offset: 0x{x},\n", .{self.program_header_offset.value});
+    try writer.print("program_header_offset: 0x{x},\n", .{@intFromEnum(self.program_header_offset)});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("program_header_entry_size: 0x{x},\n", .{self.program_header_entry_size.value});
+    try writer.print("program_header_entry_size: 0x{x},\n", .{@intFromEnum(self.program_header_entry_size)});
 
     try writer.splatByteAll(' ', new_indent);
     try writer.print("program_header_entry_count: {},\n", .{self.program_header_entry_count});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("section_header_offset: 0x{x},\n", .{self.section_header_offset.value});
+    try writer.print("section_header_offset: 0x{x},\n", .{@intFromEnum(self.section_header_offset)});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("section_header_entry_size: 0x{x},\n", .{self.section_header_entry_size.value});
+    try writer.print("section_header_entry_size: 0x{x},\n", .{@intFromEnum(self.section_header_entry_size)});
 
     try writer.splatByteAll(' ', new_indent);
     try writer.print("section_header_entry_count: {},\n", .{self.section_header_entry_count});

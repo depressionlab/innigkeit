@@ -214,8 +214,8 @@ fn resolveBar0(func: *innigkeit.pci.Function) ?u64 {
         log.err("virtio-blk: failed to map I/O aperture phys=0x{x}: {t}", .{ phys_base, err });
         return null;
     };
-    log.debug("virtio-blk: I/O regs phys=0x{x} mapped at 0x{x}", .{ phys_base, mapping.address.value });
-    return mapping.address.value;
+    log.debug("virtio-blk: I/O regs phys=0x{x} mapped at 0x{x}", .{ phys_base, @intFromEnum(mapping.address) });
+    return @intFromEnum(mapping.address);
 }
 
 fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
@@ -337,8 +337,8 @@ fn submitRequest(
     req_type: u32,
     data_flags: u16,
 ) ReadError!void {
-    const scratch_phys = dev.scratch_page.baseAddress().value;
-    const req_phys = dev.req_page.baseAddress().value;
+    const scratch_phys = @intFromEnum(dev.scratch_page.baseAddress());
+    const req_phys = @intFromEnum(dev.req_page.baseAddress());
     const req_virt = dev.req_page.baseAddress().toDirectMap().toPtr([*]u8);
 
     const header: BlkReqHeader = .{ .type_ = req_type, .ioprio = 0, .sector = lba };

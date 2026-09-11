@@ -27,9 +27,9 @@ pub const VirtualAddress = extern union {
     /// re-validate) via `toKernel`/`toUser`.
     pub fn tagged(address: VirtualAddress) Tagged {
         if (architecture.paging.kernel_memory_range.containsAddress(address))
-            return .{ .kernel = .{ .value = address.value } }
+            return .{ .kernel = .from(address.value) }
         else if (architecture.user.user_memory_range.containsAddress(address))
-            return .{ .user = .{ .value = address.value } }
+            return .{ .user = .from(address.value) }
         else {
             @branchHint(.cold);
             return .invalid;

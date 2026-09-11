@@ -22,6 +22,14 @@ pub const stdio = @import("stdio.zig");
 pub const storage = @import("storage.zig");
 pub const wm = @import("wm/root.zig");
 
+/// The standard page size assumed by all userspace APIs.
+///
+/// Must match `architecture.paging.standard_page_size` on whatever
+/// architecture this app is being compiled for. If a future architecture's
+/// standard page size differs from 4 KiB, this is the only place to change
+/// on the userspace side.
+pub const page_size: usize = 4096;
+
 const std = @import("std");
 comptime {
     std.testing.refAllDecls(@This());

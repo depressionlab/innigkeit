@@ -124,28 +124,28 @@ pub inline fn halt() void {
 pub inline fn readPciU8(address: innigkeit.KernelVirtualAddress) u8 {
     return asm volatile ("movb (%[address]), %[ret]"
         : [ret] "={al}" (-> u8),
-        : [address] "r" (address.value),
+        : [address] "r" (@intFromEnum(address)),
     );
 }
 
 pub inline fn readPciU16(address: innigkeit.KernelVirtualAddress) u16 {
     return asm volatile ("movw (%[address]), %[ret]"
         : [ret] "={ax}" (-> u16),
-        : [address] "r" (address.value),
+        : [address] "r" (@intFromEnum(address)),
     );
 }
 
 pub inline fn readPciU32(address: innigkeit.KernelVirtualAddress) u32 {
     return asm volatile ("movl (%[address]), %[ret]"
         : [ret] "={eax}" (-> u32),
-        : [address] "r" (address.value),
+        : [address] "r" (@intFromEnum(address)),
     );
 }
 
 pub inline fn writePciU8(address: innigkeit.KernelVirtualAddress, value: u8) void {
     asm volatile ("movb %[value], (%[address])"
         :
-        : [address] "r" (address.value),
+        : [address] "r" (@intFromEnum(address)),
           [value] "{al}" (value),
         : .{ .memory = true });
 }
@@ -153,7 +153,7 @@ pub inline fn writePciU8(address: innigkeit.KernelVirtualAddress, value: u8) voi
 pub inline fn writePciU16(address: innigkeit.KernelVirtualAddress, value: u16) void {
     asm volatile ("movw %[value], (%[address])"
         :
-        : [address] "r" (address.value),
+        : [address] "r" (@intFromEnum(address)),
           [value] "{ax}" (value),
         : .{ .memory = true });
 }
@@ -161,7 +161,7 @@ pub inline fn writePciU16(address: innigkeit.KernelVirtualAddress, value: u16) v
 pub inline fn writePciU32(address: innigkeit.KernelVirtualAddress, value: u32) void {
     asm volatile ("movl %[value], (%[address])"
         :
-        : [address] "r" (address.value),
+        : [address] "r" (@intFromEnum(address)),
           [value] "{eax}" (value),
         : .{ .memory = true });
 }

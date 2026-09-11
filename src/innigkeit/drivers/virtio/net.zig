@@ -110,7 +110,7 @@ var g_dev: ?Device = null;
 
 /// Physical DMA address of buffer `i` (i < NUM_BUFS) within `pages`.
 inline fn bufPhys(pages: *const [BUF_PAGES]PageIndex, i: usize) u64 {
-    return pages[i / BUFS_PER_PAGE].baseAddress().value + (i % BUFS_PER_PAGE) * BUF_SIZE;
+    return @intFromEnum(pages[i / BUFS_PER_PAGE].baseAddress()) + (i % BUFS_PER_PAGE) * BUF_SIZE;
 }
 
 /// Kernel (direct-map) pointer to buffer `i` within `pages`.
@@ -121,7 +121,7 @@ inline fn bufPtr(pages: *const [BUF_PAGES]PageIndex, i: usize) [*]u8 {
 
 /// Physical DMA address of TX slot `i`'s virtio-net header.
 inline fn txHdrPhys(pages: *const [BUF_PAGES]PageIndex, i: usize) u64 {
-    return pages[i / BUFS_PER_PAGE].baseAddress().value +
+    return @intFromEnum(pages[i / BUFS_PER_PAGE].baseAddress()) +
         TX_HDR_BASE + (i % BUFS_PER_PAGE) * TX_HDR_STRIDE;
 }
 

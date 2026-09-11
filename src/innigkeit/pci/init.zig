@@ -38,8 +38,6 @@ pub fn initializeECAM() !void {
             continue;
         }
 
-        const ecam = ecams.addOneAssumeCapacity();
-
         const number_of_buses = base_allocation.end_pci_bus - base_allocation.start_pci_bus;
 
         const ecam_config_space_physical_range: innigkeit.PhysicalRange = .from(
@@ -50,17 +48,23 @@ pub fn initializeECAM() !void {
                 .multiplyScalar(number_of_buses),
         );
 
-        ecam.* = .{
+        // Allocate before reserving the slot: `addOneAssumeCapacity` bumps
+        // `ecams.items.len` immediately, so if this `try` failed with the
+        // slot already reserved, the top-of-function `errdefer` would
+        // `deallocateSpecial` an uninitialized `config_space` from that
+        // never-written slot.
+        const config_space = try innigkeit.memory.heap.allocateSpecial(.{
+            .physical_range = ecam_config_space_physical_range,
+            .protection = .{ .read = true, .write = true },
+            .cache = .uncached,
+        });
+        errdefer innigkeit.memory.heap.deallocateSpecial(config_space);
+
+        const ecam: ECAM = .{
             .start_bus = base_allocation.start_pci_bus,
             .end_bus = base_allocation.end_pci_bus,
             .segment_group = base_allocation.segment_group,
-            .config_space = try innigkeit.memory.heap.allocateSpecial(
-                .{
-                    .physical_range = ecam_config_space_physical_range,
-                    .protection = .{ .read = true, .write = true },
-                    .cache = .uncached,
-                },
-            ),
+            .config_space = config_space,
         };
 
         init_log.debug("found ECAM - segment group: {} - start bus: {} - end bus: {} @ {f}", .{
@@ -69,6 +73,8 @@ pub fn initializeECAM() !void {
             ecam.end_bus,
             ecam_config_space_physical_range,
         });
+
+        ecams.appendAssumeCapacity(ecam);
     }
 
     globals.ecams = try ecams.toOwnedSlice(innigkeit.memory.heap.allocator);

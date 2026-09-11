@@ -21,7 +21,7 @@ pub fn getFunction(address: Address) ?*Function {
             @as(usize, address.device) << 15 |
             @as(usize, address.function) << 12;
 
-        std.debug.assert(ecam.config_space.size.value >= config_space_offset + @sizeOf(Function));
+        std.debug.assert(@intFromEnum(ecam.config_space.size) >= config_space_offset + @sizeOf(Function));
 
         return ecam.config_space.address
             .moveForward(.from(config_space_offset, .byte))

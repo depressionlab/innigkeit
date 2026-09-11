@@ -31,7 +31,7 @@ inline fn portBase(self: PortIo) u16 {
 /// is exactly what a virtio memory BAR needs (and they work for any MMIO
 /// address, not just config space).
 inline fn mmioAddress(self: PortIo, offset: u16) innigkeit.KernelVirtualAddress {
-    return .{ .value = self.base + offset };
+    return @enumFromInt(self.base + offset);
 }
 
 pub inline fn r8(self: PortIo, offset: u16) u8 {

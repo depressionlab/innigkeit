@@ -44,7 +44,7 @@ fn workerFn(index: u32) !void {
         defer h.unlock();
         h.yield();
     }
-    global_state.worker_wall_ns[index] = wallclock.elapsed(loop_start, wallclock.read()).value;
+    global_state.worker_wall_ns[index] = @intFromEnum(wallclock.elapsed(loop_start, wallclock.read()));
 
     const current_task: innigkeit.Task.Current = .get();
     global_state.exec_runtime[index] = current_task.task.sched.sum_exec_runtime;
@@ -96,7 +96,7 @@ pub fn run() !void {
     }
 
     const end = wallclock.read();
-    const total_ns = wallclock.elapsed(start, end).value;
+    const total_ns = @intFromEnum(wallclock.elapsed(start, end));
 
     const total_yields: u64 = @as(u64, task_count) * yields_per_task;
     // avg_yield: total wall time / total yields. Each worker's loop wall time
@@ -185,7 +185,7 @@ fn runWakeLatency() !void {
         // (needs_resched is honoured on the 1 -> 0 transition) but we never
         // yield, so the woken sleeper only runs here if it got its own CPU.
         while (wake_state.rounds_done.load(.acquire) < expected_done) {
-            if (wallclock.elapsed(t0, wallclock.read()).value > wake_round_timeout_ns) {
+            if (@intFromEnum(wallclock.elapsed(t0, wallclock.read())) > wake_round_timeout_ns) {
                 return error.WakeLatencyTimeout;
             }
             current.incrementInterruptDisable();
@@ -195,7 +195,7 @@ fn runWakeLatency() !void {
         if (round == 0) continue; // warmup
 
         const t1: wallclock.Tick = @enumFromInt(wake_state.t1.load(.acquire));
-        const latency_ns = wallclock.elapsed(t0, t1).value;
+        const latency_ns = @intFromEnum(wallclock.elapsed(t0, t1));
         sum_ns += latency_ns;
         min_ns = @min(min_ns, latency_ns);
         max_ns = @max(max_ns, latency_ns);
@@ -206,7 +206,7 @@ fn runWakeLatency() !void {
     {
         const start = wallclock.read();
         while (wake_state.exited.load(.acquire) == 0) {
-            if (wallclock.elapsed(start, wallclock.read()).value > wake_round_timeout_ns) {
+            if (@intFromEnum(wallclock.elapsed(start, wallclock.read())) > wake_round_timeout_ns) {
                 return error.WakeLatencyTimeout;
             }
             const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();

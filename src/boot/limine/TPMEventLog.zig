@@ -28,7 +28,7 @@ pub const Response = extern struct {
     /// Size in bytes of the raw event data at `address`.
     size: core.Size,
 
-    /// Address (HHDM, in bootloader reclaimable memory) of the captured TCG event log.
+    /// Address (HHDM, in bootloader reclaimable memory) of the captured TCG event log, or `.zero` if `size` is `.zero`.
     ///
     /// The buffer holds the raw event stream as defined by the indicated `format`, with no additional framing.
     address: innigkeit.KernelVirtualAddress,

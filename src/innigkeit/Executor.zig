@@ -26,7 +26,7 @@ core_type: CoreType = .unknown,
 
 // used during `innigkeit.debug.interruptSourcePanic`
 interrupt_source_panic_buffer: [
-    innigkeit.config.executor.interrupt_source_panic_buffer_size.value + interrupt_source_panic_truncated.len
+    @intFromEnum(innigkeit.config.executor.interrupt_source_panic_buffer_size) + interrupt_source_panic_truncated.len
 ]u8 = undefined,
 const interrupt_source_panic_truncated = " (msg truncated)";
 
@@ -52,11 +52,11 @@ pub fn renderInterruptSourcePanicMessage(self: *Executor, comptime fmt: []const 
 
     const full_buffer = self.interrupt_source_panic_buffer[0..];
 
-    var bw: std.Io.Writer = .fixed(full_buffer[0..innigkeit.config.executor.interrupt_source_panic_buffer_size.value]);
+    var bw: std.Io.Writer = .fixed(full_buffer[0..@intFromEnum(innigkeit.config.executor.interrupt_source_panic_buffer_size)]);
 
     bw.print(fmt, args) catch {
         @memcpy(
-            full_buffer[innigkeit.config.executor.interrupt_source_panic_buffer_size.value..],
+            full_buffer[@intFromEnum(innigkeit.config.executor.interrupt_source_panic_buffer_size)..],
             interrupt_source_panic_truncated,
         );
         return full_buffer;

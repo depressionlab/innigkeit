@@ -13,6 +13,7 @@
 //! during init, and the only runtime call is flush() which is cheap.
 
 const architecture = @import("architecture");
+const builtin = @import("builtin");
 const core = @import("core");
 const innigkeit = @import("innigkeit");
 const std = @import("std");
@@ -399,11 +400,11 @@ pub fn flushRect(x: u32, y: u32, w: u32, h: u32) error{NoGpu}!void {
 
     // Drain write-combining stores from userspace before the device DMA-reads
     // the framebuffer. SYSCALL does not flush WC fill buffers; without this
-    // sfence the device may read stale zeroes.
-    asm volatile ("sfence" ::: .{ .memory = true });
+    // barrier the device may read stale zeroes.
+    deviceBarrier();
 
-    const qp_virt = s.queue_page.baseAddress().toDirectMap().value;
-    const qp_phys = s.queue_page.baseAddress().value;
+    const qp_virt = @intFromEnum(s.queue_page.baseAddress().toDirectMap());
+    const qp_phys = @intFromEnum(s.queue_page.baseAddress());
     const rect: GpuRect = .{ .x = x, .y = y, .w = w, .h = h };
 
     // TRANSFER_TO_HOST_2D: `offset` is the byte position of the rect's top-left
@@ -472,8 +473,8 @@ fn virtioInit(cfg_va: usize, qp_phys: usize, notify_va: usize, notify_mult: u32)
 }
 
 fn getDisplayInfo(s: *GpuState) !void {
-    const qp_virt = s.queue_page.baseAddress().toDirectMap().value;
-    const qp_phys = s.queue_page.baseAddress().value;
+    const qp_virt = @intFromEnum(s.queue_page.baseAddress().toDirectMap());
+    const qp_phys = @intFromEnum(s.queue_page.baseAddress());
 
     _ = buildCmd(GpuCtrlHdr, .{ .type_ = CMD_GET_DISPLAY_INFO }, qp_virt);
     const resp_type = try submitCmd(s, qp_virt, qp_phys, @sizeOf(GpuCtrlHdr), OFF_CMD, @sizeOf(GpuRespDisplayInfo));
@@ -512,8 +513,8 @@ fn modeFitsFramebuffer(w: u32, h: u32) bool {
 }
 
 fn sendResourceCreate2d(s: *GpuState) !void {
-    const qp_virt = s.queue_page.baseAddress().toDirectMap().value;
-    const qp_phys = s.queue_page.baseAddress().value;
+    const qp_virt = @intFromEnum(s.queue_page.baseAddress().toDirectMap());
+    const qp_phys = @intFromEnum(s.queue_page.baseAddress());
     const cmd_off = buildCmd(GpuResourceCreate2d, .{
         .hdr = .{ .type_ = CMD_RESOURCE_CREATE_2D },
         .resource_id = RESOURCE_ID,
@@ -526,8 +527,8 @@ fn sendResourceCreate2d(s: *GpuState) !void {
 }
 
 fn sendResourceAttachBacking(s: *GpuState) !void {
-    const qp_virt = s.queue_page.baseAddress().toDirectMap().value;
-    const qp_phys = s.queue_page.baseAddress().value;
+    const qp_virt = @intFromEnum(s.queue_page.baseAddress().toDirectMap());
+    const qp_phys = @intFromEnum(s.queue_page.baseAddress());
 
     const n = s.fb_pages.len;
     const ep_count = s.entry_pages.len;
@@ -575,8 +576,8 @@ fn sendResourceAttachBacking(s: *GpuState) !void {
 }
 
 fn sendSetScanout(s: *GpuState) !void {
-    const qp_virt = s.queue_page.baseAddress().toDirectMap().value;
-    const qp_phys = s.queue_page.baseAddress().value;
+    const qp_virt = @intFromEnum(s.queue_page.baseAddress().toDirectMap());
+    const qp_phys = @intFromEnum(s.queue_page.baseAddress());
     const cmd_off = buildCmd(GpuSetScanout, .{
         .hdr = .{ .type_ = CMD_SET_SCANOUT },
         .r = .{ .x = 0, .y = 0, .w = s.fb_width, .h = s.fb_height },
@@ -607,10 +608,23 @@ fn submitCmd(s: *GpuState, qp_virt: usize, qp_phys: usize, cmd_size: usize, cmd_
     return submitDescChain(s, qp_virt, 0);
 }
 
+/// Create a memory barrier to ensure device-visible writes (e.g., descriptor
+/// and ring updates) are ordered before the doorbell/notify write that tells
+/// the devbice to look at them.
+///
+/// See `drivers/tpm/crb.zig`'s `deviceBarrier`.
+inline fn deviceBarrier() void {
+    switch (builtin.cpu.arch) {
+        .x86_64 => asm volatile ("mfence" ::: .{ .memory = true }),
+        .aarch64 => asm volatile ("dsb sy" ::: .{ .memory = true }),
+        else => asm volatile ("" ::: .{ .memory = true }),
+    }
+}
+
 /// Place desc_head in the available ring, notify the device, and poll used.
 fn submitDescChain(s: *GpuState, qp_virt: usize, desc_head: u16) !u32 {
     // Memory barrier: ensure descriptor writes are visible before avail ring.
-    asm volatile ("mfence" ::: .{ .memory = true });
+    deviceBarrier();
 
     // Write to available ring: ring[avail_idx % QSIZE] = desc_head.
     const avail_base = qp_virt + OFF_AVAIL;
@@ -619,9 +633,9 @@ fn submitDescChain(s: *GpuState, qp_virt: usize, desc_head: u16) !u32 {
 
     // Advance avail_idx and write it back.
     s.avail_idx +%= 1;
-    asm volatile ("mfence" ::: .{ .memory = true });
+    deviceBarrier();
     mmioW16(avail_base + 2, s.avail_idx);
-    asm volatile ("mfence" ::: .{ .memory = true });
+    deviceBarrier();
 
     // Notify the device (write queue index 0 to the notify register).
     mmioW32(s.notify_va, 0);
@@ -630,7 +644,7 @@ fn submitDescChain(s: *GpuState, qp_virt: usize, desc_head: u16) !u32 {
     const used_base = qp_virt + OFF_USED;
     var timeout: usize = 1_000_000;
     while (timeout > 0) : (timeout -= 1) {
-        asm volatile ("mfence" ::: .{ .memory = true });
+        deviceBarrier();
         const used_idx = mmioR16(used_base + 2);
         if (used_idx != s.used_last) {
             s.used_last = used_idx;

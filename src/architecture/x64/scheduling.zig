@@ -15,7 +15,7 @@ pub fn prepareTaskForScheduling(
     const impl = struct {
         fn taskEntryTrampoline() callconv(.naked) void {
             asm volatile (
-                \\.cfi_sections .debug_frame
+                \\.cfi_sections .eh_frame, .debug_frame
                 \\.cfi_undefined rip
                 \\
                 \\pop %rdi       // type_erased_call.typeErased
@@ -85,7 +85,7 @@ pub inline fn switchTask(
     new_task: *innigkeit.Task,
 ) void {
     asm volatile (
-        \\.cfi_sections .debug_frame
+        \\.cfi_sections .eh_frame, .debug_frame
         \\
         \\lea 1f(%rip), %rax
         \\push %rax
@@ -139,7 +139,7 @@ pub inline fn switchTaskNoSave(
 ) noreturn {
     // no clobbers are listed as the calling context is abandoned
     asm volatile (
-        \\.cfi_sections .debug_frame
+        \\.cfi_sections .eh_frame, .debug_frame
         \\
         \\mov %[new_stack_pointer], %rsp
         \\.cfi_undefined rip
@@ -162,7 +162,7 @@ pub inline fn call(
     type_erased_call: core.TypeErasedCall,
 ) void {
     asm volatile (
-        \\.cfi_sections .debug_frame
+        \\.cfi_sections .eh_frame, .debug_frame
         \\
         \\lea 1f(%rip), %rax
         \\push %rax
@@ -218,7 +218,7 @@ pub inline fn callNoSave(
 ) noreturn {
     // no clobbers are listed as the calling context is abandoned
     asm volatile (
-        \\.cfi_sections .debug_frame
+        \\.cfi_sections .eh_frame, .debug_frame
         \\
         \\mov %[new_stack_pointer], %rsp
         \\.cfi_undefined rip

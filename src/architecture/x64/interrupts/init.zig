@@ -55,7 +55,15 @@ pub fn loadStandardInterruptHandlers() void {
         .call = .prepare(interrupt_handlers.pageFaultHandler, .{}),
     };
     globals.handlers[@intFromEnum(Interrupt.flush_request)] = .{
-        .eoi = .after,
+        // important: this HAS to be `.before` rather than `.after`.
+        // ending the interrupt only once `processFlushRequests()`
+        // (which drains the executor's whole flush-request queue,
+        // not just one entry) has already returned leaves this
+        // vector's LAPIC ISR bit set for the entire drain.
+        // ending the interrupt first has no correctness downside
+        // here (interrupts stay hardware-masked for the rest of
+        // `interruptDisatch` regardless) and only shrinks the window.
+        .eoi = .before,
         .call = .prepare(interrupt_handlers.flushRequestHandler, .{}),
     };
     globals.handlers[@intFromEnum(Interrupt.reschedule)] = .{
@@ -74,6 +82,16 @@ pub fn loadStandardInterruptHandlers() void {
 
 pub fn loadIdt() void {
     globals.idt.load();
+}
+
+/// Get the EOI timing currently reigstered for the *internal* vector's
+/// handler (the EOI timing currently registerd for `interrupt`'s handler).
+///
+/// This value isn't read by any real dispatch path.
+///
+/// @internal This is **only** to be used for debug and test introspection.
+pub fn eoiTimingForVector(interrupt: Interrupt) @import("architecture").interrupts.Interrupt.Handler.EOI {
+    return globals.handlers[@intFromEnum(interrupt)].eoi;
 }
 
 const RawInterruptHandler = *const fn () callconv(.naked) void;

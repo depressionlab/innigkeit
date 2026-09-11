@@ -62,7 +62,7 @@ fn referenceCounterPrepareToWaitFor(duration: core.Duration) void {
 }
 
 fn referenceCounterWaitFor(duration: core.Duration) void {
-    const duration_ticks = ((duration.value * innigkeit.time.fs_per_ns) / globals.tick_duration_fs);
+    const duration_ticks = ((@intFromEnum(duration) * innigkeit.time.fs_per_ns) / globals.tick_duration_fs);
 
     const current_value = globals.hpet.readCounterRegister();
 

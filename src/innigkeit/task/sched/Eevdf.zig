@@ -697,7 +697,7 @@ fn placeEntity(erq: *EevdfRunqueue, se: *SchedEntity, flags: SchedClass.EnqueueF
 /// Advance the current task's vruntime by the time elapsed since exec_start.
 fn updateCurr(erq: *EevdfRunqueue, curr: *innigkeit.Task, now: wallclock.Tick) void {
     const se = &curr.sched;
-    const elapsed_ns = wallclock.elapsed(se.exec_start, now).value;
+    const elapsed_ns = @intFromEnum(wallclock.elapsed(se.exec_start, now));
     if (elapsed_ns == 0) return;
 
     se.exec_start = now;
@@ -1247,7 +1247,7 @@ test "fairness: double weight advances vruntime at half rate; underserved entity
 /// that occurs when accumulating elapsed-since-window-start each tick.
 fn updateUtil(se: *SchedEntity, now: wallclock.Tick) void {
     const window_ns: u64 = 32_000_000; // 32 ms window
-    const elapsed = wallclock.elapsed(se.util_window_start, now).value;
+    const elapsed = @intFromEnum(wallclock.elapsed(se.util_window_start, now));
 
     if (elapsed < window_ns) {
         @branchHint(.likely);

@@ -1,3 +1,5 @@
+const core = @import("core");
+
 const standard_page_size = @import("architecture").paging.standard_page_size;
 pub const innigkeit_version = @import("kernel_options").innigkeit_version;
 
@@ -9,6 +11,9 @@ pub const debug = struct {
     ///
     /// This is used to align the output of logs.
     pub const max_log_scope_len = 14;
+
+    // TODO: figure out how big this needs to be in debug/release safe
+    pub const size_of_debug_info_allocator: core.Size = .from(16, .mib);
 };
 
 pub const executor = struct {

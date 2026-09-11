@@ -33,7 +33,7 @@ pub fn alloc(
     const header_size: core.Size = .of(innigkeit.memory.arena.Allocation);
 
     const unaligned_allocation = globals.heap_arena.allocate(
-        len + alignment.toByteUnits() - 1 + header_size.value,
+        len + alignment.toByteUnits() - 1 + @intFromEnum(header_size),
         .instant_fit,
     ) catch {
         @branchHint(.unlikely);

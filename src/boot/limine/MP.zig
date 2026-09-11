@@ -3,6 +3,8 @@
 //! Notes:
 //! - The presence of this request will prompt the bootloader to bootstrap
 //!   the secondary processors. This will not be done if this request is not present.
+//! - If this request is supported, even on a single-processor system, a response
+//!   will be provided, containing only the bootstrap processor's entry.
 //! - On x86-64, if firmware has already enabled x2APIC and bit 0 is clear, the
 //!   bootloader will try to disable x2APIC before handoff. If the MP request is
 //!   present and x2APIC cannot be disabled, the bootloader will fail to boot the
@@ -19,11 +21,16 @@ pub const Request = extern struct {
     flags: Flags = .{},
 };
 
-pub const Flags = packed struct(u64) {
-    /// Enable x2APIC, if possible. (x86-64 only)
-    x2apic: bool = false,
-
-    _: u63 = 0,
+pub const Flags = switch (root.arch) {
+    .x86_64 => packed struct(u64) {
+        /// Enable x2APIC, if possible.
+        ///
+        /// Note: If firmware has already enabled x2APIC and this is `false`, the bootloader will try to disable x2APIC before handoff.
+        /// If x2APIC cannot be disabled, the bootloader will fail to boot the executable.
+        x2apic: bool = false,
+        _: u63 = 0,
+    },
+    .aarch64, .loongarch64, .riscv64 => packed struct(u64) { _: u64 = 0 },
 };
 
 pub const Response = switch (root.arch) {
@@ -85,7 +92,7 @@ pub const aarch64 = extern struct {
 
         _reserved2: u64,
 
-        /// An atomic write to this field causes the parked CPU to jump to the written address, on a 64KiB (or Stack Size Request size)
+        /// An atomic write using release semantics or stronger to this field causes the parked CPU to jump to the written address, on a 64KiB (or Stack Size Request size)
         /// stack.
         ///
         /// A pointer to the `MPInfo` structure of the CPU is passed in X0.
@@ -171,7 +178,7 @@ pub const loongarch64 = extern struct {
 
         _reserved: u64,
 
-        /// An atomic write to this field causes the parked CPU to jump to the written address, on a 64KiB (or Stack Size Request size)
+        /// An atomic write using release semantics or stronger to this field causes the parked CPU to jump to the written address, on a 64KiB (or Stack Size Request size)
         /// stack.
         ///
         /// A pointer to the `MPInfo` structure of the CPU is passed in $a0.
@@ -257,7 +264,7 @@ pub const riscv64 = extern struct {
 
         _reserved: u64,
 
-        /// An atomic write to this field causes the parked CPU to jump to the written address, on a 64KiB (or Stack Size Request size)
+        /// An atomic write using release semantics or stronger to this field causes the parked CPU to jump to the written address, on a 64KiB (or Stack Size Request size)
         /// stack.
         ///
         /// A pointer to the `MPInfo` structure of the CPU is passed in x10(a0).
@@ -397,7 +404,7 @@ pub const x86_64 = extern struct {
         /// Reserved for bootloader use.
         _reserved: u64,
 
-        /// An atomic write to this field causes the parked CPU to jump to the written address, on a 64KiB (or Stack Size Request size)
+        /// An atomic write using release semantics or stronger to this field causes the parked CPU to jump to the written address, on a 64KiB (or Stack Size Request size)
         /// stack.
         ///
         /// A pointer to the `MPInfo` structure of the CPU is passed in RDI.

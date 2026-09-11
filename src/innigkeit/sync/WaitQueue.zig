@@ -6,16 +6,6 @@ const std = @import("std");
 
 waiting_tasks: core.containers.FIFO = .{},
 
-/// Access the first task in the wait queue.
-///
-/// Does not remove the task from the wait queue.
-///
-/// Not thread-safe.
-pub fn firstTask(self: *WaitQueue) ?*innigkeit.Task {
-    const node = self.waiting_tasks.first_node orelse return null;
-    return .fromNode(node);
-}
-
 /// Removes the first task from the wait queue.
 ///
 /// Not thread-safe.
@@ -24,18 +14,28 @@ pub fn popFirst(self: *WaitQueue) ?*innigkeit.Task {
     return .fromNode(node);
 }
 
-/// Wake one task from the wait queue.
+/// Removes and returns the first task from the wait queue, without waking it.
+///
+/// Prefer this over a `firstTask` + `wakeOne` pair since peeking and
+/// then separately re-popping the same node is redundant traversal,
+/// since both calls require the same held spinlock anyway.
 ///
 /// Asserts that the spinlock is locked by the current executor and interrupts are disabled.
-pub fn wakeOne(self: *WaitQueue, spinlock: *const innigkeit.sync.TicketSpinLock) void {
+pub fn pop(self: *WaitQueue, spinlock: *const innigkeit.sync.TicketSpinLock) ?*innigkeit.Task {
     if (core.is_debug) {
         std.debug.assert(innigkeit.Task.Current.get().task.interrupt_disable_count.load(.acquire) != 0);
         std.debug.assert(spinlock.isLockedByCurrent());
     }
 
-    const task_to_wake_node = self.waiting_tasks.pop() orelse return;
-    const task_to_wake: *innigkeit.Task = .fromNode(task_to_wake_node);
+    const node = self.waiting_tasks.pop() orelse return null;
+    return .fromNode(node);
+}
 
+/// Wake one task from the wait queue.
+///
+/// Asserts that the spinlock is locked by the current executor and interrupts are disabled.
+pub fn wakeOne(self: *WaitQueue, spinlock: *const innigkeit.sync.TicketSpinLock) void {
+    const task_to_wake = self.pop(spinlock) orelse return;
     task_to_wake.wakeFromBlocked();
 }
 

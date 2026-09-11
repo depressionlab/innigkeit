@@ -146,7 +146,7 @@ pub const LegacyQueue = struct {
         // direct-map window over them is one contiguous virtual range.
         @memset(q.ringBase()[0 .. q.ring_page_count * PAGE_SIZE], 0);
 
-        const ring_phys = q.ring_pages[0].baseAddress().value;
+        const ring_phys = @intFromEnum(q.ring_pages[0].baseAddress());
         io.w32(REG_QUEUE_PFN, @intCast(ring_phys / PAGE_SIZE));
         log.debug("queue {} at phys=0x{x} (PFN={}, N={}, {} pages)", .{
             sel, ring_phys, ring_phys / PAGE_SIZE, queue_num, q.ring_page_count,

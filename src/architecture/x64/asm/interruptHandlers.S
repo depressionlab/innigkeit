@@ -1,4 +1,4 @@
-.cfi_sections .debug_frame
+.cfi_sections .eh_frame, .debug_frame
 
 .extern interruptDispatch
 .extern _interruptEntry
