@@ -108,7 +108,7 @@ pub fn unlock(self: *Mutex) void {
 
     const current_task: innigkeit.Task.Current = .get();
 
-    const waiting_task = self.wait_queue.firstTask() orelse {
+    const waiting_task = self.wait_queue.pop(&self.spinlock) orelse {
         self.unlock_type = .unlocked;
 
         if (self.locked_by.cmpxchgStrong(
@@ -137,7 +137,7 @@ pub fn unlock(self: *Mutex) void {
         @panic("not locked by current task!");
     }
 
-    self.wait_queue.wakeOne(&self.spinlock);
+    waiting_task.wakeFromBlocked();
 }
 
 /// Returns `true` if the mutex is locked.

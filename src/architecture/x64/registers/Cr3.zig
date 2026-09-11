@@ -11,6 +11,6 @@ pub inline fn readAddress() innigkeit.PhysicalAddress {
 pub inline fn writeAddress(address: innigkeit.PhysicalAddress) void {
     asm volatile ("mov %[address], %%cr3"
         :
-        : [address] "r" (address.value & 0xFFFF_FFFF_FFFF_F000),
+        : [address] "r" (@intFromEnum(address) & 0xFFFF_FFFF_FFFF_F000),
         : .{ .memory = true });
 }

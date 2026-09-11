@@ -31,7 +31,7 @@ pub const UserVirtualRange = struct {
     /// - The current task must have enabled access to user memory.
     pub inline fn byteSlice(range: UserVirtualRange) []u8 {
         if (core.is_debug) std.debug.assert(innigkeit.Task.Current.get().task.enable_access_to_user_memory_count.load(.acquire) != 0);
-        return range.address.ptr([*]u8)[0..range.size.value];
+        return range.address.ptr([*]u8)[0..@intFromEnum(range.size)];
     }
 
     pub const pageAligned: fn (range: @This()) callconv(.@"inline") bool = Mixin.pageAligned;

@@ -149,11 +149,11 @@ pub fn totalFreePages(self: *const BuddyAllocator) u64 {
 }
 
 fn zeroBlock(index: Index, order: u4) void {
-    const page_size = architecture.paging.standard_page_size.value;
+    const page_size = @intFromEnum(architecture.paging.standard_page_size);
     const size: usize = page_size << order;
     const base = index.baseAddress().toDirectMap();
-    // `base` is an already-typed direct-map `VirtualAddress`, not a raw integer.
-    @memset(@as([*]u8, @ptrFromInt(base.value))[0..size], 0);
+    // `base` is an already-typed direct-map `KernelVirtualAddress`, not a raw integer.
+    @memset(@as([*]u8, @ptrFromInt(@intFromEnum(base)))[0..size], 0);
 }
 
 /// A doubly-linked free list backed by PhysicalPage.node.next and prev_node.
@@ -203,18 +203,18 @@ test "buddy: alloc returns zeroed pages" {
     const page = try page_globals.buddy.alloc(0);
     defer page_globals.buddy.free(page, 0);
 
-    const page_size = architecture.paging.standard_page_size.value;
-    // Already-typed direct-map VirtualAddress, not a raw integer.
-    const ptr: [*]const u8 = @ptrFromInt(page.baseAddress().toDirectMap().value);
+    const page_size = @intFromEnum(architecture.paging.standard_page_size);
+    // Already-typed direct-map KernelVirtualAddress, not a raw integer.
+    const ptr: [*]const u8 = @ptrFromInt(@intFromEnum(page.baseAddress().toDirectMap()));
     for (0..page_size) |i| try std.testing.expectEqual(@as(u8, 0), ptr[i]);
 }
 
 test "buddy: free zeroes the block before returning it to the free list" {
     const page = try page_globals.buddy.alloc(0);
 
-    const page_size = architecture.paging.standard_page_size.value;
-    // Already-typed direct-map VirtualAddress, not a raw integer.
-    const ptr: [*]u8 = @ptrFromInt(page.baseAddress().toDirectMap().value);
+    const page_size = @intFromEnum(architecture.paging.standard_page_size);
+    // Already-typed direct-map KernelVirtualAddress, not a raw integer.
+    const ptr: [*]u8 = @ptrFromInt(@intFromEnum(page.baseAddress().toDirectMap()));
     @memset(ptr[0..page_size], 0xAB);
 
     // free() must zero the block; the next alloc of this page must see zeros.
@@ -222,8 +222,8 @@ test "buddy: free zeroes the block before returning it to the free list" {
     const page2 = try page_globals.buddy.alloc(0);
     defer page_globals.buddy.free(page2, 0);
 
-    // Already-typed direct-map VirtualAddress, not a raw integer.
-    const ptr2: [*]const u8 = @ptrFromInt(page2.baseAddress().toDirectMap().value);
+    // Already-typed direct-map KernelVirtualAddress, not a raw integer.
+    const ptr2: [*]const u8 = @ptrFromInt(@intFromEnum(page2.baseAddress().toDirectMap()));
     for (0..page_size) |i| try std.testing.expectEqual(@as(u8, 0), ptr2[i]);
 }
 
@@ -231,8 +231,8 @@ test "buddy: order-1 block is 2 contiguous zeroed pages" {
     const block = try page_globals.buddy.alloc(1);
     defer page_globals.buddy.free(block, 1);
 
-    const page_size = architecture.paging.standard_page_size.value;
-    // Already-typed direct-map VirtualAddress, not a raw integer.
-    const ptr: [*]const u8 = @ptrFromInt(block.baseAddress().toDirectMap().value);
+    const page_size = @intFromEnum(architecture.paging.standard_page_size);
+    // Already-typed direct-map KernelVirtualAddress, not a raw integer.
+    const ptr: [*]const u8 = @ptrFromInt(@intFromEnum(block.baseAddress().toDirectMap()));
     for (0..page_size * 2) |i| try std.testing.expectEqual(@as(u8, 0), ptr[i]);
 }

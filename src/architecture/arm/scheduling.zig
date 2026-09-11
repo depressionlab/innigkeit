@@ -30,7 +30,7 @@ pub fn prepareTaskForScheduling(
     const impl = struct {
         fn taskEntryTrampoline() callconv(.naked) void {
             asm volatile (
-                \\.cfi_sections .debug_frame
+                \\.cfi_sections .eh_frame, .debug_frame
                 \\.cfi_undefined lr
                 \\ mov x0, x19
                 \\ mov x1, x20
@@ -56,7 +56,7 @@ pub fn prepareTaskForScheduling(
     arch.x19_x28[9] = 0;
     arch.fp = 0;
     arch.lr = @intFromPtr(&impl.taskEntryTrampoline);
-    arch.sp = task.stack.stack_pointer.value;
+    arch.sp = @intFromEnum(task.stack.stack_pointer);
 }
 
 /// Stub; extend to save/restore NEON/FP state for user threads.
@@ -75,7 +75,7 @@ pub inline fn switchTask(
     const old_arch = arm.PerTask.from(old_task);
     const new_arch = arm.PerTask.from(new_task);
     asm volatile (
-        \\.cfi_sections .debug_frame
+        \\.cfi_sections .eh_frame, .debug_frame
         \\ adr x9, 1f
         \\ stp x19, x20, [%[old], #0]
         \\ stp x21, x22, [%[old], #16]
@@ -131,7 +131,7 @@ pub inline fn switchTask(
 pub inline fn switchTaskNoSave(new_task: *innigkeit.Task) noreturn {
     const new_arch = arm.PerTask.from(new_task);
     asm volatile (
-        \\.cfi_sections .debug_frame
+        \\.cfi_sections .eh_frame, .debug_frame
         \\.cfi_undefined lr
         \\ ldp x19, x20, [%[new], #0]
         \\ ldp x21, x22, [%[new], #16]
@@ -157,7 +157,7 @@ pub inline fn call(
 ) void {
     const old_arch = arm.PerTask.from(old_task);
     asm volatile (
-        \\.cfi_sections .debug_frame
+        \\.cfi_sections .eh_frame, .debug_frame
         \\ adr x11, 1f
         \\ stp x19, x20, [%[old], #0]
         \\ stp x21, x22, [%[old], #16]
@@ -174,7 +174,7 @@ pub inline fn call(
         \\ 1:
         :
         : [old] "{x8}" (old_arch),
-          [new_sp] "{x9}" (new_stack.stack_pointer.value),
+          [new_sp] "{x9}" (@intFromEnum(new_stack.stack_pointer)),
           [func] "{x10}" (type_erased_call.typeErased),
           [a0] "{x0}" (type_erased_call.args[0]),
           [a1] "{x1}" (type_erased_call.args[1]),
@@ -209,13 +209,13 @@ pub inline fn callNoSave(
     type_erased_call: core.TypeErasedCall,
 ) noreturn {
     asm volatile (
-        \\.cfi_sections .debug_frame
+        \\.cfi_sections .eh_frame, .debug_frame
         \\.cfi_undefined lr
         \\ mov sp, %[new_sp]
         \\ mov x29, xzr
         \\ br  %[func]
         :
-        : [new_sp] "{x8}" (new_stack.stack_pointer.value),
+        : [new_sp] "{x8}" (@intFromEnum(new_stack.stack_pointer)),
           [func] "{x9}" (type_erased_call.typeErased),
           [a0] "{x0}" (type_erased_call.args[0]),
           [a1] "{x1}" (type_erased_call.args[1]),

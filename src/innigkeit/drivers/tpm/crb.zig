@@ -117,12 +117,12 @@ pub fn fromAcpi() ?Crb {
     }
 
     const control = tpm2.address;
-    if (control.value == 0) {
+    if (@intFromEnum(control) == 0) {
         log.warn("TPM2 table reports a zero control-area address", .{});
         return null;
     }
-    if (control.value < @sizeOf(RegsHead)) {
-        log.warn("TPM2 table reports a control-area address too low for the locality head (0x{x})", .{control.value});
+    if (@intFromEnum(control) < @sizeOf(RegsHead)) {
+        log.warn("TPM2 table reports a control-area address too low for the locality head (0x{x})", .{@intFromEnum(control)});
         return null;
     }
 
@@ -131,7 +131,7 @@ pub fn fromAcpi() ?Crb {
     // does). The locality head sits `@sizeOf(RegsHead)` below the control area;
     // on QEMU's tpm-crb the whole device (head, control, cmd/rsp buffers) fits
     // in a single page.
-    const head_phys = control.value - @sizeOf(RegsHead);
+    const head_phys = @intFromEnum(control) - @sizeOf(RegsHead);
     const region_size = core.Size.from(region_bytes, .byte);
     const mapping = innigkeit.memory.heap.allocateSpecial(.{
         .physical_range = .from(innigkeit.PhysicalAddress.from(head_phys), region_size),
@@ -142,7 +142,7 @@ pub fn fromAcpi() ?Crb {
         return null;
     };
 
-    const base = mapping.address.value;
+    const base = @intFromEnum(mapping.address);
     return .{
         // `base` is the virtual address that `allocateSpecial()` just mapped
         // for this device-MMIO region (uncached, just established above).
@@ -242,7 +242,7 @@ fn waitReg(reg: *volatile u32, mask: u32, value: u32, timeout_ms: u64) Error!voi
     const start = wallclock.read();
     while (true) {
         if (reg.* & mask == value) return;
-        if (wallclock.elapsed(start, wallclock.read()).value > timeout_ns) {
+        if (@intFromEnum(wallclock.elapsed(start, wallclock.read())) > timeout_ns) {
             // One last read closes the race where the device flipped the bit
             // just as the deadline expired.
             if (reg.* & mask == value) return;

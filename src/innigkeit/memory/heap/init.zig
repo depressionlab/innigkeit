@@ -15,7 +15,7 @@ pub fn initializeHeaps(
         try globals.heap_address_space_arena.init(
             .{
                 .name = try .fromSlice("heap_address_space"),
-                .quantum = architecture.paging.standard_page_size.value,
+                .quantum = @intFromEnum(architecture.paging.standard_page_size),
             },
         );
 
@@ -23,7 +23,7 @@ pub fn initializeHeaps(
         try globals.heap_page_arena.init(
             .{
                 .name = try .fromSlice("heap_page"),
-                .quantum = architecture.paging.standard_page_size.value,
+                .quantum = @intFromEnum(architecture.paging.standard_page_size),
                 .source = globals.heap_address_space_arena.createSource(.{
                     .custom_import = AllocatorImplementation.heapPageArenaImport,
                     .custom_release = AllocatorImplementation.heapPageArenaRelease,
@@ -43,8 +43,8 @@ pub fn initializeHeaps(
         const heap_range = kernel_regions.find(.kernel_heap).?.range;
 
         globals.heap_address_space_arena.addSpan(
-            heap_range.address.value,
-            heap_range.size.value,
+            @intFromEnum(heap_range.address),
+            @intFromEnum(heap_range.size),
         ) catch |err| {
             std.debug.panic("failed to add heap range to `heap_address_space_arena`: {t}!", .{err});
         };
@@ -56,7 +56,7 @@ pub fn initializeHeaps(
         try globals.special_heap_address_space_arena.init(
             .{
                 .name = try .fromSlice("special_heap_address_space"),
-                .quantum = architecture.paging.standard_page_size.value,
+                .quantum = @intFromEnum(architecture.paging.standard_page_size),
             },
         );
 
@@ -64,8 +64,8 @@ pub fn initializeHeaps(
 
         init_log.debug("adding special heap range to special heap address space arena", .{});
         globals.special_heap_address_space_arena.addSpan(
-            special_heap_range.address.value,
-            special_heap_range.size.value,
+            @intFromEnum(special_heap_range.address),
+            @intFromEnum(special_heap_range.size),
         ) catch |err| {
             std.debug.panic(
                 "failed to add special heap range to `special_heap_address_space_arena`: {t}!",

@@ -7,17 +7,19 @@ pub inline fn expectEqual(actual: anytype, expected: @TypeOf(actual)) !void {
 
 /// Asserts that the size *and* bit size of the given type matches the expected size.
 pub inline fn expectSize(comptime T: type, comptime size: core.Size) void {
-    if (@sizeOf(T) != size.value) {
+    const raw_size = @intFromEnum(size);
+
+    if (@sizeOf(T) != raw_size) {
         @compileError(std.fmt.comptimePrint(
             "{s} has size {f} but is expected to have {f}!",
-            .{ @typeName(T), core.Size.of(size), size },
+            .{ @typeName(T), core.Size.of(T), size },
         ));
     }
 
-    if (@bitSizeOf(T) != 8 * size.value) {
+    if (@bitSizeOf(T) != 8 * raw_size) {
         @compileError(std.fmt.comptimePrint(
             "{s} has bit size {} but is expected to have {}!",
-            .{ @typeName(T), @bitSizeOf(T), 8 * size.value },
+            .{ @typeName(T), @bitSizeOf(T), 8 * raw_size },
         ));
     }
 }

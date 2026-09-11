@@ -414,7 +414,7 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
                 if (quantum_aligned_len <= self.quantum_caches.max_cached_size) {
                     const cache_index: usize = (quantum_aligned_len / self.quantum) - 1;
                     const cache = self.quantum_caches.caches.constSlice()[cache_index];
-                    if (core.is_debug) std.debug.assert(cache.item_size.value == quantum_aligned_len);
+                    if (core.is_debug) std.debug.assert(@intFromEnum(cache.item_size) == quantum_aligned_len);
 
                     const buffer = cache.allocate() catch
                         return innigkeit.memory.arena.AllocateError.RequestedLengthUnavailable;
@@ -647,7 +647,7 @@ pub fn Arena(comptime quantum_caching: QuantumCaching) type {
                 if (allocation.len <= self.quantum_caches.max_cached_size) {
                     const cache_index: usize = (allocation.len / self.quantum) - 1;
                     const cache = self.quantum_caches.caches.constSlice()[cache_index];
-                    if (core.is_debug) std.debug.assert(cache.item_size.value == allocation.len);
+                    if (core.is_debug) std.debug.assert(@intFromEnum(cache.item_size) == allocation.len);
 
                     // `allocation.base` is always this arena's own previously
                     // returned `Allocation` (see the doc comment above).

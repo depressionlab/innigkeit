@@ -48,11 +48,24 @@ pub fn tryUpgradeLock(self: *RwLock) bool {
 
 pub fn tryWriteLock(self: *RwLock) bool {
     if (self.mutex.tryLock()) {
-        const state = @atomicLoad(usize, &self.state, .monotonic);
+        while (true) {
+            const state = @atomicLoad(usize, &self.state, .monotonic);
 
-        if (state & READER_MASK == 0) {
-            _ = @atomicRmw(usize, &self.state, .Or, IS_WRITING, .acquire);
-            return true;
+            if (state & READER_MASK != 0) break;
+
+            // `readLock()`'s fast path is lock-free (no mutex), so a reader
+            // can slot in between the load above and a plain store here.
+            // cmpxchg against the exact snapshotted `state` catches that:
+            // if it fails, a reader raced us and we must recheck rather than
+            // blindly OR-ing IS_WRITING onto a state that now has a reader.
+            _ = @cmpxchgStrong(
+                usize,
+                &self.state,
+                state,
+                state | IS_WRITING,
+                .acquire,
+                .monotonic,
+            ) orelse return true;
         }
 
         self.mutex.unlock();

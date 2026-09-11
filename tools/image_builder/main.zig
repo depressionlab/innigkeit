@@ -73,7 +73,7 @@ fn createDiskImage(allocator: std.mem.Allocator, io: std.Io, arguments: Argument
     const image_description = arguments.image_description.image_description;
 
     const disk_size = blk: {
-        if (!std.mem.isAligned(image_description.size, disk_block_size.value)) {
+        if (!std.mem.isAligned(image_description.size, @intFromEnum(disk_block_size))) {
             @panic("image size is not a multiple of 512 bytes!");
         }
         break :blk core.Size.from(image_description.size, .byte);
@@ -88,7 +88,7 @@ fn createDiskImage(allocator: std.mem.Allocator, io: std.Io, arguments: Argument
     try Gpt.create(allocator, image_description, disk_image, random, gpt_partitions);
 
     for (image_description.partitions, gpt_partitions) |partition, gpt_partition| {
-        const partition_slice = disk_image[gpt_partition.start_block * disk_block_size.value ..][0 .. gpt_partition.block_count * disk_block_size.value];
+        const partition_slice = disk_image[gpt_partition.start_block * @intFromEnum(disk_block_size) ..][0 .. gpt_partition.block_count * @intFromEnum(disk_block_size)];
 
         switch (partition.filesystem) {
             .none => {},
@@ -114,11 +114,11 @@ fn createAndMapDiskImage(io: std.Io, disk_image_path: []const u8, disk_size: cor
     } else try std.Io.Dir.cwd().createFile(io, disk_image_path, .{ .truncate = true, .read = true });
     defer file.close(io);
 
-    try file.setLength(io, disk_size.value);
+    try file.setLength(io, @intFromEnum(disk_size));
 
     return std.posix.mmap(
         null,
-        disk_size.value,
+        @intFromEnum(disk_size),
         .{
             .READ = true,
             .WRITE = true,
@@ -130,7 +130,7 @@ fn createAndMapDiskImage(io: std.Io, disk_image_path: []const u8, disk_size: cor
 }
 
 pub inline fn asPtr(comptime T: type, file_contents: []u8, index: usize, item_size: core.Size) T {
-    return @ptrCast(@alignCast(file_contents.ptr + (index * item_size.value)));
+    return @ptrCast(@alignCast(file_contents.ptr + (index * @intFromEnum(item_size))));
 }
 
 comptime {

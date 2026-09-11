@@ -157,7 +157,7 @@ fn getModule(si: *SelfInfo, gpa: std.mem.Allocator, address: usize) Error!*Modul
 
     if (si.module == null) {
         const load_offset = if (boot.kernelBaseAddress()) |base_address|
-            innigkeit.config.memory.kernel_base_address.difference(base_address.virtual).value
+            @intFromEnum(innigkeit.config.memory.kernel_base_address.difference(base_address.virtual))
         else
             0;
 
@@ -166,7 +166,7 @@ fn getModule(si: *SelfInfo, gpa: std.mem.Allocator, address: usize) Error!*Modul
         const program_headers_location = header.programHeaderTableLocation();
 
         var program_headers = header.iterateProgramHeaders(
-            kernel_elf_slice[program_headers_location.offset.value..][0..program_headers_location.size.value],
+            kernel_elf_slice[@intFromEnum(program_headers_location.offset)..][0..@intFromEnum(program_headers_location.size)],
         ) catch return error.InvalidDebugInfo;
 
         var build_id: ?[]const u8 = null;
@@ -179,18 +179,18 @@ fn getModule(si: *SelfInfo, gpa: std.mem.Allocator, address: usize) Error!*Modul
             switch (program_header.type) {
                 .load => try ranges.append(gpa, .{
                     .start = program_header.virtual_address.value + load_offset,
-                    .len = program_header.memory_size.value,
+                    .len = @intFromEnum(program_header.memory_size),
                 }),
                 .gnu_eh_frame => {
                     // `load_offset + virtual_address` reconstructs the runtime address
                     // of this already-loaded kernel image's own `.eh_frame` segment, from
                     // this same kernel ELF's own `program_headers` just parsed above
                     const segment_ptr: [*]const u8 = @ptrFromInt(load_offset + program_header.virtual_address.value);
-                    gnu_eh_frame = segment_ptr[0..program_header.memory_size.value];
+                    gnu_eh_frame = segment_ptr[0..@intFromEnum(program_header.memory_size)];
                 },
                 .note => {
                     std.debug.assert(program_header.file_size.equal(program_header.memory_size));
-                    var r: std.Io.Reader = .fixed(kernel_elf_slice[program_header.offset.value..][0..program_header.file_size.value]);
+                    var r: std.Io.Reader = .fixed(kernel_elf_slice[@intFromEnum(program_header.offset)..][0..@intFromEnum(program_header.file_size)]);
                     const name_size = r.takeInt(u32, native_endian) catch continue;
                     const desc_size = r.takeInt(u32, native_endian) catch continue;
                     const note_type = r.takeInt(u32, native_endian) catch continue;
@@ -276,6 +276,6 @@ pub fn getDebugInfoAllocator() std.mem.Allocator {
 }
 
 const globals = struct {
-    var debug_info_allocator_backing: [core.Size.from(16, .mib).value]u8 = undefined; // TODO: figure out how big this need to be in debug/release safe
+    var debug_info_allocator_backing: [@intFromEnum(innigkeit.config.debug.size_of_debug_info_allocator)]u8 = undefined;
     var debug_info_allocator: std.heap.FixedBufferAllocator = .init(&debug_info_allocator_backing);
 };

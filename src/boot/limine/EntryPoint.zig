@@ -9,6 +9,8 @@ pub const Request = extern struct {
     response: ?*const Response = null,
 
     /// The requested entry point.
+    ///
+    /// This must be a non-NULL function pointer within the loaded executable image.
     entry: *const fn () callconv(.c) noreturn,
 };
 

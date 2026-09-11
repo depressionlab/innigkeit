@@ -252,7 +252,7 @@ pub const decls: architecture.Decls = .{
     .scheduling = .{
         .PerTask = arm.PerTask,
         .cfi_prevent_unwinding =
-        \\.cfi_sections .debug_frame
+        \\.cfi_sections .eh_frame, .debug_frame
         \\.cfi_undefined lr
         \\
         ,

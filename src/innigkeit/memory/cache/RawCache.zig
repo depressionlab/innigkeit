@@ -209,8 +209,8 @@ pub fn allocateMany(self: *RawCache, items: [][]u8) AllocateError!void {
             switch (self.size_class) {
                 .small => {
                     const item_node_ptr: [*]u8 = @ptrCast(item_node);
-                    const item_ptr = item_node_ptr - self.item_size.alignForward(globals.single_node_alignment).value;
-                    allocated_items.appendAssumeCapacity(item_ptr[0..self.item_size.value]);
+                    const item_ptr = item_node_ptr - @intFromEnum(self.item_size.alignForward(globals.single_node_alignment));
+                    allocated_items.appendAssumeCapacity(item_ptr[0..@intFromEnum(self.item_size)]);
                 },
                 .large => |*large| {
                     const large_item: *LargeItem = @fieldParentPtr("node", item_node);
@@ -276,7 +276,7 @@ fn allocateSlab(self: *RawCache) AllocateError!*Slab {
             const slab_base_ptr: [*]u8 = switch (self.slab_source) {
                 .heap => slab_base_ptr: {
                     const slab_allocation = innigkeit.memory.heap.heap_page_arena.allocate(
-                        architecture.paging.standard_page_size.value,
+                        @intFromEnum(architecture.paging.standard_page_size),
                         .instant_fit,
                     ) catch return AllocateError.SlabAllocationFailed;
                     // `slab_allocation.base` is the fresh page we just got back.
@@ -288,7 +288,7 @@ fn allocateSlab(self: *RawCache) AllocateError!*Slab {
 
                     const slab_base_ptr = physical_page.baseAddress().toDirectMap().toPtr([*]u8);
 
-                    if (core.is_debug) @memset(slab_base_ptr[0..architecture.paging.standard_page_size.value], undefined);
+                    if (core.is_debug) @memset(slab_base_ptr[0..@intFromEnum(architecture.paging.standard_page_size)], undefined);
 
                     break :slab_base_ptr slab_base_ptr;
                 },
@@ -297,7 +297,7 @@ fn allocateSlab(self: *RawCache) AllocateError!*Slab {
             errdefer switch (self.slab_source) {
                 .heap => innigkeit.memory.heap.heap_page_arena.deallocate(.{
                     .base = @intFromPtr(slab_base_ptr),
-                    .len = architecture.paging.standard_page_size.value,
+                    .len = @intFromEnum(architecture.paging.standard_page_size),
                 }),
                 .pmm => {
                     var deallocate_page_list: innigkeit.memory.PhysicalPage.List = .{};
@@ -309,7 +309,7 @@ fn allocateSlab(self: *RawCache) AllocateError!*Slab {
             };
 
             const slab: *Slab = @ptrCast(@alignCast(
-                slab_base_ptr + architecture.paging.standard_page_size.value - @sizeOf(Slab),
+                slab_base_ptr + @intFromEnum(architecture.paging.standard_page_size) - @sizeOf(Slab),
             ));
             slab.* = .{
                 .large_item_allocation = undefined,
@@ -321,27 +321,27 @@ fn allocateSlab(self: *RawCache) AllocateError!*Slab {
                 errdefer { // call the destructor for any items that the constructor was called on
                     const destructor = con_des.destructor;
                     for (0..i) |y| {
-                        const item_ptr = slab_base_ptr + self.effective_item_size.multiplyScalar(y).value;
-                        destructor(item_ptr[0..self.item_size.value]);
+                        const item_ptr = slab_base_ptr + @intFromEnum(self.effective_item_size.multiplyScalar(y));
+                        destructor(item_ptr[0..@intFromEnum(self.item_size)]);
                     }
                 }
 
                 const constructor = con_des.constructor;
 
                 while (i < self.items_per_slab) : (i += 1) {
-                    const item_ptr = slab_base_ptr + self.effective_item_size.multiplyScalar(i).value;
+                    const item_ptr = slab_base_ptr + @intFromEnum(self.effective_item_size.multiplyScalar(i));
 
-                    try constructor(item_ptr[0..self.item_size.value]);
+                    try constructor(item_ptr[0..@intFromEnum(self.item_size)]);
 
                     slab.items.prepend(@ptrCast(@alignCast(
-                        item_ptr + self.item_size.alignForward(globals.single_node_alignment).value,
+                        item_ptr + @intFromEnum(self.item_size.alignForward(globals.single_node_alignment)),
                     )));
                 }
             } else {
                 for (0..self.items_per_slab) |i| {
-                    const item_ptr = slab_base_ptr + self.effective_item_size.multiplyScalar(i).value;
+                    const item_ptr = slab_base_ptr + @intFromEnum(self.effective_item_size.multiplyScalar(i));
                     slab.items.prepend(@ptrCast(@alignCast(
-                        item_ptr + self.item_size.alignForward(globals.single_node_alignment).value,
+                        item_ptr + @intFromEnum(self.item_size.alignForward(globals.single_node_alignment)),
                     )));
                 }
             }
@@ -350,7 +350,7 @@ fn allocateSlab(self: *RawCache) AllocateError!*Slab {
         },
         .large => slab: {
             const large_item_allocation = innigkeit.memory.heap.heap_page_arena.allocate(
-                self.effective_item_size.multiplyScalar(self.items_per_slab).value,
+                @intFromEnum(self.effective_item_size.multiplyScalar(self.items_per_slab)),
                 .instant_fit,
             ) catch return AllocateError.SlabAllocationFailed;
             errdefer innigkeit.memory.heap.heap_page_arena.deallocate(large_item_allocation);
@@ -385,8 +385,8 @@ fn allocateSlab(self: *RawCache) AllocateError!*Slab {
                     const large_item = try globals.large_item_cache.allocate();
                     errdefer globals.large_item_cache.deallocate(large_item);
 
-                    const item_ptr: [*]u8 = items_base + self.effective_item_size.multiplyScalar(i).value;
-                    const item: []u8 = item_ptr[0..self.item_size.value];
+                    const item_ptr: [*]u8 = items_base + @intFromEnum(self.effective_item_size.multiplyScalar(i));
+                    const item: []u8 = item_ptr[0..@intFromEnum(self.item_size)];
 
                     large_item.* = .{
                         .item = item,
@@ -406,8 +406,8 @@ fn allocateSlab(self: *RawCache) AllocateError!*Slab {
                 for (0..self.items_per_slab) |i| {
                     const large_item = try globals.large_item_cache.allocate();
 
-                    const item_ptr: [*]u8 = items_base + self.effective_item_size.multiplyScalar(i).value;
-                    const item: []u8 = item_ptr[0..self.item_size.value];
+                    const item_ptr: [*]u8 = items_base + @intFromEnum(self.effective_item_size.multiplyScalar(i));
+                    const item: []u8 = item_ptr[0..@intFromEnum(self.item_size)];
 
                     large_item.* = .{
                         .item = item,
@@ -450,15 +450,15 @@ pub fn deallocateMany(self: *RawCache, items: []const []u8) void {
                 const page_start = std.mem.alignBackward(
                     usize,
                     @intFromPtr(item.ptr),
-                    architecture.paging.standard_page_size.value,
+                    @intFromEnum(architecture.paging.standard_page_size),
                 );
 
                 // `page_start` is `item.ptr`'s own containing page (a real previously-allocated
                 // item from this cache); the `Slab` footer at this fixed offset is this cache's
                 // small-slab layout convention, established when the slab was created.
-                const slab: *Slab = @ptrFromInt(page_start + architecture.paging.standard_page_size.value - @sizeOf(Slab));
+                const slab: *Slab = @ptrFromInt(page_start + @intFromEnum(architecture.paging.standard_page_size) - @sizeOf(Slab));
                 const item_node: *std.SinglyLinkedList.Node = @ptrCast(@alignCast(
-                    item.ptr + self.item_size.alignForward(globals.single_node_alignment).value,
+                    item.ptr + @intFromEnum(self.item_size.alignForward(globals.single_node_alignment)),
                 ));
 
                 break :blk .{ slab, item_node };
@@ -521,13 +521,13 @@ fn deallocateSlab(self: *RawCache, slab: *Slab) void {
     switch (self.size_class) {
         .small => {
             const slab_info_ptr: [*]u8 = @ptrCast(slab);
-            const slab_base_ptr: [*]u8 = slab_info_ptr + @sizeOf(Slab) - architecture.paging.standard_page_size.value;
+            const slab_base_ptr: [*]u8 = slab_info_ptr + @sizeOf(Slab) - @intFromEnum(architecture.paging.standard_page_size);
 
             if (self.construct_destruct) |con_des| {
                 const destructor = con_des.destructor;
                 for (0..self.items_per_slab) |i| {
-                    const item_ptr = slab_base_ptr + self.effective_item_size.multiplyScalar(i).value;
-                    destructor(item_ptr[0..self.item_size.value]);
+                    const item_ptr = slab_base_ptr + @intFromEnum(self.effective_item_size.multiplyScalar(i));
+                    destructor(item_ptr[0..@intFromEnum(self.item_size)]);
                 }
             }
 
@@ -535,7 +535,7 @@ fn deallocateSlab(self: *RawCache, slab: *Slab) void {
                 .heap => innigkeit.memory.heap.heap_page_arena.deallocate(
                     .{
                         .base = @intFromPtr(slab_base_ptr),
-                        .len = architecture.paging.standard_page_size.value,
+                        .len = @intFromEnum(architecture.paging.standard_page_size),
                     },
                 ),
                 .pmm => {

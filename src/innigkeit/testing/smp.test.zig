@@ -45,7 +45,7 @@ fn yieldNow() void {
 fn waitForCounter(counter: *const std.atomic.Value(u32), target: u32, what: []const u8) !void {
     const start = wallclock.read();
     while (counter.load(.acquire) < target) {
-        if (wallclock.elapsed(start, wallclock.read()).value > watchdog_ns) {
+        if (@intFromEnum(wallclock.elapsed(start, wallclock.read())) > watchdog_ns) {
             log.err(
                 "watchdog tripped waiting for {s}: {d}/{d} completed",
                 .{ what, counter.load(.acquire), target },
@@ -412,7 +412,7 @@ test "smp: reschedule IPI wakes an idle executor well before the next tick" {
                     if (executor == self_executor) continue;
                     if (executor.scheduler.idle.load(.seq_cst)) break :blk executor;
                 }
-                if (wallclock.elapsed(start, wallclock.read()).value > watchdog_ns) {
+                if (@intFromEnum(wallclock.elapsed(start, wallclock.read())) > watchdog_ns) {
                     log.err("watchdog tripped waiting for an idle remote executor", .{});
                     return error.WatchdogTimeout;
                 }
@@ -433,7 +433,7 @@ test "smp: reschedule IPI wakes an idle executor well before the next tick" {
         try waitForCounter(&ipi_state.done, 1, "ipi wake worker");
 
         const run_tick: wallclock.Tick = @enumFromInt(ipi_state.run_tick.load(.acquire));
-        const latency_ns = wallclock.elapsed(t0, run_tick).value;
+        const latency_ns = @intFromEnum(wallclock.elapsed(t0, run_tick));
         const ipi_delta = target.scheduler.reschedule_ipi_count.load(.monotonic) - ipis_before;
 
         log.info(
@@ -511,7 +511,7 @@ test "smp: idle executors steal queued fair tasks from a busy executor" {
         const seen = steal_test_state.executors_seen.load(.acquire);
         if (@popCount(seen) >= 2 and totalStealCount() > steals_before) break;
 
-        if (wallclock.elapsed(start, wallclock.read()).value > watchdog_ns) {
+        if (@intFromEnum(wallclock.elapsed(start, wallclock.read())) > watchdog_ns) {
             steal_test_state.stop.store(true, .release);
             waitForCounter(&steal_test_state.done, steal_worker_count, "steal workers (cleanup)") catch {};
             log.err(

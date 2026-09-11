@@ -213,5 +213,5 @@ pub fn getUptimeMs() u64 {
     const start_tick = globals.kernel_start_time.getTick();
     const now = wallclock.read();
     const dur = wallclock.elapsed(start_tick, now);
-    return dur.value / @intFromEnum(core.Duration.Unit.millisecond);
+    return dur.whole(.millisecond);
 }

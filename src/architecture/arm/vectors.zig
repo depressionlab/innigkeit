@@ -19,6 +19,8 @@ const gic = @import("gic.zig");
 const innigkeit = @import("innigkeit");
 const std = @import("std");
 
+const log = innigkeit.debug.log.scoped(.interrupt);
+
 /// sizeof(InterruptFrame) = 31*8 + 8 + 8 + 8 = 272
 const FRAME_SIZE = @sizeOf(arm.InterruptFrame);
 
@@ -32,9 +34,13 @@ export fn arm_handle_exception(frame: *arm.InterruptFrame, vector_idx: u8) callc
     // IRQ vectors (indices 1, 5, 9, 13) are dispatched through the GIC.
     // Vectors 4 (current-EL `SP_EL1` synchronous, i.e. a fault taken while
     // the kernel itself was running) and 8 (lower-EL AArch64 synchronous,
-    // i.e. a fault or SVC taken from a user task) get a data-abort sub-dispatch.
-    // Anything that isn't a recognized data abort falls through to the diagnostic
-    // panic below. All other exceptions still panic until full handlers are implemented.
+    // i.e. a fault or SVC taken from a user task) decode `ESR_EL1.EC`.
+    // A data abort routes to `handleDataAbort`, an SVC from EL0 routes to
+    // `handleSvc`, and anything else from EL0 isolates to the calling
+    // process via `handleUserFault` instead of panicking. The same exceptions
+    // taken from EL1 (vector 4) always panic below (there's no user process to
+    // isolate a kernel-mode fault to). All other vector indices still panic
+    // until full handlers exist. (TODO:)
     switch (vector_idx) {
         1, 5, 9, 13 => {
             // Bracket IRQ dispatch with the generic interrupt-entry/exit hooks
@@ -56,11 +62,24 @@ export fn arm_handle_exception(frame: *arm.InterruptFrame, vector_idx: u8) callc
                 .data_abort_lower_el, .data_abort_same_el => {
                     if (handleDataAbort(frame, esr, vector_idx == 8)) return;
                 },
-                else => {},
+                .svc_aarch64 => {
+                    if (vector_idx == 8) {
+                        handleSvc(frame);
+                        return;
+                    }
+                    // SVC from EL1 (vector 4) would indicate a kernel-mode `svc`
+                    // execution which we should panic on, because that is a bug in
+                    // the kernel itself.
+                },
+                else => {
+                    // Vector 4 (kernel-mode) always panics below. Only vector 8
+                    // (from EL0) can be isolated.
+                    if (vector_idx == 8) handleUserFault(esr);
+                },
             }
-            // Not a recognized or routable data abort (SVC, illegal instruction,
-            // an `ESR.EC` we don't decode yet, or a data abort with FnV set/an
-            // unmapped DFSC class). We fall through to the diagnostic panic below.
+            // Not a recognized or routable data abort (a data abort with FnV
+            // set or an unmapped DFSC class), and not an SVC or isolatable
+            // user fault. We fall through to the diagnostic panic below.
             dumpAndPanic(frame, vector_idx);
         },
         else => dumpAndPanic(frame, vector_idx),
@@ -141,6 +160,58 @@ fn handleDataAbort(frame: *arm.InterruptFrame, esr: arm.EsrEl1, from_lower_el: b
     }, .{ .arch_specific = frame });
 
     return true;
+}
+
+/// Builds a `SyscallFrame` view over the already-saved `InterruptFrame`,
+/// dispatche it via the generic syscall path, and writes the result back.
+///
+/// Does not call `onInterruptEntry` or `onInterruptExit` like an IRQ
+/// or data-abort path, because `onInterruptEntry` bumps the current
+/// task's `interrupt_disable_count`, and `innigkeit.user.onSyscall`
+/// asserts that counter is 0 on entry. This makes sense on x64, where
+/// `syscall` bypasses interrupts. AArch64 exception entry already masks
+/// IRQs unconditionally, satisfying `onSyscall`'s assertion.
+///
+/// TODO: is this safe?
+fn handleSvc(frame: *arm.InterruptFrame) void {
+    var syscall_frame: arm.SyscallFrame = .{
+        .x0 = frame.x[0],
+        .x1 = frame.x[1],
+        .x2 = frame.x[2],
+        .x3 = frame.x[3],
+        .x4 = frame.x[4],
+        .x5 = frame.x[5],
+        .x8 = frame.x[8],
+        .pc = frame.elr,
+    };
+    innigkeit.user.onSyscall(.{ .arch_specific = &syscall_frame });
+    frame.x[0] = syscall_frame.x0;
+}
+
+/// Isolates an EL0 synchronous exception that is neither a recognized data
+/// abort nor an SVC (undefined instruction, alignment fault, or any `ESR.EC`
+/// not yet decoded) to the calling process rather than panicking the kernel.
+fn handleUserFault(esr: arm.EsrEl1) noreturn {
+    const current_task: innigkeit.Task.Current = .get();
+    const process: *innigkeit.user.Process = .from(current_task.task);
+    const exit_status = exceptionDisposition(esr.ec);
+    log.warn("{f}: unhandled user-mode exception ec={t}, killing process (exit status {})", .{
+        process, esr.ec, exit_status,
+    });
+    process.terminateCallingThread(exit_status);
+}
+
+/// Maps an EL0 synchronous exception's `ESR.EC` to a `Process.ExitStatus`.
+///
+/// `ExceptionClass` is non-exhaustive, so an `else` fallback must itself function
+/// as safety insurance. As such, when an unhandled exception class is reached,
+/// we isolate as `sigsegv`, never assuming a name, and never panicking or declaring
+/// `unreachable`.
+fn exceptionDisposition(ec: arm.EsrEl1.ExceptionClass) u8 {
+    return switch (ec) {
+        .unknown_reason => innigkeit.user.Process.ExitStatus.sigill,
+        else => innigkeit.user.Process.ExitStatus.sigsegv,
+    };
 }
 
 /// One 128-byte vector slot: allocate the frame, stash x0/x1 (so x1 can carry

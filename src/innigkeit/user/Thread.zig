@@ -139,7 +139,7 @@ pub fn startProcess(self: *Thread, entry_point: innigkeit.UserVirtualAddress, in
     // the stack size; assert it explicitly here too, since a future caller
     // violating that contract would otherwise silently write past the
     // mapped stack via moveBackward below.
-    if (core.is_debug) std.debug.assert(frame_size <= user_stack.size.value);
+    if (core.is_debug) std.debug.assert(frame_size <= @intFromEnum(user_stack.size));
 
     const stack_top = user_stack.toUser().after();
     const stack_ptr = stack_top.moveBackward(core.Size.from(frame_size, .byte));
@@ -152,7 +152,7 @@ pub fn startProcess(self: *Thread, entry_point: innigkeit.UserVirtualAddress, in
         // stays within the asserted `frame_size`, inside this `UserAccess`
         // window. the whole block writes the initial user stack layout the
         // kernel is constructing, not a foreign buffer.
-        var meta: usize = stack_ptr.value;
+        var meta: usize = @intFromEnum(stack_ptr);
 
         // argc
         @as(*usize, @ptrFromInt(meta)).* = argc;

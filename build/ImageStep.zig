@@ -47,7 +47,7 @@ pub fn registerImageSteps(
     options: Options,
     architectures: []const Bundle.Architecture,
 ) !ImageStep.Collection {
-    const image_builder = tools.get("image_builder").?.release_safe_exe;
+    const image_builder = tools.get("image_builder").?.debug_exe;
     const limine_dep = b.dependency("limine_bin", .{});
 
     var image_steps: ImageStep.Collection = .empty;
@@ -120,7 +120,7 @@ pub fn buildTestImageStep(
     options: Options, // reserved for future use (e.g. UEFI vs BIOS selection)
 ) !*ImageStep {
     _ = options;
-    const image_builder = tools.get("image_builder").?.release_safe_exe;
+    const image_builder = tools.get("image_builder").?.debug_exe;
     const limine_dep = b.dependency("limine_bin", .{});
     const image_file_name = b.fmt("innigkeit_test_{s}.hdd", .{@tagName(arch)});
 

@@ -47,7 +47,7 @@ pub const page_allocator: std.mem.Allocator = .{
     .vtable = &page_alloc_vtable,
 };
 
-const page_size = 4096;
+const page_size = innigkeit.page_size;
 
 inline fn pageAlignUp(n: usize) usize {
     return (n + page_size - 1) & ~@as(usize, page_size - 1);

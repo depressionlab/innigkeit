@@ -81,9 +81,9 @@ pub const Iterator = struct {
 
             return .{
                 .virtual_range = virtual_range.toUser(),
-                .destination_offset = offset_due_to_alignment.value,
-                .source_base = program_header.offset.value,
-                .source_length = program_header.file_size.value,
+                .destination_offset = @intFromEnum(offset_due_to_alignment),
+                .source_base = @intFromEnum(program_header.offset),
+                .source_length = @intFromEnum(program_header.file_size),
                 .protection = new_protection,
             };
         }

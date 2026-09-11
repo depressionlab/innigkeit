@@ -242,3 +242,5 @@ zig-pkg/
 docgen_tmp/
 
 # End of https://www.toptal.com/developers/gitignore/api/c,c++,rust,cmake,linux,macos,windows,rust-analyzer,visualstudiocode,archlinuxpackages,zig
+
+!.envrc

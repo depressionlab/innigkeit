@@ -39,13 +39,24 @@ pub fn lock(self: *SingleSpinLock) void {
         @panic("recursive lock!");
     }
 
-    while (self.holding_executor.cmpxchgWeak(
-        null,
-        current_executor,
-        .acquire,
-        .monotonic,
-    )) |_| {
-        architecture.spinLoopHint();
+    while (true) {
+        // Poll with a plain load first: a failed cmpxchg needs exclusive
+        // ownership of the cache line, so retrying it directly under
+        // contention causes needless cache-line ping-pong that a read-only
+        // spin doesn't.
+        while (self.holding_executor.load(.monotonic) != null) {
+            architecture.spinLoopHint();
+        }
+
+        if (self.holding_executor.cmpxchgWeak(
+            null,
+            current_executor,
+            .acquire,
+            .monotonic,
+        ) == null) {
+            @branchHint(.likely);
+            return;
+        }
     }
 }
 

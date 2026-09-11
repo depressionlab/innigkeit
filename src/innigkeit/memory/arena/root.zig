@@ -29,15 +29,15 @@ pub const Allocation = struct {
 
     pub inline fn toVirtualRange(self: Allocation) innigkeit.KernelVirtualRange {
         return .{
-            .address = .{ .value = self.base },
+            .address = @enumFromInt(self.base),
             .size = .from(self.len, .byte),
         };
     }
 
     pub inline fn fromVirtualRange(range: innigkeit.KernelVirtualRange) Allocation {
         return .{
-            .base = range.address.value,
-            .len = range.size.value,
+            .base = @intFromEnum(range.address),
+            .len = @intFromEnum(range.size),
         };
     }
 

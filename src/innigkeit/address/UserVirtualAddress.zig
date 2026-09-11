@@ -5,15 +5,15 @@ const core = @import("core");
 const innigkeit = @import("innigkeit");
 const root = @import("root.zig");
 
-pub const UserVirtualAddress = extern struct {
-    value: usize,
+pub const UserVirtualAddress = enum(usize) {
+    _,
 
     /// Creates a new user virtual address from a raw value.
     ///
     /// **REQUIREMENTS**:
     /// - The address must be within the user memory range.
     pub inline fn from(value: usize) UserVirtualAddress {
-        const address: UserVirtualAddress = .{ .value = value };
+        const address: UserVirtualAddress = @enumFromInt(value);
         if (core.is_debug) std.debug.assert(architecture.user.user_memory_range.containsAddress(address.toVirtualAddress()));
         return address;
     }
@@ -25,7 +25,7 @@ pub const UserVirtualAddress = extern struct {
     pub inline fn ptr(address: UserVirtualAddress, comptime PtrT: type) PtrT {
         if (core.is_debug) std.debug.assert(innigkeit.Task.Current.get().task.enable_access_to_user_memory_count.load(.acquire) != 0);
         // this is the sanctioned user-address-to-pointer convension.
-        return @ptrFromInt(address.value);
+        return @ptrFromInt(@intFromEnum(address));
     }
 
     pub inline fn toVirtualAddress(address: UserVirtualAddress) root.VirtualAddress {

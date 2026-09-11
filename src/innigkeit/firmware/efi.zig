@@ -72,7 +72,7 @@ var system_table: ?*const SystemTable = null;
 /// Dereference a physical address (as reported inside EFI tables) via the kernel
 /// direct map.
 fn physPtr(comptime T: type, phys: u64) *const T {
-    const pa: innigkeit.PhysicalAddress = .{ .value = phys };
+    const pa: innigkeit.PhysicalAddress = @enumFromInt(phys);
     return pa.toDirectMap().toPtr(*const T);
 }
 

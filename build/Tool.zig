@@ -21,6 +21,9 @@ normal_exe: *Step.Compile,
 /// Compiled with `.ReleaseSafe`. Equal to `normal_exe` when the user already requested `.ReleaseSafe`.
 release_safe_exe: *Step.Compile,
 
+/// Compiled with `.Debug`. Equal to `normal_exe` when the user has already requested `.Debug`.
+debug_exe: *Step.Compile,
+
 test_exe: *Step.Compile,
 
 /// Installs the artifact produced by `normal_exe`
@@ -97,6 +100,17 @@ fn resolveTool(
             ),
         });
 
+    const debug_exe = if (optimize == .Debug) normal_exe else b.addExecutable(.{
+        .name = description.name,
+        .root_module = createModule(
+            b,
+            &description,
+            lazy_path,
+            .Debug,
+            dependencies,
+        ),
+    });
+
     const install = b.addInstallArtifact(normal_exe, .{
         .dest_dir = .{ .override = .{
             .custom = b.pathJoin(&.{ "tools", description.name }),
@@ -147,6 +161,7 @@ fn resolveTool(
         .name = description.name,
         .normal_exe = normal_exe,
         .release_safe_exe = release_safe_exe,
+        .debug_exe = debug_exe,
         .test_exe = test_exe,
         .exe_install_step = &install.step,
     };

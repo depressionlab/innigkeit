@@ -7,6 +7,7 @@
 
 const innigkeit = @import("innigkeit");
 const std = @import("std");
+const builtin = @import("builtin");
 
 const wallclock = innigkeit.time.wallclock;
 const log = innigkeit.debug.log.scoped(.integration);
@@ -29,7 +30,7 @@ fn waitForNotify(notify: *innigkeit.capabilities.Notify, clear_mask: u64) !u64 {
     while (true) {
         const bits = notify.poll(clear_mask);
         if (bits != 0) return bits;
-        if (wallclock.elapsed(start, wallclock.read()).value > watchdog_ns) {
+        if (@intFromEnum(wallclock.elapsed(start, wallclock.read())) > watchdog_ns) {
             log.err("watchdog tripped waiting for exit notify", .{});
             return error.WatchdogTimeout;
         }
@@ -38,21 +39,7 @@ fn waitForNotify(notify: *innigkeit.capabilities.Notify, clear_mask: u64) !u64 {
 }
 
 test "integration: spawn itest_spawn_wait and observe its exit status" {
-    // TODO: x64-only: The old failure mode here (a recursive/looping SP_EL1
-    // synchronous exception) was actually `task/Handle.zig`'s per-task
-    // switch calling the generic `page_table.load()`, which on arm hit the
-    // boot-only TTBR1 kernel-root installer instead of TTBR0, so a freshly
-    // spawned process's user mappings were never actually active, and the
-    // ELF-segment copy faulted against stale/absent TTBR0 state. Fixed via
-    // the new `loadUserPageTable`/`PageTable.loadUser()` interface slot
-    // (`architecture/{Functions,paging}.zig`, `arm/interface.zig`,
-    // `task/Handle.zig`). Spawn and ELF load now succeed on arm! (Confirmed
-    // by re-running this test with the skip temporarily lifted, the
-    // `loadAndJump failed: BadAddress` error is gone). However, the process's
-    // first syscall (SVC from EL0) still panics, because arm has no syscall
-    // dispatch path at all yet (Stage 9 "EL0 synchronous exceptions other than
-    // data aborts" section). Re-enable this test after Stage 9.
-    if (comptime @import("builtin").cpu.arch != .x86_64) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch != .x86_64 and builtin.cpu.arch != .aarch64) return error.SkipZigTest;
 
     const result = try innigkeit.user.Process.spawnFromInitfs(.{ .path = "itest_spawn_wait" });
     defer result.exit_notify.unref();
@@ -62,12 +49,10 @@ test "integration: spawn itest_spawn_wait and observe its exit status" {
 }
 
 test "integration: unhandled user-mode exception isolates to the calling process, not the kernel" {
-    // x64-only, same reason as the test above.
-    if (comptime @import("builtin").cpu.arch != .x86_64) return error.SkipZigTest;
+    if (comptime builtin.cpu.arch != .x86_64 and builtin.cpu.arch != .aarch64) return error.SkipZigTest;
 
-    // If architecture.x64.interrupts.handlers.unhandledException's isolation
-    // path regressed back to panicking the kernel, this test would never
-    // reach the assertion below.
+    // If either architecture's isolation path regressed back to panicking
+    // the kernel, this test would never reach the assertion below.
     const result = try innigkeit.user.Process.spawnFromInitfs(.{
         .path = "itest_illegal_instruction",
     });

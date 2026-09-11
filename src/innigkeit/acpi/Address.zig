@@ -123,6 +123,13 @@ pub const Address = extern struct {
     }
 
     comptime {
+        // 4 bytes of u8 fields + the u64 `address` field (packed at
+        // `align(4)` to match the C struct's tight packing) = 12 bytes,
+        // the ACPI spec's fixed size for the Generic Address Structure.
+        // uACPI's own `acpi.h` independently asserts the same figure
+        // against its C `struct acpi_gas` (`UACPI_EXPECT_SIZEOF(struct
+        // acpi_gas, 12)`) - see the cross-reference in `acpi/uacpi.zig`'s
+        // trailing comptime block for why these two checks aren't one.
         core.testing.expectSize(Address, core.Size.of(u64).add(core.Size.of(u8).multiplyScalar(4)));
     }
 };

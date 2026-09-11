@@ -288,8 +288,8 @@ pub fn closeSocket(id: u8) void {
     }
     s.in_use = false;
     s.state = .closed;
-    while (s.waiters.firstTask() != null)
-        s.waiters.wakeOne(&lock);
+    while (s.waiters.pop(&lock)) |task|
+        task.wakeFromBlocked();
 }
 
 /// Called from the network poller with a TCP payload (no IP header).

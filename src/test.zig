@@ -17,11 +17,11 @@ pub const std_options: std.Options = .{
     .log_level = innigkeit.debug.log.log_level.toStd(),
     .logFn = innigkeit.debug.log.stdLogImpl,
 
-    .page_size_min = architecture.paging.standard_page_size.value,
-    .page_size_max = architecture.paging.largest_page_size.value,
+    .page_size_min = @intFromEnum(architecture.paging.standard_page_size),
+    .page_size_max = @intFromEnum(architecture.paging.largest_page_size),
     .queryPageSize = struct {
         fn queryPageSize() usize {
-            return architecture.paging.standard_page_size.value;
+            return @intFromEnum(architecture.paging.standard_page_size);
         }
     }.queryPageSize,
 

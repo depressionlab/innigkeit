@@ -116,7 +116,7 @@ fn wallclockElapsed(
     // for the durations the kernel prints.
     const ns = if (freq == 0) 0 else (ticks / freq) * 1_000_000_000 +
         ((ticks % freq) * 1_000_000_000) / freq;
-    return .{ .value = ns };
+    return @enumFromInt(ns);
 }
 
 fn referenceCounterPrepareToWaitFor(duration: core.Duration) void {
@@ -126,8 +126,9 @@ fn referenceCounterPrepareToWaitFor(duration: core.Duration) void {
 fn referenceCounterWaitFor(duration: core.Duration) void {
     const freq = counterFrequency();
     // ticks = ns * freq / 1e9
-    const ticks = (duration.value / 1_000_000_000) * freq +
-        ((duration.value % 1_000_000_000) * freq) / 1_000_000_000;
+    const duration_ns = @intFromEnum(duration);
+    const ticks = (duration_ns / 1_000_000_000) * freq +
+        ((duration_ns % 1_000_000_000) * freq) / 1_000_000_000;
     const start = arm.registers.CNTPCT_EL0.read();
     while (arm.registers.CNTPCT_EL0.read() -% start < ticks) {
         arm.instructions.isb();
@@ -138,9 +139,9 @@ fn referenceCounterWaitFor(duration: core.Duration) void {
 var periodic_period_ns: u64 = 5_000_000;
 
 fn perExecutorPeriodicEnableInterrupt(period: core.Duration) void {
-    periodic_period_ns = period.value;
+    periodic_period_ns = @intFromEnum(period);
     // Arm the virtual timer and make sure the timer interrupt is unmasked.
-    arm.timer.setNextTick(period.value);
+    arm.timer.setNextTick(@intFromEnum(period));
     architecture.interrupts.enable();
 }
 

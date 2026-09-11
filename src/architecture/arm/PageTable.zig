@@ -29,7 +29,7 @@ const core = @import("core");
 
 /// A single level of an AArch64 4 KiB-granule page table (512 * 8 bytes).
 pub const PageTable = extern struct {
-    _entries: [number_of_entries]Entry.Raw align(small_page_size.value),
+    _entries: [number_of_entries]Entry.Raw align(@intFromEnum(small_page_size)),
 
     pub const number_of_entries = 512;
 
@@ -572,28 +572,28 @@ pub const PageTable = extern struct {
 
         /// Physical address of the next-level table (table descriptor).
         fn getTableAddress(entry: Entry) innigkeit.PhysicalAddress {
-            return .{ .value = entry.value & ADDRESS_MASK };
+            return @enumFromInt(entry.value & ADDRESS_MASK);
         }
 
         /// Physical address mapped by an L3 page descriptor.
         fn getPageAddress(entry: Entry) innigkeit.PhysicalAddress {
-            return .{ .value = entry.value & ADDRESS_MASK };
+            return @enumFromInt(entry.value & ADDRESS_MASK);
         }
 
         fn setTableDescriptor(entry: *Entry, address: innigkeit.PhysicalAddress) void {
             if (core.is_debug) std.debug.assert(address.pageAligned());
-            entry.value = (address.value & ADDRESS_MASK) | TYPE_TABLE_OR_PAGE;
+            entry.value = (@intFromEnum(address) & ADDRESS_MASK) | TYPE_TABLE_OR_PAGE;
         }
 
         fn setPageDescriptor(entry: *Entry, address: innigkeit.PhysicalAddress) void {
             if (core.is_debug) std.debug.assert(address.pageAligned());
             entry.value = (entry.value & ~(ADDRESS_MASK | TYPE_MASK)) |
-                (address.value & ADDRESS_MASK) | TYPE_TABLE_OR_PAGE;
+                (@intFromEnum(address) & ADDRESS_MASK) | TYPE_TABLE_OR_PAGE;
         }
 
         fn setBlockDescriptor(entry: *Entry, address: innigkeit.PhysicalAddress) void {
             entry.value = (entry.value & ~(ADDRESS_MASK | TYPE_MASK)) |
-                (address.value & ADDRESS_MASK) | TYPE_BLOCK;
+                (@intFromEnum(address) & ADDRESS_MASK) | TYPE_BLOCK;
         }
 
         /// Gets the next page table level.
@@ -680,9 +680,9 @@ pub const PageTable = extern struct {
             arm.semihost.write("[arm] fillTopLevel addr=");
             arm.semihost.writeHex(range.address.value);
             arm.semihost.write(" size=");
-            arm.semihost.writeHex(range.size.value);
+            arm.semihost.writeHex(@intFromEnum(range.size));
             arm.semihost.write(" toplvl=");
-            arm.semihost.writeHex(size_of_top_level_entry.value);
+            arm.semihost.writeHex(@intFromEnum(size_of_top_level_entry));
             arm.semihost.write("\n");
             if (core.is_debug) {
                 std.debug.assert(range.size.equal(size_of_top_level_entry));
@@ -727,9 +727,9 @@ pub const PageTable = extern struct {
             arm.semihost.write("[arm] mapRange v=");
             arm.semihost.writeHex(virtual_range.address.value);
             arm.semihost.write(" p=");
-            arm.semihost.writeHex(physical_range.address.value);
+            arm.semihost.writeHex(@intFromEnum(physical_range.address));
             arm.semihost.write(" sz=");
-            arm.semihost.writeHex(virtual_range.size.value);
+            arm.semihost.writeHex(@intFromEnum(virtual_range.size));
             arm.semihost.write("\n");
 
             init_log.verbose(
@@ -1008,7 +1008,7 @@ const SCTLR_EL1_I: u64 = 1 << 12;
 /// mapped into this table, so the switch is safe.
 pub fn loadPageTableImpl(physical_page: innigkeit.memory.PhysicalPage.Index) void {
     arm.semihost.write("[arm] loadPageTable enter\n");
-    const root = physical_page.baseAddress().value;
+    const root = @intFromEnum(physical_page.baseAddress());
 
     // Map the device-MMIO hole (PL011 UART + GIC) as Device-nGnRE into the
     // direct map BEFORE switching to this table. Limine's HHDM does not cover
@@ -1097,7 +1097,7 @@ fn mapDeviceMmio(physical_page: innigkeit.memory.PhysicalPage.Index) void {
 
 /// Install a user (low-half) address space root into TTBR0_EL1.
 pub fn loadUserPageTableImpl(physical_page: innigkeit.memory.PhysicalPage.Index) void {
-    arm.registers.TTBR0_EL1.write(physical_page.baseAddress().value);
+    arm.registers.TTBR0_EL1.write(@intFromEnum(physical_page.baseAddress()));
     arm.instructions.isb();
     flushAllTlbImpl();
 }
@@ -1174,7 +1174,7 @@ pub fn safeMemcpyImpl(
         : [target] "r" (target),
           [src] "+{x1}" (source.address.value),
           [dst] "+{x2}" (destination.address.value),
-          [len] "+{x3}" (source.size.value),
+          [len] "+{x3}" (@intFromEnum(source.size)),
         : .{ .memory = true, .x1 = true, .x2 = true, .x3 = true, .x9 = true });
 }
 

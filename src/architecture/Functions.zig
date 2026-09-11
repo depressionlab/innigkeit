@@ -55,6 +55,13 @@ interrupts: struct {
     /// Get the EOI type for the given external interrupt if known.
     eoiType: ?fn (external_interrupt: u32) ?architecture.interrupts.Interrupt.Handler.EOI = null,
 
+    /// Get the EOI timing currently reigstered for the *internal* vector's
+    /// handler (only on architectures that track one in a queryable table
+    /// state). Returns `null` on an unsupported architecture.
+    ///
+    /// @internal This is **only** to be used for debug and test introspection.
+    eoiTimingForVector: ?fn (interrupt: architecture.current_decls.interrupts.Interrupt) architecture.interrupts.Interrupt.Handler.EOI = null,
+
     allocateInterrupt: ?fn (
         handler: architecture.interrupts.Interrupt.Handler,
     ) architecture.interrupts.Interrupt.AllocateError!architecture.current_decls.interrupts.Interrupt = null,

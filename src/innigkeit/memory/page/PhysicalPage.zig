@@ -52,18 +52,18 @@ fn allocate() Allocator.AllocateError!Index {
     const index = try globals.buddy.alloc(0);
 
     const prev_free = globals.free_memory.fetchSub(
-        architecture.paging.standard_page_size.value,
+        @intFromEnum(architecture.paging.standard_page_size),
         .release,
     );
-    const remaining = prev_free -| architecture.paging.standard_page_size.value;
+    const remaining = prev_free -| @intFromEnum(architecture.paging.standard_page_size);
 
     // Memory pressure notification. The hook sees accurate free-page count.
     // The hook must not allocate pages or block.
     const threshold = globals.pressure_threshold_pages;
     if (threshold > 0 and globals.pressure_hook != null) {
-        const free_pages = remaining / architecture.paging.standard_page_size.value;
+        const free_pages = remaining / @intFromEnum(architecture.paging.standard_page_size);
         if (free_pages < threshold) {
-            const total_pages = globals.total_memory.value / architecture.paging.standard_page_size.value;
+            const total_pages = @intFromEnum(globals.total_memory) / @intFromEnum(architecture.paging.standard_page_size);
             globals.pressure_hook.?(free_pages, total_pages);
         }
     }
@@ -91,7 +91,7 @@ fn deallocate(list: List) void {
     }
 
     _ = globals.free_memory.fetchAdd(
-        architecture.paging.standard_page_size.multiplyScalar(list.count).value,
+        @intFromEnum(architecture.paging.standard_page_size.multiplyScalar(list.count)),
         .release,
     );
 
@@ -112,7 +112,7 @@ pub fn allocateContiguous(order: u4) Allocator.AllocateError!Index {
     const index = try globals.buddy.alloc(order);
     const page_count: u32 = @as(u32, 1) << order;
     _ = globals.free_memory.fetchSub(
-        architecture.paging.standard_page_size.multiplyScalar(page_count).value,
+        @intFromEnum(architecture.paging.standard_page_size.multiplyScalar(page_count)),
         .release,
     );
     return index;
@@ -122,7 +122,7 @@ pub fn allocateContiguous(order: u4) Allocator.AllocateError!Index {
 pub fn freeContiguous(index: Index, order: u4) void {
     const page_count: u32 = @as(u32, 1) << order;
     _ = globals.free_memory.fetchAdd(
-        architecture.paging.standard_page_size.multiplyScalar(page_count).value,
+        @intFromEnum(architecture.paging.standard_page_size.multiplyScalar(page_count)),
         .release,
     );
     globals.buddy.free(index, order);

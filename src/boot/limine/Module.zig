@@ -87,17 +87,15 @@ pub const InternalModule = extern struct {
     path: [*:0]const u8,
 
     /// String associated with the given module.
-    _string: ?[*:0]const u8,
+    _string: [*:0]const u8,
 
     /// Flags changing module loading behaviour
     flags: Flags,
 
     /// String associated with the given module.
     pub fn string(self: *const InternalModule) ?[:0]const u8 {
-        return if (self._string) |s|
-            std.mem.sliceTo(s, 0)
-        else
-            null;
+        const str = std.mem.sliceTo(self._string, 0);
+        return if (str.len == 0) null else str;
     }
 
     pub const Flags = packed struct(u64) {

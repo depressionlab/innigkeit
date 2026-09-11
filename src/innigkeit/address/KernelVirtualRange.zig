@@ -22,7 +22,7 @@ pub const KernelVirtualRange = struct {
     /// **REQUIREMENTS**:
     /// - The slice must be fully contained in kernel memory.
     pub inline fn fromSlice(comptime T: type, slice: []const T) KernelVirtualRange {
-        return .from(.{ .value = @intFromPtr(slice.ptr) }, core.Size.of(T).multiplyScalar(slice.len));
+        return .from(.fromPtr(slice.ptr), core.Size.of(T).multiplyScalar(slice.len));
     }
 
     /// Creates a new kernel virtual range from a pointer.
@@ -35,7 +35,7 @@ pub const KernelVirtualRange = struct {
             std.debug.assert(pointer_type_info.size == .one);
             break :blk pointer_type_info.child;
         };
-        return .from(.{ .value = @intFromPtr(ptr) }, .of(T));
+        return .from(.fromPtr(ptr), .of(T));
     }
 
     pub inline fn toVirtualRange(self: KernelVirtualRange) root.VirtualRange {
@@ -50,7 +50,7 @@ pub const KernelVirtualRange = struct {
     /// **REQUIREMENTS**:
     /// - The range must be fully contained in kernel memory.
     pub inline fn byteSlice(self: KernelVirtualRange) []u8 {
-        return self.address.toPtr([*]u8)[0..self.size.value];
+        return self.address.toPtr([*]u8)[0..@intFromEnum(self.size)];
     }
 
     pub const pageAligned: fn (range: @This()) callconv(.@"inline") bool = Mixin.pageAligned;

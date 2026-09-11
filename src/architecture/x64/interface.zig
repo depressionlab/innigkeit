@@ -16,6 +16,7 @@ pub const functions: architecture.Functions = .{
         .sendFlushIPI = x64.apic.sendFlushIPI,
         .sendRescheduleIPI = x64.apic.sendRescheduleIPI,
         .eoiType = x64.ioapic.eoiType,
+        .eoiTimingForVector = x64.interrupts.init.eoiTimingForVector,
 
         .allocateInterrupt = x64.interrupts.Interrupt.allocate,
         .deallocateInterrupt = x64.interrupts.Interrupt.deallocate,
@@ -205,7 +206,7 @@ pub const decls: architecture.Decls = .{
     .scheduling = .{
         .PerTask = x64.PerTask,
         .cfi_prevent_unwinding =
-        \\.cfi_sections .debug_frame
+        \\.cfi_sections .eh_frame, .debug_frame
         \\.cfi_undefined rip
         \\
         ,

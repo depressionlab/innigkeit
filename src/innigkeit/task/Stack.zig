@@ -88,7 +88,7 @@ fn createStackWithSize(usable_size: core.Size) !Stack {
     const size_with_guard = usable_size.add(architecture.paging.standard_page_size);
 
     const stack_range = globals.stack_arena.allocate(
-        size_with_guard.value,
+        @intFromEnum(size_with_guard),
         .instant_fit,
     ) catch return error.ItemConstructionFailed;
     errdefer globals.stack_arena.deallocate(stack_range);
@@ -154,15 +154,15 @@ pub const init = struct {
         try globals.stack_arena.init(
             .{
                 .name = try .fromSlice("stacks"),
-                .quantum = architecture.paging.standard_page_size.value,
+                .quantum = @intFromEnum(architecture.paging.standard_page_size),
             },
         );
 
         const stacks_range = innigkeit.memory.kernelRegions().find(.kernel_stacks).?.range;
 
         globals.stack_arena.addSpan(
-            stacks_range.address.value,
-            stacks_range.size.value,
+            @intFromEnum(stacks_range.address),
+            @intFromEnum(stacks_range.size),
         ) catch |err| {
             std.debug.panic("failed to add stack range to `stack_arena`: {t}!", .{err});
         };

@@ -71,7 +71,7 @@ pub fn create(page_count: usize, usage: Usage) error{OutOfMemory}!*GpuBuffer {
 
     self.* = .{
         .phys_base = first_page.baseAddress(),
-        .size_bytes = @import("architecture").paging.standard_page_size.value,
+        .size_bytes = @intFromEnum(@import("architecture").paging.standard_page_size),
         .usage = usage,
     };
     return self;
@@ -101,7 +101,7 @@ pub const Op = enum(u64) {
 };
 
 fn pageSize() usize {
-    return @import("architecture").paging.standard_page_size.value;
+    return @intFromEnum(@import("architecture").paging.standard_page_size);
 }
 
 test "gpu_buffer: create returns non-null with correct size" {
@@ -111,7 +111,7 @@ test "gpu_buffer: create returns non-null with correct size" {
     try std.testing.expect(buf.size_bytes == pageSize());
     try std.testing.expect(buf.usage.cpu_visible);
     try std.testing.expect(!buf.usage.vertex_buffer);
-    try std.testing.expect(buf.phys_base.value != 0);
+    try std.testing.expect(@intFromEnum(buf.phys_base) != 0);
 }
 
 test "gpu_buffer: multi-page create returns OutOfMemory (contiguous allocator not implemented)" {

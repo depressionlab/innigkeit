@@ -359,7 +359,7 @@ pub fn faultUpper(self: *FaultInfo, anonymous_page: *AnonPage) error{ Restart, O
         };
 
         // Copy content from old page to new page via the direct-map window.
-        const page_size = architecture.paging.standard_page_size.value;
+        const page_size = @intFromEnum(architecture.paging.standard_page_size);
         const src = anonymous_page.physical_page.baseAddress().toDirectMap()
             .toPtr(*align(page_size) const volatile [page_size]u8);
         const dst = new_phys.baseAddress().toDirectMap()
@@ -508,7 +508,7 @@ fn promote(
         .zero_fill => {
             log.verbose("zero filling anonymous page", .{});
             const mapped_page = allocated_physical_page.baseAddress().toDirectMap()
-                .toPtr(*align(architecture.paging.standard_page_size.value) volatile [architecture.paging.standard_page_size.value]u8);
+                .toPtr(*align(@intFromEnum(architecture.paging.standard_page_size)) volatile [@intFromEnum(architecture.paging.standard_page_size)]u8);
             @memset(mapped_page, 0);
         },
         .physical_page => @panic("NOT IMPLEMENTED"), // TODO https://github.com/openbsd/src/blob/9222ee7ab44f0e3155b861a0c0a6dd8396d03df3/sys/uvm/uvm_fault.c#L545

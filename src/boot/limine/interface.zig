@@ -71,7 +71,7 @@ pub fn tpmEventLog() ?boot.TpmEventLog {
     const ptr = resp.address.toPtr([*]const u8);
 
     return .{
-        .bytes = ptr[0..resp.size.value],
+        .bytes = ptr[0..@intFromEnum(resp.size)],
         .format = switch (resp.format) {
             .tcg_1_2 => .tcg_1_2,
             .tcg_2 => .tcg_2,
@@ -305,7 +305,10 @@ const requests = struct {
     var hhdm: root.HHDM.Request = .{};
     var rsdp: root.RSDP.Request = .{};
     var smp: root.MP.Request = .{
-        .flags = .{ .x2apic = true },
+        .flags = switch (root.arch) {
+            .aarch64, .loongarch64, .riscv64 => .{},
+            .x86_64 => .{ .x2apic = true },
+        },
     };
     var framebuffer: root.Framebuffer.Request = .{};
     var device_tree_blob: root.DeviceTreeBlob.Request = .{};

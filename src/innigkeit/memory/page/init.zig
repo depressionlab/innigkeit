@@ -220,7 +220,7 @@ pub fn initializePhysicalMemory(pages_range: innigkeit.KernelVirtualRange) void 
         }
     }
 
-    globals.free_memory.store(free_memory.value, .release);
+    globals.free_memory.store(@intFromEnum(free_memory), .release);
     globals.total_memory = total_memory;
     globals.reserved_memory = reserved_memory;
     globals.reclaimable_memory = reclaimable_memory;

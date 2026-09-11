@@ -6,8 +6,8 @@
     .license = "EUPL-1.2",
     .dependencies = .{
         .limine_bin = .{
-            .url = "https://github.com/Limine-Bootloader/Limine/releases/download/v12.3.3/limine-binary.tar.xz",
-            .hash = "N-V-__8AAIP9UwApsZhdYC0jFNncD8o9TNmj9mBlLF89WRue",
+            .url = "https://github.com/Limine-Bootloader/Limine/releases/download/v12.5.1/limine-binary.tar.xz",
+            .hash = "N-V-__8AAHf6VABQBYpqNWvuuHWRjIHJagweXvrCwQhkaO4R",
         },
         .edk2 = .{
             .url = "https://github.com/rust-osdev/ovmf-prebuilt/releases/download/edk2-stable202605-r1/edk2-stable202605-r1-bin.tar.xz",
@@ -18,8 +18,8 @@
             .hash = "N-V-__8AAO3JAgDxsQ54myF0biQHILa5EbAr8LC7iEzSAioX",
         },
         .uacpi = .{
-            .url = "git+https://github.com/uACPI/uACPI?ref=5.0.0#bff774beb90980bea18c5f297c7e3135bcd685b8",
-            .hash = "N-V-__8AAPJOKQCmvBm20OcVV9z7cnNcWOy4bfb9d-p-iJr9",
+            .url = "git+https://github.com/uACPI/uACPI?ref=6.0.0#9c9b26d6291a1cdd9014cc5bb6b03e596697cbfd",
+            .hash = "N-V-__8AANNkKQDrI-ou4QFKjWf0VdX-4NB49Xq1KxtJXfkW",
         },
         .devicetree = .{
             .url = "git+https://github.com/CascadeOS/zig-devicetree#53ec12cb0e724c16ee9cebb04ed3e97ff93ef82c",

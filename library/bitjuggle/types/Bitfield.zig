@@ -15,8 +15,8 @@ pub fn Bitfield(
     const mask: FieldType = ((1 << num_bits) - 1) << shift_amount;
     const ValueType = @Int(.unsigned, num_bits);
 
-    return extern struct {
-        dummy: FieldType,
+    return enum(FieldType) {
+        _,
 
         const BitfieldT = @This();
 

@@ -9,10 +9,10 @@ pub const Partition = @import("Partition.zig");
 
 pub fn create(allocator: std.mem.Allocator, image_description: ImageDescription, disk_image: []u8, random: std.Random, gpt_partitions: []Partition) !void {
     if (core.is_debug) std.debug.assert(
-        std.mem.isAligned(disk_image.len, root.disk_block_size.value),
+        std.mem.isAligned(disk_image.len, @intFromEnum(root.disk_block_size)),
     );
 
-    const number_of_blocks = disk_image.len / root.disk_block_size.value;
+    const number_of_blocks = disk_image.len / @intFromEnum(root.disk_block_size);
 
     const number_of_partition_entries: u32 = if (image_description.partitions.len <
         filesystem.gpt.minimum_number_of_partition_entries)
@@ -182,7 +182,7 @@ fn fillInPrimaryGptHeader(
         .disk_guid = guid,
         .partition_entry_lba = 2,
         .number_of_partition_entries = number_of_partition_entries,
-        .size_of_partition_entry = @intCast(filesystem.gpt.PartitionEntry.size.value),
+        .size_of_partition_entry = @intCast(@intFromEnum(filesystem.gpt.PartitionEntry.size)),
         .partition_entry_array_crc32 = partition_table_crc,
     };
     primary_header.updateHash();

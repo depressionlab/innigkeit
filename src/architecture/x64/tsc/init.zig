@@ -54,7 +54,7 @@ pub fn registerTimeSource(candidate_time_sources: *innigkeit.time.init.Candidate
                         const current_value = readTsc();
 
                         const target_value = current_value +
-                            ((duration.value * innigkeit.time.fs_per_ns) / globals.tick_duration_fs);
+                            ((@intFromEnum(duration) * innigkeit.time.fs_per_ns) / globals.tick_duration_fs);
 
                         while (readTsc() < target_value) {}
                     }
@@ -99,7 +99,7 @@ fn initializeTscCalibrate(reference_counter: innigkeit.time.init.ReferenceCounte
 
     const average_ticks = total_ticks / number_of_samples;
 
-    globals.tick_duration_fs = (sample_duration.value * innigkeit.time.fs_per_ns) / average_ticks;
+    globals.tick_duration_fs = (@intFromEnum(sample_duration) * innigkeit.time.fs_per_ns) / average_ticks;
     init_log.debug("tick duration (fs) using reference counter: {}", .{globals.tick_duration_fs});
 }
 

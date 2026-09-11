@@ -80,7 +80,7 @@ pub fn clusterSlice(self: Context, cluster_index: u32, number_of_clusters: usize
         self.fat_partition,
         start,
         self.sector_size,
-    )[0..size.value];
+    )[0..@intFromEnum(size)];
 }
 
 pub fn getRootDirectory(self: *Context) FAT.Directory {
@@ -113,7 +113,7 @@ pub fn copyFile(
 
     entry.high_cluster_number = @truncate(current_cluster >> 16);
     entry.low_cluster_number = @truncate(current_cluster);
-    entry.size = @intCast(file_size.value);
+    entry.size = @intCast(@intFromEnum(file_size));
 
     var reader_buffer: [0x1000]u8 = undefined;
     var file_reader = file.reader(io, &reader_buffer);

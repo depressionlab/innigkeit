@@ -4,15 +4,15 @@ const innigkeit = @import("innigkeit");
 const root = @import("root.zig");
 const std = @import("std");
 
-pub const KernelVirtualAddress = extern struct {
-    value: usize,
+pub const KernelVirtualAddress = enum(usize) {
+    _,
 
     /// Creates a new kernel virtual address from a raw value.
     ///
     /// **REQUIREMENTS**:
     /// - The address must be within the kernel memory range.
     pub inline fn from(value: usize) KernelVirtualAddress {
-        const address: KernelVirtualAddress = .{ .value = value };
+        const address: KernelVirtualAddress = @enumFromInt(value);
         if (core.is_debug) std.debug.assert(architecture.paging.kernel_memory_range.containsAddress(address.toVirtualAddress()));
         return address;
     }
@@ -26,7 +26,7 @@ pub const KernelVirtualAddress = extern struct {
             const pointer_type_info = @typeInfo(@TypeOf(ptr)).pointer;
             std.debug.assert(pointer_type_info.size == .one or pointer_type_info.size == .many);
         }
-        return .{ .value = @intFromPtr(ptr) };
+        return @enumFromInt(@intFromPtr(ptr));
     }
 
     /// Converts the kernel virtual address to a pointer.
@@ -35,7 +35,7 @@ pub const KernelVirtualAddress = extern struct {
     /// - The pointer must be a valid kernel pointer.
     pub inline fn toPtr(self: KernelVirtualAddress, comptime PtrT: type) PtrT {
         // this is the sanctioned kernel-address-to-pointer convension.
-        return @ptrFromInt(self.value);
+        return @ptrFromInt(@intFromEnum(self));
     }
 
     pub inline fn toVirtualAddress(self: KernelVirtualAddress) root.VirtualAddress {

@@ -2,12 +2,11 @@ const core = @import("core");
 const std = @import("std");
 
 /// Represents a duration.
-pub const Duration = extern struct {
-    /// The duration, in nanoseconds.
-    value: u64,
+pub const Duration = enum(u64) {
+    zero = 0,
+    one = 1,
 
-    pub const zero: Duration = .{ .value = 0 };
-    pub const one: Duration = .{ .value = 1 };
+    _,
 
     pub const Unit = enum(u64) {
         nanosecond = 1,
@@ -20,27 +19,32 @@ pub const Duration = extern struct {
     };
 
     pub fn from(amount: u64, unit: Duration.Unit) Duration {
-        return .{ .value = amount * @intFromEnum(unit) };
+        return @enumFromInt(amount * @intFromEnum(unit));
+    }
+
+    /// Returns the whole number of `unit` in `self`.
+    pub fn whole(self: Duration, unit: Duration.Unit) usize {
+        return @intFromEnum(self) / @intFromEnum(unit);
     }
 
     pub inline fn equal(self: Duration, other: Duration) bool {
-        return self.value == other.value;
+        return @intFromEnum(self) == @intFromEnum(other);
     }
 
     pub inline fn lessThan(self: Duration, other: Duration) bool {
-        return self.value < other.value;
+        return @intFromEnum(self) < @intFromEnum(other);
     }
 
     pub inline fn lessThanOrEqual(self: Duration, other: Duration) bool {
-        return self.value <= other.value;
+        return @intFromEnum(self) <= @intFromEnum(other);
     }
 
     pub inline fn greaterThan(self: Duration, other: Duration) bool {
-        return self.value > other.value;
+        return @intFromEnum(self) > @intFromEnum(other);
     }
 
     pub inline fn greaterThanOrEqual(self: Duration, other: Duration) bool {
-        return self.value >= other.value;
+        return @intFromEnum(self) >= @intFromEnum(other);
     }
 
     pub fn compare(self: Duration, other: Duration) std.math.Order {
@@ -50,56 +54,56 @@ pub const Duration = extern struct {
     }
 
     pub fn add(self: Duration, other: Duration) Duration {
-        return .{ .value = self.value + other.value };
+        return @enumFromInt(@intFromEnum(self) + @intFromEnum(other));
     }
 
     pub fn addInPlace(self: *Duration, other: Duration) void {
-        self.value += other.value;
+        self.* = self.add(other);
     }
 
     pub fn subtract(self: Duration, other: Duration) Duration {
-        return .{ .value = self.value - other.value };
+        return @enumFromInt(@intFromEnum(self) - @intFromEnum(other));
     }
 
     pub fn subtractInPlace(self: *Duration, other: Duration) void {
-        self.value -= other.value;
+        self.* = self.subtract(other);
     }
 
     pub fn multiply(self: Duration, other: Duration) Duration {
-        return .{ .value = self.value * other.value };
+        return @enumFromInt(@intFromEnum(self) * @intFromEnum(other));
     }
 
     pub fn multiplyInPlace(self: *Duration, other: Duration) void {
-        self.value *= other.value;
+        self.* = self.multiply(other);
     }
 
     pub fn multiplyScalar(self: Duration, value: u64) Duration {
-        return .{ .value = self.value * value };
+        return @enumFromInt(@intFromEnum(self) * value);
     }
 
     pub fn multiplyScalarInPlace(self: *Duration, value: u64) void {
-        self.value *= value;
+        self.* = self.multiplyScalar(value);
     }
 
     pub fn divide(self: Duration, other: Duration) Duration {
-        return .{ .value = self.value / other.value };
+        return @enumFromInt(@intFromEnum(self) / @intFromEnum(other));
     }
 
     pub fn divideInPlace(self: *Duration, other: Duration) void {
-        self.value /= other.value;
+        self.* = self.divide(other);
     }
 
     pub fn divideScalar(self: Duration, value: u64) Duration {
-        return .{ .value = self.value / value };
+        return @enumFromInt(@intFromEnum(self) / value);
     }
 
     pub fn divideScalarInPlace(self: *Duration, value: u64) void {
-        self.value /= value;
+        self.* = self.divideScalar(value);
     }
 
     pub fn print(self: Duration, writer: *std.Io.Writer, _: usize) !void {
         var any_output = false;
-        var value = self.value;
+        var value = @intFromEnum(self);
 
         if (value == 0) {
             try writer.writeAll("0.000000000");
