@@ -104,6 +104,9 @@ pub fn create(options: CreateOptions) !*Process {
         // this slot must not leak into the new one.
         process.fd_table.reset();
 
+        // Same slab-reuse invariant.
+        process.open_files = .{null} ** 12;
+
         // Same slab-reuse invariant: a previous occupant's `terminating`
         // (set true the moment it calls `terminateCallingThread`) must not
         // persist, otherwise this process's own first exit sees the
@@ -115,6 +118,7 @@ pub fn create(options: CreateOptions) !*Process {
 
         process.name = options.name;
         process.pid = globals.next_pid.fetchAdd(1, .monotonic);
+        process.next_thread_id.store(0, .monotonic);
         process.address_space.retarget(process);
 
         globals.processes_lock.writeLock();
@@ -596,6 +600,11 @@ const ProcessCleanup = struct {
         // Close any descriptors the process left open (synchronizes writable files;
         // may block on disk I/O, which is fine in this kernel task).
         process.fd_table.closeAll();
+
+        for (&process.open_files) |*maybe_file| {
+            if (maybe_file.*) |*file| innigkeit.filesystem.simple_fs.close(file);
+            maybe_file.* = null;
+        }
 
         // Release every capability this process ever held before the process
         // goes back to the slab cache.
