@@ -217,57 +217,25 @@ call, watch for it to surface then, or add a test that constructs and
 tears down an `Arena(.{.normal = n})`/`Arena(.{.heap = n})` to close this
 blind spot.
 
-### `AllocatorImplementation.free()` cannot recover the true allocation base for over-aligned allocations (Found, documented rather than fixed)
+### `AllocatorImplementation.free()`'s over-aligned-allocation gap — FIXED (this note previously said "documented rather than fixed"; that's stale)
 
-For `alignment > heap_arena_quantum` (16), `alloc()` over-allocates
-(`len + alignment - 1`) from the arena and returns
-`alignForward(arena_base, alignment)` — a pointer that may sit anywhere up
-to `alignment - 1` bytes after the arena's actual allocation base. Nothing
-records that true base anywhere. `free()` tries to reconstruct it purely
-from `(pointer, len, alignment)`:
-```zig
-unaligned_range.address.moveBackward(.one).alignBackward(alignment)
-```
-This is mathematically wrong whenever the true arena base isn't itself a
-multiple of `alignment` (the common case — the arena only guarantees
-16-byte quantum alignment, not `alignment`-byte alignment) — and it is
-*also* wrong in the "lucky" case where the true base already happens to be
-`alignment`-aligned, since the `-1` unconditionally rounds down to the
-**previous** multiple of `alignment`, one full `alignment` below the real
-base. There is no way to recover an arbitrary arena-chosen base from
-`(pointer, len, alignment)` alone without a stored header — the reverse
-mapping is underdetermined by construction, not just an off-by-one in this
-one formula.
-
-Consequence: `heap_arena.deallocate()`'s exact-address hash-table lookup
-(`removeFromAllocationTable`) will not find the tag at the wrong
-reconstructed address, panicking `"no allocation at '{}' found!"` — or, if
-some other allocation happens to sit at that wrong address, silently
-freeing/corrupting an unrelated live allocation instead.
-
-**Confirmed reachable, not just theoretical**: `acpi/uacpi_kernel_api.zig`
-heap-allocates `innigkeit.sync.Mutex` and `innigkeit.sync.TicketSpinLock`
-via `heap.allocator.create(...)` (lines 391, 584) — both types carry a
-`_: void align(std.atomic.cache_line)` field (64-byte alignment on x64,
-per `docs/DESIGN.md`'s false-sharing-defense convention), so `alignment = 64 >
-16` unconditionally. Both are later torn down via
-`heap.allocator.destroy(...)` (lines 400, 595), which calls this exact
-broken `free()` path. The current 138/138 x64 test baseline does not
-exercise uACPI's mutex/spinlock teardown paths, so this hasn't fired
-during any test run to date — it is a live landmine in the uACPI
-integration, not yet observed.
-
-Not fixed inline: correctly fixing this requires storing the true arena
-base (and length) in a header immediately before the aligned pointer —
-exactly the pattern `heap/c.zig`'s `mallocWithNonSizedFree`/`nonSizedFree`
-already uses for the same underlying problem (recovering an allocation's
-true extent from just a pointer). That's a real, if small, redesign of
-`AllocatorImplementation.alloc`/`free`'s over-aligned branch — the single
-most heavily-depended-on allocator in the kernel — with **zero existing
-test coverage of the over-aligned path to validate a fix against** (no
-test in the entire tree allocates/frees a heap object with
-alignment > 16). Recommend: add a round-trip test for an over-aligned
-heap alloc/free *before* landing the fix, then apply the header-based fix
-mirroring `heap/c.zig`'s existing precedent. Needs project-owner sign-off
-per this project's delivery model for design-level changes to
-long-stable, widely-depended-on code.
+For `alignment > heap_arena_quantum` (16), `alloc()` over-allocates from
+the arena because the arena only guarantees quantum alignment, not
+`alignment`-byte alignment, and the true arena-chosen base is otherwise
+unrecoverable from `(pointer, len, alignment)` alone at `free()` time — the
+reverse mapping is underdetermined by construction, not fixable by tweaking
+the arithmetic. **Fixed exactly as this note used to recommend**: `alloc()`
+now reserves room for a header (one `innigkeit.memory.arena.Allocation`,
+holding the arena's true base+len) immediately before the aligned pointer
+it returns; `free()` reads that header back to recover the exact
+`Allocation` to hand to `heap_arena.deallocate()` — the same pattern
+`heap/c.zig`'s `mallocWithNonSizedFree`/`nonSizedFree` already used for the
+identical underlying problem. Regression test:
+`memory.heap.AllocatorImplementation.test."heap allocator: over-aligned
+alloc/free round-trips without corrupting the arena"` (64-byte alignment,
+exceeding the 16-byte quantum, exercising exactly the header-based path) —
+passes in every `test_x64`/`test_arm` run. This also closes the
+`acpi/uacpi_kernel_api.zig` `Mutex`/`TicketSpinLock` landmine this note
+used to flag (both types carry a 64-byte-aligned cache-line marker per
+`docs/DESIGN.md`'s false-sharing convention, so both always went through
+this exact path on `heap.allocator.destroy(...)`).

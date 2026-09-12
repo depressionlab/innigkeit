@@ -9,7 +9,7 @@ paths:
 
 All kernel/user memory transfers go through `user/validate.zig`. Never dereference a user pointer outside `copyFromUser`/`copyToUser`/`readUser`/`writeUser`/`userSlice`+`UserAccess`.
 
-**F1 is closed on x64.** Every user-pointer access on the boundary is now fault-safe: streaming sites use bounce buffers, the futex atomic load uses `memory.safe.atomicLoadU32` with `immediate` fixup mode. Do not introduce new direct user-memory accesses outside these helpers.
+**F1 is closed on both x64 and arm.** Every user-pointer access on the boundary is now fault-safe: streaming sites use bounce buffers, the futex atomic load uses `memory.safe.atomicLoadU32` with `immediate` fixup mode. Do not introduce new direct user-memory accesses outside these helpers.
 
 **Bounce buffer pattern for streaming sites:**
 - writes (user → device): copy chunk into kernel buffer with `copyFromUser`, hand kernel buffer to driver
@@ -22,7 +22,7 @@ All kernel/user memory transfers go through `user/validate.zig`. Never dereferen
 **Adding a syscall:** see `.claude/skills/new-syscall/SKILL.md` or `docs/syscall-abi.md`. Selector numbers are append-only — never renumber.
 
 **Security audit findings (docs/security-audit.md):**
-- F1 HIGH: streaming user access — CLOSED on x64, pending arm data-abort routing
+- F1 HIGH: streaming user access — CLOSED on both x64 and arm (arm's routing was already implemented; only its tests were stale-gated, see `docs/DESIGN.md` Part 3)
 - F2 LOW: ELF u16 program-header multiply — FIXED (widened to u32)
 - `net_tcp_close` is intentionally ungated (legacy behavior; known gap)
 

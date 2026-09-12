@@ -57,7 +57,7 @@ Runs on every push to `main` and every PR. Fixed step order:
 2. `install QEMU/AAVMF/swtpm`
 3. `rust bare-metal target` (`rustup target add x86_64-unknown-none`)
 4. `codesign keypair` (`zig build codesign -- keygen`)
-5. `lint` (`zig fmt --check --ast-check .`)
+5. `lint` (`zig fmt --check --ast-check` scoped to first-party paths — see below)
 6. `build_all` — fail-fast link-build pass, cheap relative to a QEMU boot
 7. `verify -Darm=true -Dtpm=true`
 
@@ -71,6 +71,36 @@ been pushed to `main`** — per this project's working convention, changes stay
 local and are delivered as patches; `main`'s CI remains broken until a human
 (or a future session with explicit permission) actually pushes it. Do not
 assume `main` is green because this doc says the fix exists.
+
+**A second, independent CI-breaking bug was found and fixed this pass, one
+step further down the pipeline than steps 3-4's fix reaches.** With the
+codesign/rustup fix applied locally, step 5's `zig fmt --check --ast-check .`
+still fails — the bare `.` recursively walks the entire repository,
+including the gitignored `zig-pkg/` Zig package-fetcher cache, which holds
+vendored dependencies' own test fixtures. `zlinter`'s and `zls`'s fixtures
+in particular are *deliberately invalid* Zig (duplicate struct members,
+duplicate error-set fields, illegal global `asm`) — used to exercise those
+projects' own linters/analyzers, never meant to be parsed by anything else.
+`--ast-check` chokes on them with real parse/AST errors that have nothing
+to do with this repo's own code. Reproduced locally byte-for-byte; fixed by
+scoping the lint step to the repo's first-party paths explicitly (`apps
+build build.zig build.zig.zon library sdk src testing tools`) instead of
+`.` — confirmed to pass with exit 0 against the current tree. Also not yet
+pushed to `main`, same convention as above: `main`'s CI would still fail on
+step 4 today (steps 3-4's fix hasn't landed there either), so this bug has
+never actually been reached on a real `main` run — it was found by running
+the full local pipeline past the point `main` currently gets stuck at, not
+by observing it fail on GitHub.
+
+**Also hardened this pass, unrelated to correctness**: `timeout-minutes`
+added to every workflow's job (bounded-wait safety net, matching this
+project's own philosophy of watchdog-bounded waits elsewhere — see
+`CLAUDE.md`'s SMP stress-test description) and a `concurrency` group added
+to `ci.yml`/`secboot-verify.yml` (cancels a superseded run on the same
+ref/branch instead of letting stale runs pile up; deliberately *not* added
+to `release.yml`, since canceling an in-flight signed-release build because
+another tag pushed would be actively dangerous for a release pipeline, not
+a mere efficiency question).
 
 **Secure Boot verify** (`-Dsecboot=true`) runs separately, not in the main
 job: `.github/workflows/secboot-verify.yml`, scheduled weekly + on-demand
@@ -109,7 +139,9 @@ needed, since `image_x64` reaches the same Rust `extra_binaries` dependency.
 - RISC-V has no QEMU test suite (§2) — a real, accepted gap, not scheduled work yet.
 - Apt-package caching (§4) — explicitly deferred pending step-duration data.
 - The exact `virt-firmware` package source for `secboot-verify.yml` (`pip install virt-firmware`) was confirmed by inspecting how this sandbox was provisioned, not from an upstream Ubuntu package guarantee — worth a second check if the workflow's first scheduled run fails on that step specifically.
-- **Developer experience / interface — partially addressed (next-epoch build-system-refresh pass); step naming/grouping and a "getting started" walkthrough remain undone.** Phase 1 fixed correctness (broken CI, misleading step names, missing coverage) but didn't redesign the actual day-to-day experience. **Fixed**: `tools/codesign/main.zig`'s (and its `sdk/codesign/main.zig` duplicate's) bare `error.FileNotFound` on a missing `keys/codesign_private.key`/`codesign_public.key` now prints a hint pointing at `zig build codesign -- keygen`; `build/RustApp.zig` now checks once per build invocation whether the `x86_64-unknown-none` target's rustlib directory exists under `rustc --print sysroot`, panicking with an actionable message ("run 'rustup target add x86_64-unknown-none'") instead of letting cargo fail later with its generic `error[E0463]: can't find crate for 'core'`. **Still undone**: `zig build -l` is a flat, undifferentiated dump of ~100+ steps with no grouping/discoverability story; there's no single "getting started" entry point distinct from `verify`; no real "new contributor" walkthrough. Worth a dedicated design pass of its own — the fixes above were bounded, mechanical error-message improvements, not a step-naming/grouping redesign.
+- **Developer experience / interface — partially addressed (next-epoch build-system-refresh pass); step naming/grouping and a "getting started" walkthrough remain undone.** Phase 1 fixed correctness (broken CI, misleading step names, missing coverage) but didn't redesign the actual day-to-day experience. **Fixed**: `tools/codesign/main.zig`'s (and its `sdk/codesign/main.zig` duplicate's) bare `error.FileNotFound` on a missing `keys/codesign_private.key`/`codesign_public.key` now prints a hint pointing at `zig build codesign -- keygen`; `build/RustApp.zig` now checks once per build invocation whether the `x86_64-unknown-none` target's rustlib directory exists under `rustc --print sysroot`, panicking with an actionable message ("run 'rustup target add x86_64-unknown-none'") instead of letting cargo fail later with its generic `error[E0463]: can't find crate for 'core'`. **Also fixed (this pass)**: the three remaining items. Bare `zig build` (previously a one-line "no build target provided" error, exit 1) and the new `zig build help` step now print the same categorized, curated command overview (Getting started / Run / Test / Build / Codesign, with `zig build -l` pointed to as the exhaustive raw list) — a real "getting started" entry point distinct from `verify`, reached without already knowing a step name. `docs/getting-started.md` is the actual new-contributor walkthrough: prerequisites, the two first-build gotchas (missing codesign keypair, the CONNECT-proxy package-fetch failure), then `check` → `run_{arch}` → `test_{arch}`/`test_native` → `verify` in the order a newcomer should try them.
+
+**Deliberately not done**: renaming or restructuring the ~100+ existing step names (`test_x64`, `library_host_arm`, etc.) to sort into visual groups under plain `zig build -l` — Zig's build runner lists steps alphabetically with no category/header support, so the only way to get real grouping *inside* `-l`'s own output would be a step-naming convention (e.g. prefixing every step `test:x64`, `run:x64`) that breaks every existing invocation, doc reference, and muscle memory for a purely cosmetic gain now that a curated entry point exists. A Justfile was considered as an alternative discoverability layer but not added: it would just re-list the same `zig build ...` invocations under a second command surface with no new information, another file to keep in sync with `build.zig`'s actual step set, and this project has no existing `just` dependency — the native `zig build help` menu already closes the gap without adding a second, parallel entry point to maintain.
 
 ## 7. Session log
 

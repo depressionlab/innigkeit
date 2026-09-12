@@ -386,10 +386,26 @@ Everything else surveyed came back clean — `apps/`, `library/`
 (including `library/innigkeit-rs`, the Rust counterpart to
 `library/innigkeit`, correctly separate), `tools/`, `testing/`,
 `.claude/skills/`, `sdk/`, and `scripts/` are all already sensibly
-organized from stage 1 plus the review passes. `flake.nix` is a real,
-working dev-shell (not a stray stub) — unrelated to §5's NixOS-inspired
-design-philosophy initiative beyond sharing the name; no action needed
-there.
+organized from stage 1 plus the review passes. `flake.nix` is a real
+dev-shell in intent (not a stray stub), but was never actually
+evaluable as written — unrelated to §5's NixOS-inspired design-philosophy
+initiative beyond sharing the name. **Correction (flake/CI modernization
+pass)**: `flake.nix` had two real Nix bugs, not just the dead `OVMF_FD`
+env var noted elsewhere — `devShells.default = forEachSystem(...)` nested
+one attribute level too deep (schema requires `devShells.<system>.default`,
+not `devShells.default.<system>.default`, so `nix develop` could never
+find a shell for any system), and `LD_LIBRARY_PATH`'s `buildInputs`
+reference relied on plain-attrset self-reference that Nix doesn't do
+without `rec`. Both fixed; `zig`/`zls`/`gcc`/`qemu`/`pkg-config` are still
+the right toolchain list, unrelated to this correction. **Known gap, left
+flagged rather than fixed**: no `flake.lock` is committed, so every
+`nix develop` resolves `nixpkgs`/`zig-overlay` HEAD fresh — no `nix`
+binary exists in the cloud sandbox to generate or validate a lock file
+(and installing a full Nix daemon there just to produce one was judged
+not worth the sandbox weight/time for a devShell-only flake — project
+owner's call, made explicitly rather than assumed). A contributor with
+real Nix on their machine should run `nix flake lock` once and commit the
+result; until then this remains unpinned by design, not by oversight.
 
 **Re-raising, not re-deciding, the one open structural question**: is a
 full top-level restructuring in scope — e.g. rethinking
@@ -427,10 +443,18 @@ Two gaps already surfaced by Phase 3 and never acted on.
   nonexistent file (confirmed the hint prints and exits 1); the Rust
   target check against this environment's already-installed target (a
   true no-op, confirmed by the full verify gate still passing with all
-  3 Rust apps building). **Still open**: `zig build -l`'s flat,
-  ungrouped ~100+ step dump and the missing "getting started" entry
-  point — those are a real redesign, not a bounded error-message fix,
-  and weren't attempted this pass.
+  3 Rust apps building). **The remaining "getting started" entry-point
+  gap is now also fixed** (a later session): bare `zig build` and the new
+  `zig build help` step print a curated, categorized command overview
+  instead of a one-line "no target provided" error, and
+  `docs/getting-started.md` is the real new-contributor walkthrough.
+  `zig build -l`'s flat ~100+ step listing itself is unchanged and stays
+  the exhaustive raw reference — Zig's build runner has no category/header
+  support to restructure it into, and renaming the existing step set to
+  sort into visual groups would break every current invocation for a
+  cosmetic gain now that a curated entry point exists elsewhere. See
+  `docs/verification-and-ci.md` §6 for the full writeup, including why a
+  Justfile was considered and not added.
 - **`build/Kernel.zig`'s "duplication" TODO — investigated, not
   mechanical.** Read both `buildKernel`/`buildTestKernel` in full: they
   can't share `buildRootModule()` because the release kernel roots at
@@ -455,9 +479,10 @@ Two gaps already surfaced by Phase 3 and never acted on.
 
 ### Open questions
 
-- Is the broader `zig build -l` grouping / "getting started" redesign
+- ~~Is the broader `zig build -l` grouping / "getting started" redesign
   wanted as a follow-up, or does the mechanical error-message fix above
-  cover what "refresh" meant?
+  cover what "refresh" meant?~~ **Answered and done** (project owner asked
+  for it explicitly in a later session) — see the entry above.
 - Does the project owner want the kernel-module test-wiring gap decided
   now (picking one of the two candidate fixes), or does it stay parked?
 

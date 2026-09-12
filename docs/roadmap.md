@@ -1,20 +1,20 @@
 # Innigkeit roadmap
 
 Single entry point after a context reset. Read this, then follow the links.
-Last updated 2026-07-09.
+Last updated 2026-09-09.
 
-**Verification gate:** `zig build verify -Darm=true` — runs `zig build check`, host tests (`test_native`), x64, and arm suites. Baseline: x64 157/157, arm 111 (+14 skipped), host `test_native` 89 — up from 153/107/85 after `elf/RawHeader.zig`'s host-testability fix added a fourth fuzz target (`RawHeader.parse()`, run the real coverage-guided fuzzer with `zig build test_native --fuzz`). Networking is x64-only in the kernel test suite today — arm's build doesn't reach `network/` at all yet (pre-existing, unrelated to fuzzing). See the full Phase 1-3 + next-epoch history in the Session log below for every earlier increment. Opt-in `-Dtpm=true` gate (build-managed swtpm + QEMU `tpm-crb`). Boot-security progress (SB-1..SB-6) tracked in `docs/secure-boot.md`.
+**Verification gate:** `zig build verify -Darm=true` — runs `zig build check`, host tests (`test_native`), x64, and arm suites. Baseline: x64 158/158, arm 112 (+14 skipped), host `test_native` 89 — up from 157/111/89 after the upstream-review-pass-2 heap/c.zig round-trip test (`docs/upstream-review-plan-2.md`) added the one kernel-side test that surfaced two real bugs in previously-uncalled code. With `-Dtpm=true` also set: x64 175/175 (2 skipped), arm 129/129 (31 skipped). Networking is x64-only in the kernel test suite today — arm's build doesn't reach `network/` at all yet (pre-existing, unrelated to fuzzing). See the full Phase 1-3 + next-epoch history in the Session log below for every earlier increment. Opt-in `-Dtpm=true` gate (build-managed swtpm + QEMU `tpm-crb`). Boot-security progress (SB-1..SB-6) tracked in `docs/secure-boot.md`.
 
 ## Companion docs
 
+- `docs/getting-started.md` — first-time walkthrough from a fresh clone to a passing `zig build verify`; bare `zig build`/`zig build help` print a shorter version of the same menu
 - `docs/DESIGN.md` — coding ideology, formatting rules, `safe.memcpy` analysis
 - `docs/design-goals.md` — long-term pillars and decision records
 - `docs/aarch64-port.md` — ARM port log and M3 plan
 - `docs/syscall-abi.md` / `docs/syscall-foundation-plan.md` — syscall dispatch contract
 - `docs/secure-boot.md` — **(active)** UEFI Secure Boot + TPM 2.0 + disk encryption
 - `docs/verification-and-ci.md` — **(active)** canonical map from test layer → build step → CI job → release; records that `main`'s CI was broken for months (missing codesign keygen + rustup target) and the fix, not yet pushed
-- `docs/test-harness-plan.md` — **(active)** user-process integration test harness; Stages 0-4 done (TH-1 passes on x64; arm skips pending a newly-discovered runtime-spawn panic, see arm.md); TH-2/TH-4/TH-5 remain deferred
-- `docs/upstream-review-plan.md` — **(mostly closed out)** CascadeOS/hiillos/imaginarium/Dimmer comparison pass; see "Session log" below for what came out of it
+- `docs/test-harness-plan.md` — **(active)** user-process integration test harness; Stages 0-4 done (TH-1 now passes on x64 *and* aarch64 — real arm SVC dispatch closed the last gap, see arm.md; riscv64 stays skipped, no syscall dispatch of its own yet); TH-2/TH-4/TH-5 remain deferred
 - `docs/wm-wayland-plan.md` — **(stashed)** native WM → Wayland compositor; pure cores done and host-tested, parked behind security/test work
 - `docs/phase3-review-plan.md` — **(complete)** repo-wide expansion of the Phase 2 review to every remaining subsystem; Tiers 1-3 (Stages 6-18, ~49,700 lines) and Tier 4 (Stages 19-24, ~12,540 lines — directories the original plan missed entirely, discovered via a post-completion cross-check) both fully done — Phase 3's entire currently-planned scope is finished
 - `docs/next-epoch-plan.md` — **(active)** the next round of work named by the project owner right after Phase 3 closed: linter adoption (zlint/zwanzig/zlinter researched and compared; zwanzig spiked and dropped, zlinter confirmed), repository reorganization (**done** — itest fixtures + launch.json), a build-system refresh, expanded unit/integration/fuzz testing, and a NixOS-inspired long-range design plan (Zig std → C std → nixpkgs).
@@ -30,12 +30,11 @@ Last updated 2026-07-09.
 | Scheduler Phase A (IPI, work stealing, idle-first wake) | **DONE** | CLAUDE.md |
 | Scheduler Phase B (QoS weight/slice + `thread_set_qos`) | **DONE** | `QoS.md` |
 | Table-based syscall dispatch + unified `Error` ABI | **DONE** | `syscall-abi.md` |
-| `memory.safe.memcpy` fault-fixup | **DONE on x64**; arm pending fault routing | `DESIGN.md` Part 3 |
+| `memory.safe.memcpy` fault-fixup | **DONE on x64 and arm** (arm's own routing was already live; its unit tests were just stale-gated to x64-only) | `DESIGN.md` Part 3 |
 | WM substrate (geometry / protocol / client / compositor / loop) | **DONE (host-tested), STASHED** | `wm-wayland-plan.md` |
 | Build-system integration code review | **DONE** | patches 1-11 |
 | Test-harness redesign, Stage 0 (dead test wired in) | **DONE** | `test-harness-plan.md`, patch 14 |
 | Test-harness redesign, Stage 1 (`elf_loader.zig` extraction) | **DONE** | `test-harness-plan.md`, patch 16 |
-| CascadeOS/hiillos/imaginarium/Dimmer comparison pass | **DONE**, 29 patches | `upstream-review-plan.md` |
 | SYSRET non-canonical-RCX boundary fix (all arches) | **DONE** | patch 19 |
 | Per-process fault isolation (`onPageFault`, TH-3 prerequisite) | **DONE** | patch 26 |
 | `.?` → `orelse unreachable` sweep (98 sites, 36 files) | **DONE** | patch 29 |
@@ -61,7 +60,7 @@ Last updated 2026-07-09.
 Full craft guide in `docs/DESIGN.md`. Headlines:
 
 1. No physical register names in generic code — cross the arch boundary through `architecture.Functions` slots.
-2. Fallible user-pointer access must return an error, not panic. The `memory.safe.memcpy` fault-fixup is the engine; arm needs its data-abort path wired to `memory.onPageFault`.
+2. Fallible user-pointer access must return an error, not panic. The `memory.safe.memcpy` fault-fixup is the engine, wired and verified on both x64 and arm (arm's data-abort path was already routed to `memory.onPageFault` — its tests were just left stale-gated to x64-only, see `DESIGN.md` Part 3).
 3. `zig build check` doesn't validate inline assembly. Always run a real kernel build after touching arch `asm`.
 4. Make illegal states unrepresentable — tagged-union types over enum+cast patterns.
 5. Bootloader memory maps aren't always page-aligned (aarch64 reports sub-page entries; the direct-map builder rounds and clamps).
@@ -121,21 +120,21 @@ session log) — do this before the next normal `zig build` invocation.
 
 ### Phase 3 — big feature paths
 
-Not started. In order: arm support (see the two tracked arm gaps below,
-plus `docs/aarch64-port.md`'s M3 SMP plan), boot & at-rest security
+Not started. In order: arm support (spawn/SVC dispatch gaps now fixed,
+see below; `docs/aarch64-port.md`'s M3 SMP plan remains), boot & at-rest security
 (`docs/secure-boot.md`), deeper `std` integration leading into Wayland
 (`docs/wm-wayland-plan.md`).
 
 ### Carried-over tracked items (from before the 3-phase directive)
 
-**Two arm gaps** (surfaced by the code-review pass and Test-harness Stage 4, neither fixed yet):
-- **Sibling-thread process termination**: `onPageFault`'s fault-kill path and `exit_process` both terminate only the calling thread via the shared `Process.terminateCallingThread`; a thread spawned via `spawn_thread` keeps running against a process another thread already proved unrecoverable, and `exit_status` races unsynchronized against a concurrent terminator. Needs IPI-based sibling force-termination — a real (if narrow-blast-radius) kernel task, not a quick patch.
-- **Runtime process spawn panics on arm**: `Process.spawnFromInitfs` — i.e. spawning a *second* process after boot, via a freshly created kernel thread — triggers a recursive "current-EL SP_EL1 synchronous" exception inside `arm.vectors.vector_common`. The boot-time path (`stage4.zig`, which loads the *first* process inline, no new kernel thread) is unaffected. `testing/integration.test.zig` skips on arm pending root-cause. See `.claude/rules/arm.md`. **Priority arm bug per the project owner** when Phase 3's arm work starts.
+**Sibling-thread process termination — IMPLEMENTED and verified end-to-end.** `Process.terminateCallingThread` now marks every sibling thread (`Task.pending_kill`, checked at the same safe point ordinary deferred preemption already uses in `Current.decrementInterruptDisable`) and, on x64, broadcasts a real kill IPI (`kill_request` vector 252, `architecture.interrupts.sendKillIPI`) so one running on another executor notices promptly instead of waiting for the periodic tick; a `Process.terminating` compare-exchange also closes the previously-unsynchronized "whichever `exit_status` write happens last wins" race between concurrent terminators. Deliberately broadcasts rather than targeting a specific executor: reading another task's `state`/`known_executor` from a foreign core without that core's own scheduler lock risks a torn union read, not just staleness, so every other core instead re-checks its OWN current task at its own next safe point — always same-core, never racy. arm/riscv have no kill IPI (both single-executor so far, same as `sendRescheduleIPI`) and rely on the periodic-tick backstop.
+
+**The end-to-end test (`testing/fixtures/itest_sibling_kill`) initially looked blocked by a separate "kernel hangs" bug — that read was wrong, and the real bug (in this feature's own code) is now fixed.** Full writeup in `.claude/rules/x64.md`. Short version: what first looked like `spawn_thread`'s second-thread `enterUserspace` hanging the whole kernel was actually a clean watchdog timeout (confirmed by re-running with a short watchdog and `-Dinterrupts=true` — the suite finished normally reporting one FAILED test, and the "repeating fault" in the `-d int` trace resolved via `addr2line` to the idle loop, not a crash). The real bug: `Process.create()`'s slab-reuse reset (this project already documents "process slots silently carry stale state if you don't [reinitialize]" as a hard invariant in `.claude/rules/capabilities.md`) explicitly resets `entitlements`/`fd_table` but was never updated to also reset the newly-added `Process.terminating` field, so a process reusing a slab slot from a previously-exited process inherited `terminating = true` and silently skipped both `exit_status` and the sibling-kill cascade on its own first exit. Fixed. **Also found and fixed in the same investigation, unrelated to sibling-kill itself**: `CapabilityTable.deinitAll()`'s doc comment says "called when a process exits," but its only real call site was the slab cache's destructor (fires only when a whole slab is reclaimed, not on ordinary process exit) — every process leaked its entire capability table on exit, and a reused Process slab slot handed the next process a capability table still populated with the previous process's live entries (a cross-process capability leak, not just a resource leak). Fixed by calling `cap_table.deinitAll()` from `Process.cleanupProcess`. Verified: the integration test now passes for real on both x64 (160/160) and arm (158/158, 11 skipped), confirmed via `zig build verify -Darm=true -Dtpm=true` with no regressions elsewhere.
+
+**Runtime process spawn on arm — FIXED, no longer a gap.** The former "priority arm bug" (`Process.spawnFromInitfs`'s recursive SP_EL1 exception) and the follow-on "arm has no SVC dispatch at all" gap it exposed are both closed — see `.claude/rules/arm.md`'s "Runtime process spawn on arm" and "EL0 synchronous exceptions" sections. `testing/integration.test.zig`'s two spawn-based tests now run and pass on aarch64 (riscv64 stays skipped, no syscall dispatch of its own yet).
 
 **Three explicitly deferred judgment calls** — `paging`→`mem` rename, hiillos's IPC Sender badge, URI-style service addressing. Project owner said "none of these right now" (2026-07-06) — stay parked, no further unilateral research.
 
 **Test-harness TH-2/TH-4/TH-5** (see `test-harness-plan.md`'s own "Explicitly deferred" section) — IPC + cap transfer, kill/lifecycle beyond the cooperative path, WM client↔server. Each needs its own prerequisite work first.
-
-**Deeper CascadeOS/hiillos/imaginarium source review** (safe.memcpy/TLB-flush cross-check, broader OS survey for IPC design) — project owner said "hold off for now" (2026-07-06).
 
 **Harden the user-memory boundary** — fold remaining streaming `userSlice`+`UserAccess` sites onto `safe.memcpy`; bias new syscalls toward cap-based zero-copy. See `DESIGN.md` Part 3. Folds into Phase 3's arm/security work.

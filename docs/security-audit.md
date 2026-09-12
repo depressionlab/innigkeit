@@ -65,13 +65,16 @@ under-spinlock case.
   redirects at the very top — before `decrementInterruptDisable` or any
   demand-paging — so it is safe under a spinlock (`onInterruptExit` restores the
   saved interrupt-disable count). x64 uses an aligned `mov` (atomic+acquire
-  under TSO) with a recovery label; arm uses `ldar` with recovery pending the
-  arm data-abort routing. Fault-injection test added (x64).
+  under TSO) with a recovery label; arm uses `ldar` with the same recovery
+  mechanism. Fault-injection test added (x64 and, confirmed in a later
+  session, arm — see `docs/DESIGN.md` Part 3).
 
-**F1 is now closed on x64** — every user-pointer access on the boundary
-(streaming copies + the futex atomic load) is fault-safe. The arm side gains the
-same protection once its data aborts route to `onPageFault` (the one shared
-follow-up for both `safeMemcpy` and `safeAtomicLoad32`).
+**F1 is now closed on both x64 and arm** — every user-pointer access on the
+boundary (streaming copies + the futex atomic load) is fault-safe.
+Arm's data-abort routing turned out to already be implemented at the time
+this audit was written; what was actually missing was verification (its two
+direct fault-fixup tests were stale-gated to x64-only) rather than the
+routing itself. See `docs/DESIGN.md` Part 3 for the correction.
 
 ## VERIFIED low-severity / defense-in-depth
 

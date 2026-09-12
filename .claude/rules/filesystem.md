@@ -49,6 +49,26 @@ out-of-bounds read.
   are all already correct) — not evidence this directory needs a broader
   re-audit.
 
+## `simple_fs`'s per-process `open_files` table leaked across process slab reuse — FOUND AND FIXED
+
+`user/handlers/filesystem.zig`'s `fs_read`/`fs_write`/`fs_close` trust any
+non-null `Process.open_files[idx]` entry unconditionally — no check that
+the calling process is the one that actually opened it, only that the
+slot isn't empty. `Process.create()` never reset this array on slab reuse
+(it resets `entitlements`/`fd_table` but had no equivalent line for
+`open_files`), so a process spawned into a reused `Process` slab slot
+inherited whatever `OpenFile`s (`start_sector`/`size`/`pos`/`writable`)
+the previous, unrelated, already-exited occupant had open — accessible
+under FD numbers 3..14 the new process never called `fs_open` on itself.
+A real cross-process file-handle leak (not just a resource leak; `OpenFile`
+is a plain value with nothing to free), reachable by any process since
+`fs_open`/`fs_read`/`fs_write`/`fs_close` are all entitlement-gated `.none`.
+Fixed: `Process.create()` now resets `open_files` to all-null, and
+`Process.cleanupProcess` now closes (via `simple_fs.close()`, flushing any
+pending writable-file size update) every still-open entry before the
+process returns to the cache — see `.claude/rules/capabilities.md` for the
+sibling `cap_table` bug found in the same audit, same root cause.
+
 ## `Ext4.mount()` is not covered by a host-testable regression harness
 
 Unlike `initfs.zig`'s ustar parser (tested against a synthetic in-memory
