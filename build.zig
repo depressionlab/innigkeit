@@ -139,6 +139,48 @@ pub fn build(b: *std.Build) !void {
     );
 
     Lint.register(b);
+
+    const help_step = b.step("help", "Show a categorized overview of common commands");
+    help_step.makeFn = &printMenuMakeFn;
+}
+
+fn printMenuMakeFn(_: *std.Build.Step, _: std.Build.Step.MakeOptions) anyerror!void {
+    std.debug.print(
+        \\Innigkeit: capability-based kernel
+        \\
+        \\Common commands:
+        \\
+        \\  Getting started
+        \\    zig build check                 compile-check everything (fastest signal)
+        \\    zig build verify                the verification gate: check + host tests + x64 suite
+        \\    zig build verify -Darm=true     also run the arm (AArch64) suite
+        \\
+        \\  Run
+        \\    zig build run_x64               boot in QEMU (x86-64)
+        \\    zig build run_arm               boot in QEMU (AArch64)
+        \\
+        \\  Test
+        \\    zig build test_x64              build test kernel + run its suite in QEMU (x64)
+        \\    zig build test_arm              same, AArch64
+        \\    zig build test_native           host-only unit tests, no QEMU
+        \\    zig build verify -Dtpm=true       also run the opt-in TPM 2.0 suite
+        \\    zig build verify -Dsecboot=true   also run the opt-in UEFI Secure Boot suite
+        \\
+        \\  Build
+        \\    zig build build_all             real link build for every arch (incl. riscv), no QEMU
+        \\    zig build image_x64             build a bootable x86-64 disk image
+        \\
+        \\  Codesign
+        \\    zig build codesign -- keygen     generate keys/codesign_{{public,private}}.key
+        \\    zig build codesign -- sign <elf> <manifest.toml> <out.codesig>
+        \\    zig build codesign -- verify <elf> <sig.codesig>
+        \\
+        \\Apps, libraries, and tools each get their own step (e.g. `zig build core`
+        \\builds and runs the `core` library's host tests). For the full flat list:
+        \\
+        \\    zig build -l
+        \\
+    , .{});
 }
 
 fn disableUnsupportedSteps(b: *std.Build) !void {
@@ -162,17 +204,10 @@ fn disableUnsupportedSteps(b: *std.Build) !void {
     b.uninstall_tls.description = "This step is unsupported by Innigkeit!";
     b.uninstall_tls.step.makeFn = &uninstallMakeFn;
 
-    const defaultMakeFn = struct {
-        fn defaultMakeFn(_: *std.Build.Step, _: std.Build.Step.MakeOptions) anyerror!void {
-            std.debug.print("no build target provided! to list available build targets, run: 'zig build -l'\n", .{});
-            std.process.exit(1);
-        }
-    }.defaultMakeFn;
-
     b.default_step = try b.allocator.create(std.Build.Step);
     b.default_step.* = .init(.{
         .id = .custom,
-        .makeFn = &defaultMakeFn,
+        .makeFn = &printMenuMakeFn,
         .name = "default step",
         .owner = b,
     });
