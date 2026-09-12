@@ -179,7 +179,12 @@ pub fn buildQemuCommand(
         },
         .host_uefi => |host| {
             run.addArgs(&.{ "-drive", b.fmt("if=pflash,format=raw,unit=0,readonly=on,file={s}", .{host.code}) });
-            const vars_cp = b.addSystemCommand(&.{"cp"});
+            const vars_cp = b.addSystemCommand(&.{ "sh", "-c" });
+            vars_cp.addArg(
+                \\set -e
+                \\cp "$1" "$2"
+                \\chmod u+w "$2"
+            );
             vars_cp.addArg(host.vars);
             const vars_copy = vars_cp.addOutputFileArg("host-vars.fd");
             run.step.dependOn(&vars_cp.step);
