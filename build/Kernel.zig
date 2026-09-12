@@ -34,6 +34,10 @@ pub const Collection = std.AutoHashMapUnmanaged(Bundle.Architecture, Kernel);
 /// The name of the root component from which DAG traversal begins.
 const kernel_entry = "innigkeit";
 
+/// Memoizes `builtInitfs` per `(architecture, include_test_only)`.
+var initfs_cache: [std.enums.values(Bundle.Architecture).len][2]?std.Build.LazyPath =
+    @splat(@splat(null));
+
 /// Path to the final kernel binary, used by `ImageStep` to embed the kernel.
 kernel_binary: std.Build.LazyPath,
 
@@ -81,7 +85,7 @@ fn buildKernel(
 ) !Kernel {
     // Build the initfs archive once; share between check and release modules.
     // The release kernel excludes `test_only` fixture apps.
-    const initfs_archive = buildInitfs(b, architecture, apps, tools, extra_binaries, false);
+    const initfs_archive = buildInitfsCached(b, architecture, apps, tools, extra_binaries, false);
 
     // Check compilation: verifies correctness without emitting a binary.
     wrapper.registerCheck(b.addExecutable(.{
@@ -168,7 +172,7 @@ pub fn buildTestKernel(
 ) !Kernel {
     // TODO: unify this with buildKernel()
     // The test kernel includes `test_only` fixture apps alongside the normal ones.
-    const initfs_archive = buildInitfs(b, architecture, apps, tools, extra_binaries, true);
+    const initfs_archive = buildInitfsCached(b, architecture, apps, tools, extra_binaries, true);
 
     // Build the component graph exactly as the normal kernel does.
     const graph = try resolveComponentGraph(b);
@@ -310,6 +314,22 @@ fn buildInitfs(
         else => unreachable,
     });
     archive_gen_file.path = "__initfs_zls_placeholder__";
+    return archive;
+}
+
+fn buildInitfsCached(
+    b: *std.Build,
+    architecture: Bundle.Architecture,
+    apps: App.Collection,
+    tools: Tool.Collection,
+    extra_binaries: ?[]const ExtraBinary,
+    include_test_only: bool,
+) std.Build.LazyPath {
+    const slot = &initfs_cache[@intFromEnum(architecture)][@intFromBool(include_test_only)];
+    if (slot.*) |cached| return cached;
+
+    const archive = buildInitfs(b, architecture, apps, tools, extra_binaries, include_test_only);
+    slot.* = archive;
     return archive;
 }
 

@@ -73,7 +73,7 @@ pub fn buildQemuCommand(
     run.addArgs(&.{ "-boot", "menu=off" });
     run.addArgs(&.{ "-d", "guest_errors" });
     run.addArgs(&.{ "-m", b.fmt("{d}", .{emu.memory}) });
-    run.addArgs(&.{ "-smp", b.fmt("{d}", .{emu.cpus}) });
+    run.addArgs(&.{ "-smp", b.fmt("{d}", .{emu.cpus orelse 4}) });
 
     // Boot disk (for now we use legacy virtio-blk for simpler I/O register access).
     run.addArgs(&.{ "-device", "virtio-blk-pci,drive=drive0,bootindex=0,disable-modern=on,disable-legacy=off", "-drive" });
@@ -204,7 +204,6 @@ pub fn buildQemuCommand(
     return run;
 }
 
-/// TODO: adjustable test options (set to 1 to verify single core)
 /// aarch64 runs single-core for now: we only have the
 /// bootstrap executor for now (AP startup needs PSCI CPU_ON, TODO), so booting
 /// extra vCPUs would create executor structs for CPUs that never run and make
@@ -239,7 +238,7 @@ pub fn buildTestQemuStep(
     tpm_harness: ?*TpmHarness,
 ) !*VerdictStep {
     var test_opts = options;
-    test_opts.emulator.cpus = testCpus(arch);
+    test_opts.emulator.cpus = options.emulator.cpus orelse testCpus(arch);
     // TODO: determine the best value for this
     test_opts.emulator.memory = 256;
     test_opts.emulator.display = false;

@@ -188,7 +188,7 @@ fn bootSecboot(
     opts: BootSecbootOptions,
 ) !*VerdictStep {
     var test_opts = options;
-    test_opts.emulator.cpus = 4;
+    test_opts.emulator.cpus = options.emulator.cpus orelse 4;
     test_opts.emulator.memory = 256;
 
     var log: std.Build.LazyPath = undefined;

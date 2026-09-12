@@ -27,7 +27,7 @@ pub fn resolveTarget(self: Bundle, b: *std.Build) std.Build.ResolvedTarget {
             b.resolveTargetQuery(.{})
         else switch (self.architecture) {
             .arm => b.resolveTargetQuery(.{ .cpu_arch = .aarch64 }),
-            .riscv => b.resolveTargetQuery(.{ .cpu_arch = .riscv64 }),
+            .riscv => b.resolveTargetQuery(.{ .cpu_arch = .riscv64, .os_tag = .linux }),
             .x64 => b.resolveTargetQuery(.{ .cpu_arch = .x86_64 }),
         },
     };
