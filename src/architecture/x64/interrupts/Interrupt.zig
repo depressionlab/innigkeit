@@ -317,7 +317,8 @@ pub const Interrupt = enum(u8) {
 
     per_executor_periodic = 48,
 
-    // Interrupts (253-255): x64 supports up to 256 interrupt vectors
+    // Interrupts (252-255): x64 supports up to 256 interrupt vectors
+    kill_request = 252,
     reschedule = 253,
     flush_request = 254,
     spurious_interrupt = 255,
@@ -325,7 +326,7 @@ pub const Interrupt = enum(u8) {
     _,
 
     pub const first_available_interrupt = @intFromEnum(Interrupt.per_executor_periodic) + 1;
-    pub const last_available_interrupt = @intFromEnum(Interrupt.reschedule) - 1;
+    pub const last_available_interrupt = @intFromEnum(Interrupt.kill_request) - 1;
 
     /// Checks if the given interrupt vector pushes an error code.
     ///

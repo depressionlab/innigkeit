@@ -34,6 +34,35 @@ pub fn sendRescheduleIPI(executor: *innigkeit.Executor) void {
     sendFixedIPI(.reschedule, executor);
 }
 
+/// Broadcast a kill IPI to every other executor.
+///
+/// A kill IPI has the same general broadcast shape as `sendPanicIPI`,
+/// with `all_excluding_self` and no specific target, but it is fixed
+/// and maskable rather than NMI, and wrapped like `sendFixedIPI` since
+/// (unlike a panic, which never races itself) this can be sent from an
+/// interrupt context that a nested interrupt could otherwise interleave
+/// with.
+///
+/// The handler is (nearly) empty. Instead, we force every other executor
+/// through an interrupt return, where it re-checks whichever task it is
+/// currently running for `Task.pending_kill`.
+pub fn sendKillIPI() void {
+    const interrupts_were_enabled = x64.instructions.interruptsEnabled();
+    x64.instructions.disableInterrupts();
+    defer if (interrupts_were_enabled) x64.instructions.enableInterrupts();
+
+    var icr = globals.lapic.readInterruptCommandRegister();
+    icr.vector = .kill_request;
+    icr.delivery_mode = .fixed;
+    icr.destination_mode = .physical;
+    icr.level = .assert;
+    icr.trigger_mode = .edge;
+    icr.destination_shorthand = .all_excluding_self;
+    icr.destination_field = .{ .x2apic = 0 };
+
+    globals.lapic.writeInterruptCommandRegister(icr);
+}
+
 /// Send a fixed-delivery, edge-triggered IPI to one executor.
 ///
 /// Interrupts are disabled across the ICR read-modify-write: reschedule IPIs

@@ -52,6 +52,19 @@ interrupts: struct {
     /// must check `architecture.interrupts.reschedule_ipi_available`).
     sendRescheduleIPI: ?fn (executor: *innigkeit.Executor) void = null,
 
+    /// Broadcast a kill IPI to every other executor.
+    ///
+    /// The handler is (nearly) empty, mirroring `sendRescheduleIPI`. The
+    /// IPI only exists to force an interrupt return on every other executor
+    /// so each re-checks whichever task it is currently running for
+    /// `innigkeit.Task.pending_kill` at the usual deferred-preemption safe
+    /// point.
+    ///
+    /// Optional: architectures without it (arm/riscv right now, both single-
+    /// executor so far) fall back to the periodic tick (calls must check
+    /// `architecture.interrupts.kill_ipi_available`).
+    sendKillIPI: ?fn () void = null,
+
     /// Get the EOI type for the given external interrupt if known.
     eoiType: ?fn (external_interrupt: u32) ?architecture.interrupts.Interrupt.Handler.EOI = null,
 

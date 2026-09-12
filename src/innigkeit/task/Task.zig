@@ -82,6 +82,12 @@ enable_access_to_user_memory_count: std.atomic.Value(u32) = .init(0),
 /// a copy failure (and redirect the faulting instruction) instead of panicking.
 safe_result_slot: std.atomic.Value(?*innigkeit.memory.safe.ResultSlot) = .init(null),
 
+/// Set (with `.release`) by a sibling thread's `user.Process.terminateCallingThread`
+/// to make this task for termination at its next safe point. Only ever set on `.user`
+/// tasks: a sibling spawned via `spawn_thread` in the same process as a thread that
+/// just proved the process unrecoverable.
+pending_kill: std.atomic.Value(bool) = .init(false),
+
 spinlocks_held: u32,
 scheduler_locked: bool,
 

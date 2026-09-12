@@ -70,6 +70,10 @@ pub fn loadStandardInterruptHandlers() void {
         .eoi = .before,
         .call = .prepare(interrupt_handlers.rescheduleHandler, .{}),
     };
+    globals.handlers[@intFromEnum(Interrupt.kill_request)] = .{
+        .eoi = .before,
+        .call = .prepare(interrupt_handlers.killRequestHandler, .{}),
+    };
     globals.handlers[@intFromEnum(Interrupt.per_executor_periodic)] = .{
         .eoi = .before,
         .call = .prepare(interrupt_handlers.perExecutorPeriodicHandler, .{}),
