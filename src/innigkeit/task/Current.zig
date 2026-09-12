@@ -44,6 +44,22 @@ pub fn decrementInterruptDisable(self: Current) void {
         self.setKnownExecutor();
         architecture.interrupts.enable();
 
+        // Deferred sibling kill: a sibling thread in the same process decided (via
+        // `terminateCallingThread`'s cascade) that this task must die too.
+        // We use the same safe-point preconditions as the deferred preemption below,
+        // checked first since there is no point yielding a task that is about to be
+        // torn down anyway.
+        if (self.task.pending_kill.load(.acquire) and
+            self.task.spinlocks_held == 0 and
+            !self.task.is_scheduler_task and
+            self.task.state == .running)
+        {
+            @branchHint(.cold);
+            if (core.is_debug) std.debug.assert(self.task.type == .user);
+            const process = innigkeit.user.Thread.from(self.task).process;
+            process.terminateCallingThread(process.exit_status);
+        }
+
         // Deferred preemption: if a timer interrupt set needs_resched while we were
         // in an interrupt-disabled critical section, honour it now that we're back on
         // the task stack with no spinlocks held and no nesting.

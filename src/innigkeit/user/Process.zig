@@ -44,6 +44,11 @@ exit_notify: ?*innigkeit.capabilities.Notify = null,
 /// Exit status set by exit_process syscall; 0 if never set (killed/crashed).
 exit_status: u8 = 0,
 
+/// Set (via compare-exchange) by whichever thread's call to
+/// `terminateCallingThread` first decides this process must die, before
+/// it touches `exit_status` or any sibling thread.
+terminating: std.atomic.Value(bool) = .init(false),
+
 /// Entitlements verified from the binary's .codesig blob at spawn time.
 /// The kernel enforces these at syscall boundaries.
 /// Processes created directly by the kernel (e.g. init) get all entitlements.
@@ -98,6 +103,13 @@ pub fn create(options: CreateOptions) !*Process {
         // Same slab-reuse invariant: descriptors from a previous process in
         // this slot must not leak into the new one.
         process.fd_table.reset();
+
+        // Same slab-reuse invariant: a previous occupant's `terminating`
+        // (set true the moment it calls `terminateCallingThread`) must not
+        // persist, otherwise this process's own first exit sees the
+        // compare-exchange already lost, skipping both `exit_status` and the
+        // sibling-kill cascade entirely.
+        process.terminating.store(false, .monotonic);
 
         if (core.is_debug) std.debug.assert(process.reference_count.load(.monotonic) == 0);
 
@@ -204,19 +216,47 @@ pub const ExitStatus = struct {
 /// Shared by the `exit_process` syscall, the page-fault handler's
 /// process-kill path, and per-architecture unhandled-exception isolation
 /// (e.g. `architecture/x64/interrupts/handlers.zig`'s `unhandledException`).
-/// Only terminates the *calling* thread: a sibling thread created via
-/// `spawn_thread` is unaffected and keeps running; full process teardown
-/// happens automatically once every thread has dropped its reference (see
-/// `reference_count`).
 ///
-/// TODO (multi-core): IPI sibling threads and force-terminate them here
-/// before relying on refcount-to-zero cleanup. Until then, concurrent
-/// terminators (e.g. a crash racing a sibling's own `exit_process` call)
-/// write `exit_status` with no synchronization, and whichever writes last wins.
+/// The *first* thread to reach here for a given process (see `terminating`)
+/// also marks every sibling thread (`spawn_thread`-created or otherwise) for
+/// termination and, where the architecture supports it, sends a kill IPI so
+/// one currently running on another executor notices promptly instead of
+/// waiting for the next periodic tick (see `forceTerminateSiblings`).
+///
+/// A second, concurrent call (e.g. a crash racing a sibling's own `exit_process`)
+/// skips the cascade and just terminates itself; the first call's cascade already
+/// reaches every other sibling, and `exit_status` is no longer written racily since
+/// only the winning call touches it.
 pub fn terminateCallingThread(self: *Process, status: u8) noreturn {
-    self.exit_status = status;
+    if (self.terminating.cmpxchgStrong(false, true, .acq_rel, .acquire) == null) {
+        @branchHint(.cold);
+        self.exit_status = status;
+        self.forceTerminateSiblings();
+    }
     const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
     scheduler_handle.terminate();
+}
+
+/// Marks every **other** thread of this process for termination (`Task.pending_kill`)
+/// and, if the architecture supports it, broadcasts a kill IPI so any of them
+/// currently running on another executor notices promptly.
+fn forceTerminateSiblings(self: *Process) void {
+    self.threads_lock.readLock();
+    defer self.threads_lock.readUnlock();
+
+    const current_task = innigkeit.Task.Current.get().task;
+
+    var any_sibling = false;
+    var it = self.threads.iterator();
+    while (it.next()) |entry| {
+        const thread = entry.key_ptr.*;
+        if (&thread.task == current_task) continue;
+        thread.task.pending_kill.store(true, .release);
+        any_sibling = true;
+    }
+
+    if (any_sibling and comptime architecture.interrupts.kill_ipi_available)
+        architecture.interrupts.sendKillIPI();
 }
 
 /// A single already-resolved capability grant, ready to insert into the
@@ -556,6 +596,10 @@ const ProcessCleanup = struct {
         // Close any descriptors the process left open (synchronizes writable files;
         // may block on disk I/O, which is fine in this kernel task).
         process.fd_table.closeAll();
+
+        // Release every capability this process ever held before the process
+        // goes back to the slab cache.
+        process.cap_table.deinitAll();
 
         process.threads.clearAndFree(innigkeit.memory.heap.allocator);
         process.address_space.reinitializeAndUnmapAll();

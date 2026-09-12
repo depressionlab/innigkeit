@@ -34,6 +34,14 @@ idle: std.atomic.Value(bool) = .init(false),
 /// IPI handler.
 reschedule_ipi_count: std.atomic.Value(u64) = .init(0),
 
+/// Number of kill IPIs received by this executor.
+///
+/// Diagnostics/tests only; incremented by the (otherwise empty) kill IPI
+/// handler. The real effect of a kill IPI is indirect: it forces an
+/// interrupt return on whichever task this executor is currently running,
+/// which re-checks that task's `Task.pending_kill`.
+kill_ipi_count: std.atomic.Value(u64) = .init(0),
+
 /// Number of tasks this executor's idle loop has stolen from other executors.
 ///
 /// Diagnostics/tests only.

@@ -69,6 +69,26 @@ pub fn sendRescheduleIPI(executor: *innigkeit.Executor) callconv(core.inline_in_
     )(executor);
 }
 
+/// Whether the current architecture implements a broadcast kill IPI.
+///
+/// Known on compile time; on architectures without it, guarded callers
+/// compile to nothing and a sibling running elsewhere is picked up by
+/// the periodic tick instead.
+pub const kill_ipi_available: bool =
+    architecture.current_functions.interrupts.sendKillIPI != null;
+
+/// Broadcast a kill IPI to every other executor, so any of them currently
+/// running a to-be-killed sibling thread notices promptly instead of waiting
+/// for the next periodic tick.
+///
+/// Callers must check `kill_ipi_available` first.
+pub fn sendKillIPI() callconv(core.inline_in_non_debug) void {
+    architecture.getFunction(
+        architecture.current_functions.interrupts,
+        "sendKillIPI",
+    )();
+}
+
 /// Get the EOI type for the given external interrupt if known.
 pub fn eoiType(external_interrupt: u32) callconv(core.inline_in_non_debug) ?Interrupt.Handler.EOI {
     return architecture.getFunction(

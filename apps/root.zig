@@ -26,4 +26,9 @@ pub const apps: []const AppDescription = &.{
         .root_dir = "testing/fixtures",
         .test_only = true,
     },
+    .{
+        .name = "itest_sibling_kill",
+        .root_dir = "testing/fixtures",
+        .test_only = true,
+    },
 };

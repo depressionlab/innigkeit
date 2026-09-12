@@ -64,3 +64,18 @@ test "integration: unhandled user-mode exception isolates to the calling process
         @as(u8, @truncate(bits >> 8)),
     );
 }
+
+test "integration: a busy-looping sibling thread is force-terminated when its process exits" {
+    // Same arch support as the tests above: sibling force-termination only
+    // needs spawn_thread + exit_process, both already exercised by
+    // itest_spawn_wait; riscv64 has no syscall dispatch at all yet.
+    if (comptime builtin.cpu.arch != .x86_64 and builtin.cpu.arch != .aarch64) return error.SkipZigTest;
+
+    const result = try innigkeit.user.Process.spawnFromInitfs(.{
+        .path = "itest_sibling_kill",
+    });
+    defer result.exit_notify.unref();
+
+    const bits = try waitForNotify(result.exit_notify, 0xFF_01);
+    try std.testing.expectEqual(@as(u8, 77), @as(u8, @truncate(bits >> 8)));
+}

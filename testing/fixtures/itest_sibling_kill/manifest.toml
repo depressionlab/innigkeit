@@ -1,0 +1,8 @@
+name = "itest_sibling_kill"
+version = "0.1.0"
+description = "Test-only fixture: spawns a busy-looping sibling thread then exits, for the sibling-force-termination integration test"
+
+[entitlements]
+spawn = false
+
+[trust]
