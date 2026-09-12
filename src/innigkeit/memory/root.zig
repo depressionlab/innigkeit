@@ -303,10 +303,10 @@ pub fn changeProtection(
 /// instead of panicking the kernel.
 ///
 /// Fault recovery is wired on both x64 and arm (whose page-fault/data-abort
-/// paths both route here). On arm it is not yet exercised by any passing test:
-/// doing so needs a running user process to trigger a fault from within a
-/// syscall handler, which is bloked on the separate, already-tracked arm runtime-
-/// spawn panic.
+/// paths both route here).
+///
+/// TODO: make a dedicated integration-test fixture for a bad pointer reaching
+/// here through a real syscall handler on arm.
 pub const safe = struct {
     pub const MemcpyError = error{BadAddress};
 
@@ -559,10 +559,8 @@ fn onKernelPageFault(
 }
 
 test "safe.memcpy: unmapped source returns BadAddress instead of panicking" {
-    // The fault-recovery fixup is only wired on x64 today (arm data aborts are
-    // not yet routed to onPageFault), so on arm this deliberate fault would hit
-    // the diagnostic panic.
-    if (comptime @import("builtin").cpu.arch != .x86_64) return error.SkipZigTest;
+    // riscv64 has no data-abort/page-fault routing of its own yet.
+    if (comptime @import("builtin").cpu.arch != .riscv64) return error.SkipZigTest;
 
     const address_space = kernelAddressSpace();
 
@@ -583,9 +581,8 @@ test "safe.memcpy: unmapped source returns BadAddress instead of panicking" {
 }
 
 test "safe.atomicLoadU32: unmapped address returns BadAddress instead of panicking" {
-    // Immediate-fixup fault recovery is wired on x64 only (arm data aborts are
-    // not routed to onPageFault yet); skip there.
-    if (comptime @import("builtin").cpu.arch != .x86_64) return error.SkipZigTest;
+    // riscv64 has no data-abort/page-fault routing of its own yet.
+    if (comptime @import("builtin").cpu.arch != .riscv64) return error.SkipZigTest;
 
     const address_space = kernelAddressSpace();
     const range = try address_space.map(.{
