@@ -179,7 +179,12 @@ pub fn buildQemuCommand(
         },
         .host_uefi => |host| {
             run.addArgs(&.{ "-drive", b.fmt("if=pflash,format=raw,unit=0,readonly=on,file={s}", .{host.code}) });
-            run.addArgs(&.{ "-drive", b.fmt("if=pflash,format=raw,unit=1,readonly=on,file={s}", .{host.vars}) });
+            const vars_cp = b.addSystemCommand(&.{"cp"});
+            vars_cp.addArg(host.vars);
+            const vars_copy = vars_cp.addOutputFileArg("host-vars.fd");
+            run.step.dependOn(&vars_cp.step);
+            run.addArg("-drive");
+            run.addPrefixedFileArg("if=pflash,format=raw,unit=1,file=", vars_copy);
         },
         .secboot_uefi => |sb| {
             // vars (unit1) is intentionally NOT readonly: firmware may
