@@ -233,6 +233,7 @@ fn createModule(
     // the self-import live here so the app source is unchanged.
     const app_module = b.createModule(.{
         .root_source_file = root_source_file,
+        // TODO: why is this commented out?
         // .target = bundle.resolveTarget(b),
         .optimize = options.optimize,
     });

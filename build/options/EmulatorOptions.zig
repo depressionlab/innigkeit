@@ -6,7 +6,7 @@ display: bool,
 acpi: bool,
 acceleration: bool,
 interrupt_details: bool,
-cpus: usize,
+cpus: ?usize,
 memory: usize,
 kaslr: bool,
 /// Collect the opt-in TPM test suite only when `-Dtpm=true` is set, so the
@@ -31,7 +31,7 @@ pub fn get(b: *std.Build) !EmulatorOptions {
     const acpi = b.option(bool, "acpi", "Enable ACPI in QEMU where supported (default: true)") orelse true;
     const display = b.option(bool, "display", "Open a graphical QEMU display (default: false)") orelse false;
     const uefi = b.option(bool, "uefi", "Run QEMU in UEFI mode (default: true)") orelse true;
-    const cpus = b.option(usize, "cpus", "Number of CPU cores to give QEMU (default: 4)") orelse 4;
+    const cpus = b.option(usize, "cpus", "Number of CPU cores to give QEMU (default: 4)");
     const memory = b.option(usize, "memory", "MiB of RAM to give QEMU (default: 512)") orelse 512;
     const kaslr = b.option(bool, "kaslr", "Enable KASLR (default: true, forced false when '-Ddebug' is set)") orelse !remote_debug;
     const tpm = b.option(bool, "tpm", "Run the opt-in TPM 2.0 suite via a build-managed swtpm daemon (default: false)") orelse false;
@@ -43,7 +43,9 @@ pub fn get(b: *std.Build) !EmulatorOptions {
     };
     const expect_secure_boot = b.option(bool, "expect_secure_boot", "Assert UEFI Secure Boot is enabled at boot") orelse false;
 
-    if (cpus == 0) std.debug.panic("'-Dcpus' must be greater than zero!", .{});
+    if (cpus) |c| {
+        if (c == 0) std.debug.panic("'-Dcpus' must be greater than zero!", .{});
+    }
 
     // Acceleration logic:
     // - Explicit false -> off, always.
