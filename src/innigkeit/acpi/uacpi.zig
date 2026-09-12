@@ -4066,9 +4066,8 @@ comptime {
     // `struct acpi_gas` instead of including `acpi.h` (header-pollution
     // cleanup), and our synthetic import header doesn't pull `acpi.h` in
     // either, so there is no `@sizeOf(c.acpi_gas)` left to compare
-    // `acpi.Address` against here - matches upstream's own resolution
-    // (CascadeOS's 6.0.0 bump commit 46cee6d dropped this same assert for
-    // the same reason). This does not leave the layout unverified:
+    // `acpi.Address` against here - matches upstream's own resolution.
+    // This does not leave the layout unverified:
     //   - uACPI's own `acpi.h` carries `UACPI_EXPECT_SIZEOF(struct
     //     acpi_gas, 12)`, a real C `_Static_assert` that fires whenever
     //     any of the uACPI `.c` sources built by `custom.zig`
