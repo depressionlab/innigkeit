@@ -185,6 +185,7 @@ pub fn buildQemuCommand(
                 \\cp "$1" "$2"
                 \\chmod u+w "$2"
             );
+            vars_cp.addArg("sh");
             vars_cp.addArg(host.vars);
             const vars_copy = vars_cp.addOutputFileArg("host-vars.fd");
             run.step.dependOn(&vars_cp.step);
