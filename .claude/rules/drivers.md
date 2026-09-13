@@ -77,6 +77,35 @@ bounds-checks the *device's* declared queue size once at setup, but each
 individual `used` ring entry's `id`/`len` is the *driver's* responsibility
 to re-validate against what it actually owns, every time.
 
+## A new driver not yet wired into any boot path is invisible to both `zig build check` and its own `test` blocks — `refAllDecls` needs adding at *every* link of the import chain, not just the leaf file
+
+Found while adding `drivers/sdhci/brcmstb.zig` (Pi 5 port, PM4 —
+`docs/rpi5-port-plan.md`), the same general "Zig's lazy analysis hides bugs
+in never-reached code" lesson `.claude/rules/arm.md` already documents for
+inline asm, but one link further up the import chain than that instance
+needed. `virtio`/`tpm` never needed a `refAllDecls` fixup because real
+kernel code (`filesystem/ext4.zig` etc.) calls into them directly, which is
+what forces Zig to resolve `pub const virtio = @import(...)`'s *value* at
+all. A driver with no caller yet has no such anchor: adding
+`comptime { std.testing.refAllDecls(@This()); }` to the leaf file itself
+(`drivers/sdhci/root.zig`, matching `src/boot/limine/root.zig`'s existing
+pattern) was *not* sufficient on its own — confirmed by deliberately
+introducing an obvious type error into an unreferenced function and
+observing `zig build check` **and** `zig build test_arm` both still exit 0.
+The parent aggregator's own `pub const sdhci = @import("sdhci/root.zig");`
+(`drivers/root.zig`) is itself just as lazily unresolved when nothing
+touches `.sdhci` specifically, so the leaf's `refAllDecls` block never runs
+either — it needs its *own* `comptime { std.testing.refAllDecls(@This()); }`
+too, one at every level between the new driver and whatever's already
+guaranteed to be referenced. Confirmed fixed by direct experiment: with
+both blocks in place, the same deliberate type error was caught immediately
+by `zig build test_arm` (still not `zig build check`, which appears not to
+reach this arm-only driver at all — not fully root-caused, but no longer
+blocking since `test_arm` is the surface that actually matters here).
+**Any new driver added before it has a real call site should get this
+two-level check treatment**, not just the leaf-file `refAllDecls` the
+existing `boot/limine/` pattern alone suggests.
+
 ## `SealedObject` (`tpm/tpm.zig`) trusts its own `private_len`/`public_len` fields once constructed
 
 `load()` slices `obj.privateBytes()`/`obj.publicBytes()` using

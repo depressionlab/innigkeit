@@ -18,9 +18,9 @@ pub fn Bitfield(
     return enum(FieldType) {
         _,
 
-        const BitfieldT = @This();
+        const Self = @This();
 
-        pub fn write(self: *BitfieldT, value: ValueType) void {
+        pub fn write(self: *Self, value: ValueType) void {
             const field_value: FieldType = value;
             self.writeNoShiftFullSize(field_value << shift_amount);
         }
@@ -28,23 +28,23 @@ pub fn Bitfield(
         /// Writes a value to the bitfield without shifting.
         ///
         /// Non-atomic; all bits in `value` not in the bitfield are ignored.
-        pub fn writeNoShiftFullSize(self: *BitfieldT, value: FieldType) void {
+        pub fn writeNoShiftFullSize(self: *Self, value: FieldType) void {
             self.field().* = (self.field().* & ~mask) | (value & mask);
         }
 
-        pub fn read(self: BitfieldT) ValueType {
+        pub fn read(self: Self) ValueType {
             return @truncate(self.readNoShiftFullSize() >> shift_amount);
         }
 
         /// Reads the full value of the bitfield without shifting and without
         /// truncating the type. All bits not in the bitfield will be zero.
-        pub inline fn readNoShiftFullSize(self: BitfieldT) FieldType {
+        pub inline fn readNoShiftFullSize(self: Self) FieldType {
             return (self.field().* & mask);
         }
 
         /// A function to access the underlying integer as `FieldType`.
         /// Uses `anytype` to support both const and non-const access.
-        pub inline fn field(self: anytype) PointerCastPreserveCV(BitfieldT, @TypeOf(self), FieldType) {
+        pub inline fn field(self: anytype) PointerCastPreserveCV(Self, @TypeOf(self), FieldType) {
             return @ptrCast(self);
         }
     };

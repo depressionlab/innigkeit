@@ -57,6 +57,10 @@ multicast UDP traffic (which targets a non-unicast destination by design),
 needs a deliberate answer — flagged for the project owner rather than
 resolved with a reflexive equality check that could break broadcast UDP.
 
+## `resolveArpWithRetry`'s "yield N times" loop was not actually a time bound — FOUND AND FIXED building the fuzz-channel target (docs/test-system-plan.md §5, staging step 4)
+
+`sendUdp`/`ping`'s ARP resolution used to loop `while (tries < 100) : (tries += 1) { ...; yield(); }`, with a doc comment assuming "~500 ms." A fixed iteration count of cooperative yields is not a wallclock bound at all: if the scheduler keeps handing this task the CPU back immediately (nothing else runnable, or just unlucky scheduling), it can burn through all 100 iterations in a fraction of the real time an ARP round trip over the (TCG-emulated) virtio-net device + host NAT actually needs — and if it doesn't, the net-poll task that would actually deliver the ARP reply never gets scheduled in time either way. Confirmed as a real, reproducible flake (not a one-off): the exact same `sendUdp` call that had worked reliably in two earlier test-system-plan passes started failing with `ARP timeout for 10.0.2.2` immediately after one more fixture app was added to the test suite, shifting system load enough to expose it. Fixed by replacing the iteration count with a real `wallclock.read()`/`elapsed()`-bounded loop (`arp_timeout_ns`, 2s) — the same watchdog idiom already used throughout `testing/smp.test.zig` and the integration tests, still yielding cooperatively between checks, just no longer trusting yield count as a proxy for wallclock time.
+
 ## Ring buffers (`socket.zig`'s UDP rings, `tcp/Socket.zig`'s `rx_buf`, `virtio/net.zig`'s DMA rings — see `drivers.md`) all use the same wrapping head/tail-index pattern
 
 `head`/`tail` are unsigned integers that wrap via `+%=`, indexed into the

@@ -45,7 +45,7 @@ pub fn sendRescheduleIPI(executor: *innigkeit.Executor) void {
 ///
 /// The handler is (nearly) empty. Instead, we force every other executor
 /// through an interrupt return, where it re-checks whichever task it is
-/// currently running for `Task.pending_kill`.
+/// currently running for `Task.pending_kill` with `Current.checkPendingKill`.
 pub fn sendKillIPI() void {
     const interrupts_were_enabled = x64.instructions.interruptsEnabled();
     x64.instructions.disableInterrupts();

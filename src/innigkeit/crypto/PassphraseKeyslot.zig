@@ -61,7 +61,7 @@ fn deriveWrappingKey(
         passphrase,
         salt,
         .{ .t = params.t_cost, .m = params.m_cost_kib, .p = @intCast(params.lanes) },
-        .argon2id,
+        .argon2id, // Argon2 my beloved
         io,
     );
 }

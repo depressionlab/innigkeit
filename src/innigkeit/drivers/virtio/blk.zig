@@ -321,6 +321,25 @@ pub const WriteError = error{ NotInitialized, OutOfRange, DeviceError };
 
 const BLK_T_OUT: u32 = 1; // write request type
 
+/// Transparent per-device encryption layer which is registered by
+/// `filesystem.EncryptedVolume.mountAtBoot()` once it unseals a device's
+/// volume key.
+///
+/// `readSectors`/`writeSectors` (and therefore `readBytes`/`writeBytes`)
+/// route through this when set for `dev_idx`; `*Raw` always bypasses it.
+/// Kept as bare function pointers (instead of an `EncryptedVolume` type)
+/// so this driver never depends upward on the filesystem layer.
+pub const CipherReadFn = *const fn (dev_idx: usize, lba: u64, buf: []u8, count: u32) ReadError!void;
+pub const CipherWriteFn = *const fn (dev_idx: usize, lba: u64, buf: []const u8, count: u32) WriteError!void;
+
+const CipherHooks = struct { read: CipherReadFn, write: CipherWriteFn };
+var cipher_hooks: [MAX_DEVICES]?CipherHooks = @splat(null);
+
+/// Register a transparent read/write layer for `dev_idx`. See `CipherReadFn`.
+pub fn registerCipher(dev_idx: usize, read_fn: CipherReadFn, write_fn: CipherWriteFn) void {
+    cipher_hooks[dev_idx] = .{ .read = read_fn, .write = write_fn };
+}
+
 /// Submit a single virtio-blk request and wait for completion: blocking on
 /// the INTx interrupt when it is routed, bounded-spin polling otherwise.
 ///
@@ -379,8 +398,17 @@ fn submitRequest(
 }
 
 /// Read up to 8 sectors (4 KiB) from `dev_idx` starting at `lba` into `buf`.
-/// `buf` must be at least `count * 512` bytes; count must be <= 8.
+/// Transparently decrypts when a cipher layer is registered for `dev_idx`
+/// (`registerCipher`); otherwise identical to `readSectorsRaw`.
 pub fn readSectors(dev_idx: usize, lba: u64, buf: []u8, count: u32) ReadError!void {
+    if (cipher_hooks[dev_idx]) |hooks| return hooks.read(dev_idx, lba, buf, count);
+    return readSectorsRaw(dev_idx, lba, buf, count);
+}
+
+/// Read up to 8 sectors (4 KiB) from `dev_idx` starting at `lba` into `buf`,
+/// always bypassing any registered cipher layer.
+/// `buf` must be at least `count * 512` bytes; count must be <= 8.
+pub fn readSectorsRaw(dev_idx: usize, lba: u64, buf: []u8, count: u32) ReadError!void {
     if (count == 0 or count > 8) return error.OutOfRange;
     const dev: *Device = if (devices[dev_idx]) |*d| d else return error.NotInitialized;
     if (lba > dev.capacity_sectors or count > dev.capacity_sectors - lba) return error.OutOfRange;
@@ -417,9 +445,17 @@ pub fn readBytes(dev_idx: usize, byte_offset: u64, buf: []u8) ReadError!void {
     }
 }
 
-/// Write up to 8 sectors (4 KiB) to `dev_idx` starting at `lba` from `buf`.
-/// `buf` must be exactly `count * 512` bytes; count must be <= 8.
+/// Transparently encrypts when a cipher layer is registered for `dev_idx`
+/// (`registerCipher`); otherwise identical to `writeSectorsRaw`.
 pub fn writeSectors(dev_idx: usize, lba: u64, buf: []const u8, count: u32) WriteError!void {
+    if (cipher_hooks[dev_idx]) |hooks| return hooks.write(dev_idx, lba, buf, count);
+    return writeSectorsRaw(dev_idx, lba, buf, count);
+}
+
+/// Write up to 8 sectors (4 KiB) to `dev_idx` starting at `lba` from `buf`,
+/// always bypassing any registered cipher layer. See `readSectorsRaw`.
+/// `buf` must be exactly `count * 512` bytes; count must be <= 8.
+pub fn writeSectorsRaw(dev_idx: usize, lba: u64, buf: []const u8, count: u32) WriteError!void {
     if (count == 0 or count > 8) return error.OutOfRange;
     const dev: *Device = if (devices[dev_idx]) |*d| d else return error.NotInitialized;
     if (lba > dev.capacity_sectors or count > dev.capacity_sectors - lba) return error.OutOfRange;

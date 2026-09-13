@@ -81,6 +81,7 @@ pub const CreateOptions = struct {
 
 /// Create a process.
 pub fn create(options: CreateOptions) !*Process {
+    // TODO: review every single field for slab-reuse issues!!!
     const process = blk: {
         const process = try globals.cache.allocate();
         errdefer globals.cache.deallocate(process);
@@ -113,6 +114,10 @@ pub fn create(options: CreateOptions) !*Process {
         // compare-exchange already lost, skipping both `exit_status` and the
         // sibling-kill cascade entirely.
         process.terminating.store(false, .monotonic);
+
+        // Again, you guessed it, same slab-use invariant.
+        process.exit_status = 0;
+        process.cap_table.init();
 
         if (core.is_debug) std.debug.assert(process.reference_count.load(.monotonic) == 0);
 
@@ -278,10 +283,12 @@ pub const ResolvedCapGrant = struct {
 };
 
 pub const SpawnParams = struct {
-    /// Initfs path of the ELF to load. Borrowed (`spawnFromInitfs` makes its
-    /// own heap copy); must be no longer than the `spawn` syscall's own
-    /// `max_path_len` limit (255 bytes) enforced there for user input,
-    /// assumed here for trusted kernel-internal callers.
+    /// Initfs path of the ELF to load. Borrowed only for the duration of
+    /// `spawnFromInitfs` itself (resolved to an initfs-backed `elf_data`
+    /// slice before any process or thread is created); must be no longer
+    /// than the `spawn` syscall's own `max_path_len` limit (255 bytes)
+    /// enforced there for user input, assumed here for trusted
+    /// kernel-internal callers.
     path: []const u8,
 
     /// Pre-encoded proc_init buffer (argv/envp; see `handlers/spawn.zig`'s
@@ -306,14 +313,15 @@ pub const SpawnResult = struct {
     exit_notify: *innigkeit.capabilities.Notify,
 };
 
-pub const SpawnError = error{OutOfMemory};
+pub const SpawnError = error{ OutOfMemory, NotFound, PermissionDenied };
 
-/// Kernel-internal spawn: create a child process, insert already-resolved
-/// capability grants, then load `params.path` from initfs and jump to it in
-/// a new thread.
+/// Kernel-internal spawn: resolve `params.path` against initfs, create a
+/// child process, insert already-resolved capability grants, then load the
+/// ELF and jump to it in a new thread.
 ///
 /// Mirrors the `spawn` syscall's steps 5-8 (exit-`Notify` creation,
-/// `Process.create`, cap-grant insertion, thread creation + queueing).
+/// `Process.create`, cap-grant insertion, thread creation + queueing);
+/// resolution happens before any of those.
 ///
 /// Unlike the syscall, takes no user-memory pointers and never
 /// touches a parent's cap table, as the caller is assumed to have
@@ -324,6 +332,7 @@ pub const SpawnError = error{OutOfMemory};
 pub fn spawnFromInitfs(params: SpawnParams) SpawnError!SpawnResult {
     var proc_init_owned = true;
     defer if (proc_init_owned) innigkeit.memory.heap.allocator.free(params.proc_init);
+    const resolved = try resolveElfAndEntitlements(params.path);
 
     // -- 5. Create the exit Notify
     const exit_notify: *innigkeit.capabilities.Notify = try .create();
@@ -343,6 +352,7 @@ pub fn spawnFromInitfs(params: SpawnParams) SpawnError!SpawnResult {
     defer child_process.decrementReferenceCount();
 
     child_process.exit_notify = exit_notify; // process takes ownership of one ref
+    child_process.entitlements = resolved.entitlements;
 
     // -- 7. Insert already-resolved capability grants into the child's table
     if (params.cap_grants.len > 0) {
@@ -363,27 +373,21 @@ pub fn spawnFromInitfs(params: SpawnParams) SpawnError!SpawnResult {
         }
     }
 
-    // -- 8. Copy the path and create the kernel thread that will load the ELF.
-    const path_buf = try innigkeit.memory.heap.allocator.alloc(u8, params.path.len + 1);
-    var path_buf_owned = true;
-    defer if (path_buf_owned) innigkeit.memory.heap.allocator.free(path_buf);
-    @memcpy(path_buf[0..params.path.len], params.path);
-    path_buf[params.path.len] = 0;
-
+    // -- 8. Create the kernel thread that will load the already-resolved ELF.
+    // No path is passed through: resolution above already turned it into
+    // `resolved.elf_data`, and `child_process.name` was set from it above.
     const proc_init = params.proc_init;
 
     const load_thread = child_process.createThread(.{
         .entry = .prepare(loadAndStart, .{
-            path_buf.ptr,
-            path_buf.len,
-            child_process,
+            resolved.elf_data.ptr,
+            resolved.elf_data.len,
             @as(usize, if (proc_init.len > 0) @intFromPtr(proc_init.ptr) else 0),
             proc_init.len,
         }),
     }) catch return error.OutOfMemory;
 
-    // Transfer buffer ownership to loadAndStart; disable the defers.
-    path_buf_owned = false;
+    // Transfer proc_init ownership to loadAndStart; disable the defer.
     proc_init_owned = false;
 
     const scheduler_handle: innigkeit.Task.Scheduler.Handle = .get();
@@ -399,40 +403,25 @@ pub fn spawnFromInitfs(params: SpawnParams) SpawnError!SpawnResult {
 /// Fallback process name used when the real name is too long.
 const fallback_process_name = "?";
 
-/// Kernel thread entry: load ELF from initfs and jump to userspace.
-///
-/// Owns path_ptr[0..path_len] and (when non-zero) proc_init_ptr[0..proc_init_len].
-/// On success (noreturn): startProcess frees proc_init; path_buf freed explicitly.
-/// On any return path: defers free path_buf and proc_init, decrement child_process ref.
-fn loadAndStart(
-    path_ptr: [*]u8,
-    path_len: usize,
-    child_process: *Process,
-    proc_init_ptr: usize,
-    proc_init_len: usize,
-) void {
-    const path_buf = path_ptr[0..path_len];
-    // proc_init_ptr is always @intFromPtr of an already kernel heap allocated
-    // slice3 (the one call site above, `params.proc_init`) (not a user pointer)
-    // threaded through as a plain usize only because `.prepare`'s thread-entry
-    // calling convention takes integer arguments.
-    const proc_init: []u8 = if (proc_init_len > 0)
-        (@as([*]u8, @ptrFromInt(proc_init_ptr)))[0..proc_init_len] // see comment above
-    else
-        &.{};
+/// Result of resolving an initfs path to an ELF image and its verified
+/// entitlements, before any process exists for it.
+const ResolvedElf = struct {
+    /// Borrowed from the initfs archive, which is static kernel image data
+    /// for the life of the kernel. This is safe to hold onto and pass across the
+    /// thread that will later parse and map it.
+    elf_data: []const u8,
+    entitlements: innigkeit.user.codesign.Manifest.Entitlements,
+};
 
-    defer child_process.decrementReferenceCount();
-    // path_buf is freed explicitly before startProcess; defer handles early returns.
-    var path_freed = false;
-    defer if (!path_freed) innigkeit.memory.heap.allocator.free(path_buf);
-    // proc_init: freed by startProcess on noreturn success; defer handles error returns.
-    defer if (proc_init.len > 0) innigkeit.memory.heap.allocator.free(proc_init);
-
-    const path = path_buf[0 .. std.mem.findScalar(u8, path_buf, 0) orelse path_buf.len];
-
+/// Look up `path` in initfs and verify its `.codesig` sidecar, without
+/// creating a process. Called from `spawnFromInitfs` before `create()` so a
+/// spawn that was always going to fail (missing path, missing/invalid
+/// signature) never creates a process whose only observable behavior is
+/// exiting immediately (see `spawnFromInitfs`'s doc comment).
+fn resolveElfAndEntitlements(path: []const u8) SpawnError!ResolvedElf {
     const elf_data = innigkeit.filesystem.initfs.findFile(path) orelse {
         log.err("spawn: '{s}' not found in initfs", .{path});
-        return;
+        return error.NotFound;
     };
 
     // Build the sidecar name: "<path>.codesig" (255 + 8 bytes: see
@@ -451,12 +440,12 @@ fn loadAndStart(
             } else |err| {
                 log.err("spawn: '{s}' signature verification failed: {s}", .{ path, @errorName(err) });
                 // Signature present but invalid: always refuse regardless of mode.
-                return;
+                return error.PermissionDenied;
             }
         } else {
             if (innigkeit.config.security.enforce_code_signing) {
                 log.err("spawn: '{s}' has no .codesig and enforcement is on", .{path});
-                return;
+                return error.PermissionDenied;
             }
             log.warn("spawn: '{s}' has no .codesig, proceeding with full entitlements (debug mode)", .{path});
             // In permissive mode grant all entitlements so unsigned dev binaries work.
@@ -473,15 +462,43 @@ fn loadAndStart(
         }
     };
 
-    child_process.entitlements = entitlements;
+    return .{ .elf_data = elf_data, .entitlements = entitlements };
+}
+
+/// Kernel thread entry: parse and map an already-resolved ELF, then jump to
+/// userspace.
+///
+/// `elf_data` is borrowed from initfs (static kernel image data, no
+/// lifetime concern). Owns proc_init_ptr[0..proc_init_len] when non-zero.
+/// On success (noreturn): startProcess frees proc_init. On any return path:
+/// defer frees proc_init.
+///
+/// Owns no reference to `child_process`: returning terminates this thread
+/// through the ordinary task-exit path, and `TaskCleanup` drops the
+/// thread-membership reference `createThread` took: the same one it
+/// drops on a clean exit. Dropping it here as well double-counted it on
+/// every load failure.
+fn loadAndStart(
+    elf_data_ptr: [*]const u8,
+    elf_data_len: usize,
+    proc_init_ptr: usize,
+    proc_init_len: usize,
+) void {
+    const elf_data = elf_data_ptr[0..elf_data_len];
+    // proc_init_ptr is always @intFromPtr of an already kernel heap allocated
+    // slice (the one call site above, `params.proc_init`) (not a user pointer)
+    // threaded through as a plain usize only because `.prepare`'s thread-entry
+    // calling convention takes integer arguments.
+    const proc_init: []u8 = if (proc_init_len > 0)
+        (@as([*]u8, @ptrFromInt(proc_init_ptr)))[0..proc_init_len] // see comment above
+    else
+        &.{};
+
+    // proc_init: freed by startProcess on noreturn success; defer handles error returns.
+    defer if (proc_init.len > 0) innigkeit.memory.heap.allocator.free(proc_init);
 
     const current_task: innigkeit.Task.Current = .get();
     const thread: *innigkeit.user.Thread = .from(current_task.task);
-
-    // Free path_buf explicitly (we're done with it and loadAndJump is
-    // noreturn on success).
-    innigkeit.memory.heap.allocator.free(path_buf);
-    path_freed = true;
 
     // proc_init ownership transfers to loadAndJump; it frees on noreturn
     // success. The defer above handles it if loadAndJump returns an error.
@@ -563,7 +580,7 @@ const ProcessCleanup = struct {
 
     fn cleanupProcess(process: *Process) void {
         if (core.is_debug) std.debug.assert(process.queued_for_cleanup.load(.monotonic));
-
+        innigkeit.testing.checkpoint.wait(.process_cleanup, process);
         process.queued_for_cleanup.store(false, .release);
 
         {

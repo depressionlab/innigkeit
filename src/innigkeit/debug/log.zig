@@ -6,10 +6,15 @@ const innigkeit = @import("innigkeit");
 const kernel_options = @import("kernel_options");
 const log_scopes = kernel_options.log_scopes;
 
+/// Returns a scoped logging namespace that logs all messages using the `scope`
+/// provided here.
 pub fn scoped(comptime scope: @EnumLiteral()) type {
     return struct {
         const scope_name: []const u8 = @tagName(scope);
 
+        /// Log an error message. This log level is intended to be used
+        /// when something has gone wrong. This might be recoverable or might
+        /// be followed by the program exiting.
         pub inline fn err(
             comptime format: []const u8,
             args: anytype,
@@ -18,6 +23,9 @@ pub fn scoped(comptime scope: @EnumLiteral()) type {
             logFn(.err, scope_name, comptime userFmt(format), args);
         }
 
+        /// Log a warning message. This log level is intended to be used if
+        /// it is uncertain whether something has gone wrong or not, but the
+        /// circumstances would be worth investigating.
         pub inline fn warn(
             comptime format: []const u8,
             args: anytype,
@@ -26,6 +34,8 @@ pub fn scoped(comptime scope: @EnumLiteral()) type {
             logFn(.warn, scope_name, comptime userFmt(format), args);
         }
 
+        /// Log an info message. This log level is intended to be used for
+        /// general messages about the state of the program.
         pub inline fn info(
             comptime format: []const u8,
             args: anytype,
@@ -34,6 +44,8 @@ pub fn scoped(comptime scope: @EnumLiteral()) type {
             logFn(.info, scope_name, comptime userFmt(format), args);
         }
 
+        /// Log a debug message. This log level is intended to be used for
+        /// messages which are only useful for debugging.
         pub inline fn debug(
             comptime format: []const u8,
             args: anytype,

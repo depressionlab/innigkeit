@@ -1,0 +1,8 @@
+name = "itest_cap_receiver"
+version = "0.1.0"
+description = "Test-only fixture: receives a Notify capability over a granted Endpoint and signals it, for the IPC capability-transfer integration test"
+
+[entitlements]
+spawn = false
+
+[trust]

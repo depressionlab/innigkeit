@@ -11,10 +11,14 @@ Last updated 2026-09-09.
 - `docs/DESIGN.md` — coding ideology, formatting rules, `safe.memcpy` analysis
 - `docs/design-goals.md` — long-term pillars and decision records
 - `docs/aarch64-port.md` — ARM port log and M3 plan
+- `docs/rpi5-port-plan.md` — **(new, research-only, no hardware yet)** real Raspberry Pi 5 hardware bring-up: SoC/GIC/firmware/PCIe-RP1 research, staged PM0-PM6 milestone plan, open decisions
 - `docs/syscall-abi.md` / `docs/syscall-foundation-plan.md` — syscall dispatch contract
 - `docs/secure-boot.md` — **(active)** UEFI Secure Boot + TPM 2.0 + disk encryption
 - `docs/verification-and-ci.md` — **(active)** canonical map from test layer → build step → CI job → release; records that `main`'s CI was broken for months (missing codesign keygen + rustup target) and the fix, not yet pushed
-- `docs/test-harness-plan.md` — **(active)** user-process integration test harness; Stages 0-4 done (TH-1 now passes on x64 *and* aarch64 — real arm SVC dispatch closed the last gap, see arm.md; riscv64 stays skipped, no syscall dispatch of its own yet); TH-2/TH-4/TH-5 remain deferred
+- `docs/test-harness-plan.md` — **(active)** user-process integration test harness; Stages 0-4 done (TH-1 now passes on x64 *and* aarch64 — real arm SVC dispatch closed the last gap, see arm.md; riscv64 stays skipped, no syscall dispatch of its own yet); TH-2/TH-4 now DONE (x86_64-only — see `docs/test-system-plan.md` §2 for the arm SMP panic that gates them); TH-5 stays blocked on the stashed WM epic
+- `docs/test-system-plan.md` — **(new, active)** the test-system revamp: prior-art survey (Linux/seL4/Fuchsia/loom), the arm SMP panic this pass found (highest-priority open item), a scoped formal model of capability revocation, and staged plans for fault injection, an in-kernel fuzzing corpus-feedback channel, and deterministic concurrency testing
+- `docs/upstream-review-plan.md` — **(closed out)** CascadeOS/hiillos/imaginarium/Dimmer comparison pass 1 (`1e8ac55b..bd48de3`, 49 commits); see "Session log" below for what came out of it
+- `docs/upstream-review-plan-2.md` — **(closed out)** CascadeOS comparison pass 2 (`bd48de3..HEAD`, 29 commits + the carried-over `bd48de3` interrupt-handler dedup): 4 confirmed real bugs fixed (incl. two more found by finally forcing analysis of a previously-uncalled function), 4 mechanical sync improvements, a flush-request EOI-timing fix, `core.Size` prototyped as an `enum(u64)` (45 files, tradeoff writeup for extending further left for the project owner), plus 4 tier-4 housekeeping items
 - `docs/wm-wayland-plan.md` — **(stashed)** native WM → Wayland compositor; pure cores done and host-tested, parked behind security/test work
 - `docs/phase3-review-plan.md` — **(complete)** repo-wide expansion of the Phase 2 review to every remaining subsystem; Tiers 1-3 (Stages 6-18, ~49,700 lines) and Tier 4 (Stages 19-24, ~12,540 lines — directories the original plan missed entirely, discovered via a post-completion cross-check) both fully done — Phase 3's entire currently-planned scope is finished
 - `docs/next-epoch-plan.md` — **(active)** the next round of work named by the project owner right after Phase 3 closed: linter adoption (zlint/zwanzig/zlinter researched and compared; zwanzig spiked and dropped, zlinter confirmed), repository reorganization (**done** — itest fixtures + launch.json), a build-system refresh, expanded unit/integration/fuzz testing, and a NixOS-inspired long-range design plan (Zig std → C std → nixpkgs).
@@ -25,7 +29,7 @@ Last updated 2026-09-09.
 | --- | --- | --- |
 | AArch64 M1 (boot + non-driver suite) | **DONE** | `aarch64-port.md` |
 | AArch64 M2 (virtio storage, poll mode) | **DONE** (INTx deferred) | `aarch64-port.md` |
-| AArch64 M3 (SMP) | **PLANNED** (Limine AP startup; GICv2 SGIs) | `aarch64-port.md` |
+| AArch64 M3 (SMP) | **DONE** — M3.1/M3.2/M3.4/M3.5 (GICv2 SGI/IPI infra) plus M3.3's blocking bug (`Task.pending_kill` moved to the syscall/interrupt return-to-user path — the same technique Linux/BSD use for signal delivery); the reschedule-IPI-latency test's flake was root-caused to ARM's WFI-as-architectural-hint semantics (confirmed via the ARM ARM, not just suspected) and the test hardened to gate pass/fail on latency alone; `testCpus(arm)` now returns 4 — both arches boot to the test suite at `-smp 4` | `aarch64-port.md` |
 | Reliable arm test harness | **DONE** | CLAUDE.md |
 | Scheduler Phase A (IPI, work stealing, idle-first wake) | **DONE** | CLAUDE.md |
 | Scheduler Phase B (QoS weight/slice + `thread_set_qos`) | **DONE** | `QoS.md` |
@@ -35,6 +39,7 @@ Last updated 2026-09-09.
 | Build-system integration code review | **DONE** | patches 1-11 |
 | Test-harness redesign, Stage 0 (dead test wired in) | **DONE** | `test-harness-plan.md`, patch 14 |
 | Test-harness redesign, Stage 1 (`elf_loader.zig` extraction) | **DONE** | `test-harness-plan.md`, patch 16 |
+| CascadeOS/hiillos/imaginarium/Dimmer comparison pass | **DONE**, 29 patches | `upstream-review-plan.md` |
 | SYSRET non-canonical-RCX boundary fix (all arches) | **DONE** | patch 19 |
 | Per-process fault isolation (`onPageFault`, TH-3 prerequisite) | **DONE** | patch 26 |
 | `.?` → `orelse unreachable` sweep (98 sites, 36 files) | **DONE** | patch 29 |
@@ -54,6 +59,7 @@ Last updated 2026-09-09.
 | Phase 2 both open findings (heap allocator over-alignment `free()`, address-space page-table lock gap) | **FIXED, verified, NOT PUSHED** | `.claude/rules/memory.md` |
 | Phase 3 (repo-wide review expansion: architecture/, acpi/, drivers/, task/, sync/, network/, filesystem/, init/, library/innigkeit/, tools/, debug/, etc.) | **DONE — Tiers 1-3 (Stages 6-18) and Tier 4 (Stages 19-24) both complete** | `phase3-review-plan.md` |
 | Next epoch: linter adoption, repo reorg, build-system refresh, test expansion, NixOS-inspired design plan | **IN PROGRESS** — repo reorg DONE (stages 1+2, incl. a fresh structural audit); linter adoption DONE core + ONGOING breadth (zlinter wired in, house style flipped, no_deprecated/require_errdefer_dealloc zeroed, 4 custom rules shipped, import_ordering + hex_literal_case autofixed to 0, clippy/rustfmt cross-reference tracked in `clippy-rustfmt-mapping.md`, 76-finding ptr_from_int follow-up tracked); build-system refresh mostly done; TODO review DONE (full dedicated pass, 5 real fixes); test expansion IN PROGRESS (5 fuzz tests: VolumeHeader, tcp/Segment, udp, icmp, SharedHeader.isValid); NixOS plan not yet started | `next-epoch-plan.md` |
+| CascadeOS comparison pass 2 (`bd48de3..HEAD`, 29 commits + carried-over interrupt-handler dedup) | **DONE locally, NOT PUSHED** — 4 confirmed bugs fixed, 4 sync mechanicals, flush-request EOI fix, `core.Size` enum prototype (45 files), 4 tier-4 items; enum-conversion extension to Duration/Bitfield/PageCount/addresses left as an open project-owner decision | `upstream-review-plan-2.md` |
 
 ## Durable lessons
 
@@ -136,5 +142,7 @@ see below; `docs/aarch64-port.md`'s M3 SMP plan remains), boot & at-rest securit
 **Three explicitly deferred judgment calls** — `paging`→`mem` rename, hiillos's IPC Sender badge, URI-style service addressing. Project owner said "none of these right now" (2026-07-06) — stay parked, no further unilateral research.
 
 **Test-harness TH-2/TH-4/TH-5** (see `test-harness-plan.md`'s own "Explicitly deferred" section) — IPC + cap transfer, kill/lifecycle beyond the cooperative path, WM client↔server. Each needs its own prerequisite work first.
+
+**Deeper CascadeOS/hiillos/imaginarium source review** (safe.memcpy/TLB-flush cross-check, broader OS survey for IPC design) — project owner said "hold off for now" (2026-07-06).
 
 **Harden the user-memory boundary** — fold remaining streaming `userSlice`+`UserAccess` sites onto `safe.memcpy`; bias new syscalls toward cap-based zero-copy. See `DESIGN.md` Part 3. Folds into Phase 3's arm/security work.

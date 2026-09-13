@@ -68,19 +68,21 @@ pub fn getLocked(self: *CapabilityTable, idx: u32) ?*Slot {
 }
 
 /// Copy a slot to a new index (with optional rights restriction). Caller must hold lock.
+///
+/// Rejects a revoked source slot (`NotFound`).
 pub fn copyLocked(
     self: *CapabilityTable,
     src_idx: u32,
     new_rights: Rights,
 ) error{ NotFound, Full, RightsEscalation }!u32 {
     if (core.is_debug) std.debug.assert(self.lock.isLockedByCurrent());
-    const src = self.getLocked(src_idx) orelse return error.NotFound;
-    if (!rightsSubset(new_rights, src.rights)) return error.RightsEscalation;
-    // ptr_or_next does hold a real pointer (see Slot.zig: type != .null).
-    const ptr: *anyopaque = @ptrFromInt(src.ptr_or_next);
-    refObject(src.type, ptr);
-    return self.insertLocked(src.type, ptr, new_rights) catch |e| {
-        unrefObject(src.type, ptr);
+    const src = self.getAndRefLocked(src_idx) orelse return error.NotFound;
+    if (!rightsSubset(new_rights, src.rights)) {
+        unrefObject(src.cap_type, src.ptr);
+        return error.RightsEscalation;
+    }
+    return self.insertLocked(src.cap_type, src.ptr, new_rights) catch |e| {
+        unrefObject(src.cap_type, src.ptr);
         return e;
     };
 }
@@ -240,6 +242,11 @@ pub fn transferCaps(msg: *Message, sender_task: *innigkeit.Task, receiver_task: 
             handle.* = 0;
             continue;
         };
+        if (!info.rights.grant) {
+            unrefObject(info.cap_type, info.ptr);
+            handle.* = 0;
+            continue;
+        }
         const new_handle = dst_table.insertLocked(info.cap_type, info.ptr, info.rights) catch {
             unrefObject(info.cap_type, info.ptr);
             handle.* = 0;
@@ -396,6 +403,24 @@ test "capability: double revoke uses the new generation (second revoke works)" {
     try std.testing.expect(table.getAndRefLocked(slot_b) == null);
 }
 
+test "capability: copyLocked rejects a revoked source slot" {
+    const notify = try Notify.create();
+    defer notify.unref();
+
+    var table: CapabilityTable = undefined;
+    table.init();
+    table.lock.lock();
+    defer table.lock.unlock();
+
+    notify.ref();
+    const slot_a = try table.insertLocked(.notify, notify, .all);
+    try table.revokeLocked(slot_a);
+
+    // The slot is stale (fails getAndRefLocked); copying from it must not
+    // mint a fresh, live capability to the same object.
+    try std.testing.expectError(error.NotFound, table.copyLocked(slot_a, .all));
+}
+
 test "capability: copyLocked rejects rights escalation, allows equal/subset" {
     const notify = try Notify.create();
     defer notify.unref();
@@ -516,4 +541,105 @@ test "capability: refcount returns to baseline after remove (no leak)" {
     // removeLocked drops the slot's reference: back to baseline.
     try table.removeLocked(idx);
     try std.testing.expectEqual(baseline, notify.refcount.load(.acquire));
+}
+
+fn randomRights(random: std.Random) Rights {
+    return .{
+        .read = random.boolean(),
+        .write = random.boolean(),
+        .grant = random.boolean(),
+        .revoke = random.boolean(),
+    };
+}
+
+fn randomSubsetOf(random: std.Random, of: Rights) Rights {
+    return .{
+        .read = of.read and random.boolean(),
+        .write = of.write and random.boolean(),
+        .grant = of.grant and random.boolean(),
+        .revoke = of.revoke and random.boolean(),
+    };
+}
+
+fn rightsRaw(r: Rights) u16 {
+    return @bitCast(r);
+}
+
+// Zig-side counterpart to docs/formal/capability_revocation.tla's
+// RightsMonotonicity invariant.
+test "capability: property rights-monotonicity holds under randomized copy/revoke/remove sequences" {
+    const object_count = 3;
+    var objects: [object_count]*Notify = undefined;
+    for (&objects) |*o| o.* = try Notify.create();
+    defer for (objects) |o| o.unref();
+
+    var root_rights: [object_count]Rights = .{Rights{}} ** object_count;
+    var created: [object_count]bool = .{false} ** object_count;
+    // slot_owner[idx] tracks which modeled object (if any) currently
+    // occupies physical slot idx, mirroring the TLA+ model's table[p][s].obj
+    // for the single process this test exercises.
+    var slot_owner: [cap_count]?usize = .{null} ** cap_count;
+
+    var table: CapabilityTable = undefined;
+    table.init();
+    table.lock.lock();
+    defer table.lock.unlock();
+
+    var prng: std.Random.DefaultPrng = .init(0xCAB_00);
+    const random = prng.random();
+
+    const iterations = 2000;
+    for (0..iterations) |_| {
+        switch (random.uintLessThan(u8, 4)) {
+            0 => { // Grant: the one-shot root insert of a not-yet-created object.
+                const obj_idx = random.uintLessThan(usize, object_count);
+                if (created[obj_idx]) continue;
+                const rights = randomRights(random);
+                objects[obj_idx].ref();
+                const idx = table.insertLocked(.notify, objects[obj_idx], rights) catch {
+                    objects[obj_idx].unref();
+                    continue;
+                };
+                created[obj_idx] = true;
+                root_rights[obj_idx] = rights;
+                slot_owner[idx] = obj_idx;
+            },
+            1 => { // CopyCap
+                const src: u32 = random.uintLessThan(u32, cap_count);
+                const src_obj = slot_owner[src] orelse continue;
+                const src_rights = table.getLocked(src).?.rights;
+                const new_rights = randomSubsetOf(random, src_rights);
+                const idx = table.copyLocked(src, new_rights) catch continue;
+                slot_owner[idx] = src_obj;
+            },
+            2 => { // Revoke
+                const s: u32 = random.uintLessThan(u32, cap_count);
+                if (slot_owner[s] == null) continue;
+                table.revokeLocked(s) catch continue;
+            },
+            3 => { // RemoveCap
+                const s: u32 = random.uintLessThan(u32, cap_count);
+                if (slot_owner[s] == null) continue;
+                table.removeLocked(s) catch continue;
+                slot_owner[s] = null;
+            },
+            else => unreachable,
+        }
+
+        // RightsMonotonicity: every LIVE slot's rights must be bounded by
+        // its object's one-time root grant. A stale (revoked) slot is
+        // skipped, exactly like the model's IsLive guard: getAndRefLocked
+        // returning null is the real-code equivalent of ~IsLive.
+        for (0..cap_count) |s| {
+            const obj_idx = slot_owner[s] orelse continue;
+            const info = table.getAndRefLocked(@intCast(s)) orelse continue;
+            defer unrefObject(info.cap_type, info.ptr);
+            const escalation = rightsRaw(info.rights) & ~rightsRaw(root_rights[obj_idx]);
+            try std.testing.expectEqual(@as(u16, 0), escalation);
+        }
+    }
+
+    for (0..cap_count) |s| {
+        if (slot_owner[s] != null) table.removeLocked(@intCast(s)) catch unreachable;
+    }
 }

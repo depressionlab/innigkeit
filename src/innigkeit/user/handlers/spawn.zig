@@ -224,6 +224,12 @@ pub fn spawn(context: Context) Error.Syscall!usize {
                 log.warn("cap grant: slot {} not found in parent", .{grant.src_slot});
                 continue;
             };
+            // `.grant` gates whether this capability may cross to another process.
+            if (!info.rights.grant) {
+                innigkeit.capabilities.CapabilityTable.unrefObject(info.cap_type, info.ptr);
+                log.warn("cap grant: slot {} lacks grant right", .{grant.src_slot});
+                continue;
+            }
             // Requested rights must be a subset of what the parent holds.
             const parent_raw: u16 = @bitCast(info.rights);
             const req_raw: u16 = @bitCast(requested_rights);

@@ -1,0 +1,8 @@
+name = "itest_instruction_abort"
+version = "0.1.0"
+description = "Test-only fixture: jumps to an unmapped address for the unnamed-exception-class isolation integration test"
+
+[entitlements]
+spawn = false
+
+[trust]

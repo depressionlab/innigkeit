@@ -103,6 +103,7 @@ fn cleanupTask(task: *innigkeit.Task) void {
         },
         .user => {
             const thread: *innigkeit.user.Thread = .from(task);
+            innigkeit.testing.checkpoint.wait(.thread_cleanup, thread.process);
 
             {
                 thread.process.threads_lock.writeLock();

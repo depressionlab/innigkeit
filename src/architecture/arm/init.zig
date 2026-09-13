@@ -22,11 +22,59 @@ pub fn captureSystemInformation(
     stage: architecture.init.CaptureSystemInformationStage,
     options: architecture.current_decls.init.CaptureSystemInformationOptions,
 ) anyerror!void {
-    _ = stage;
     _ = options;
-    // The ARM Generic Timer is self-describing via CNTFRQ_EL0 and the GIC base
-    // addresses are fixed on the QEMU virt machine, so there is no MMIO probing
-    // to do for now.
+    // The ARM Generic Timer is self-describing via CNTFRQ_EL0, so there is no
+    // MMIO probing needed for it.
+    if (stage == .early) discoverGicAddressesFromMadt();
+}
+
+/// Read the firmware's MADT for the GIC distributor/CPU-interface physical
+/// addresses and feed them to `arm.gic.setBases`.
+///
+/// Leaves the QEMU-`virt` fallback addresses in place (logging why)
+/// if the MADT, or either GIC entry, isn't present.
+///
+/// This keeps QEMU booting even before ACPI SMP/MADT-discovery has
+/// been confirmed against real hardware.
+fn discoverGicAddressesFromMadt() void {
+    const MadtTable = innigkeit.acpi.init.AcpiTable(innigkeit.acpi.tables.MADT);
+    const madt_table = MadtTable.get(0) orelse {
+        log.debug("no MADT present, using QEMU virt GIC addresses", .{});
+        return;
+    };
+    defer madt_table.deinit();
+
+    var distributor_base: ?u64 = null;
+    var cpu_interface_base: ?u64 = null;
+
+    var iter = madt_table.table.iterate();
+    while (iter.next()) |entry| {
+        switch (entry.entry_type) {
+            .gic_distributor => distributor_base = @intFromEnum(
+                entry.specific.gic_distributor.physical_base_address,
+            ),
+            // Ignores the MADT header's legacy 32-bit
+            // `local_interrupt_controller_address` fallback for a GICC entry
+            // with a zero `physical_base_address`: not known to be needed by
+            // any firmware this port targets.
+            .gic_cpu_interface => cpu_interface_base = @intFromEnum(
+                entry.specific.gic_cpu_interface.physical_base_address,
+            ),
+            else => {},
+        }
+    }
+
+    const gicd_base = distributor_base orelse {
+        log.debug("MADT has no GIC distributor entry, using QEMU virt GIC addresses", .{});
+        return;
+    };
+    const gicc_base = cpu_interface_base orelse {
+        log.debug("MADT has no GIC CPU interface entry, using QEMU virt GIC addresses", .{});
+        return;
+    };
+
+    log.debug("MADT: GIC distributor=0x{x} cpu_interface=0x{x}", .{ gicd_base, gicc_base });
+    arm.gic.setBases(gicd_base, gicc_base);
 }
 
 pub fn configureGlobalSystemFeatures() void {}
@@ -52,9 +100,10 @@ pub fn configurePerExecutorSystemFeatures() void {
     if (!gic_distributor_initialized) {
         gic_distributor_initialized = true;
         arm.semihost.write("[arm] configurePerExecutor: bringing up GIC distributor\n");
-        log.debug("initializing GICv2 distributor and registering timer handler", .{});
+        log.debug("initializing GICv2 distributor and registering timer + IPI handlers", .{});
         arm.gic.initDistributor();
         arm.gic.registerHandler(arm.timer.IRQ, perExecutorPeriodicTick);
+        arm.ipi.registerHandlers();
     }
 
     arm.gic.initCpuInterface();

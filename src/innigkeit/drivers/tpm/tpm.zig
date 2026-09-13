@@ -4,6 +4,7 @@ const std = @import("std");
 
 const Crb = @import("crb.zig");
 const innigkeit = @import("innigkeit");
+const Session = @import("Session.zig");
 const log = innigkeit.debug.log.scoped(.tpm);
 
 const header_size = Crb.tpm_header_size;
@@ -27,6 +28,7 @@ const CommandCode = enum(u32) {
     create = 0x0000_0153,
     load = 0x0000_0157,
     unseal = 0x0000_015E,
+    read_public = 0x000_0173,
 };
 
 // Permanent handles.
@@ -107,6 +109,39 @@ pub const SealedObject = struct {
     pub fn publicBytes(self: *const SealedObject) []const u8 {
         return self.public[0..self.public_len];
     }
+};
+
+/// A P-256 point in TPM2's raw big-endian coordinate encoding.
+///
+/// This serves as the storage primary's public point and is used to
+/// establish a salted session.
+pub const EccPoint = Session.EccPoint;
+
+/// An object's computed `TPM2B_NAME` (nameAlg || digest).
+///
+/// This is what a session HMAC's `cpHash` uses in place of a handle's
+/// raw 4-byte value (TPM2 Part 1 §19.6.2).
+///
+/// Needed to HMAC-authorize a command against a *loaded* object, not
+/// a permanent/PCR handle (those use the raw handle value as their
+/// own `Name`, so we don't need to run `ReadPublic`).
+pub const ObjectName = struct {
+    bytes: [2 + sha256_digest_len]u8 = undefined,
+    len: usize = 0,
+
+    pub fn slice(self: *const ObjectName) []const u8 {
+        return self.bytes[0..self.len];
+    }
+};
+
+/// A response from `TPM2_ReadPublic`.
+///
+/// Contains an object's `Name` (always present) and its ECC public point
+/// (present only for an ECC-typed object; `null` for e.g. our keyedHash
+/// sealed objects).
+pub const PublicInfo = struct {
+    name: ObjectName,
+    ecc_point: ?EccPoint,
 };
 
 /// A TPM 2.0 device reached over the CRB transport.
@@ -257,6 +292,184 @@ pub const Tpm = struct {
         // Response handle area: the new object handle follows the 10-byte header.
         if (resp.len < header_size + 4) return Crb.Error.MalformedResponse;
         return std.mem.readInt(u32, resp[header_size..][0..4], .big);
+    }
+
+    /// `TPM2_ReadPublic`: fetch `handle`'s public area and computed Name. No
+    /// authorization required (reading public data needs none).
+    ///
+    /// We use this for fetching the storage primary's ECC point to establish a
+    /// salted session, and fetching a loaded object's Name to HMAC-authorize a
+    /// command against it (`cpHash` uses an object's Name, not its raw handle).
+    pub fn readPublic(self: Tpm, handle: u32) Error!PublicInfo {
+        var cmd: [header_size + 4]u8 = undefined;
+        writeHeader(&cmd, .no_sessions, cmd.len, .read_public);
+        _ = putU32(&cmd, header_size, handle);
+
+        var rsp: [512]u8 = undefined;
+        const body = try self.run(&cmd, &rsp);
+
+        // Body: outPublic(TPM2B_PUBLIC) || name(TPM2B_NAME) || qualifiedName(TPM2B_NAME).
+        const public_area = try readTpm2b(body, 0);
+        const name = try readTpm2b(body, public_area.next);
+
+        var info: PublicInfo = .{ .name = .{}, .ecc_point = null };
+        if (name.bytes.len > info.name.bytes.len) return Crb.Error.MalformedResponse;
+        @memcpy(info.name.bytes[0..name.bytes.len], name.bytes);
+        info.name.len = name.bytes.len;
+        info.ecc_point = try parseEccPoint(public_area.bytes);
+        return info;
+    }
+
+    /// `TPM2_StartAuthSession`: unlike `startAuthSession`, the
+    /// resulting session key is a real secret unknown to a passive TPM-bus
+    /// interposer: an ECDH exchange against `tpm_key`'s public point (`Session.zig`'s
+    /// header comment explains why an unsalted session provides no such
+    /// protection). `tpm_key` must be a loaded ECC restricted-decrypt key
+    /// and `tpm_key_point` its point (`readPublic(tpm_key).ecc_point.?`).
+    pub fn startSaltedAuthSession(self: Tpm, tpm_key: u32, tpm_key_point: EccPoint, session_type: SessionType) Error!Session.Session {
+        var scalar_seed: [64]u8 = undefined;
+        innigkeit.crypto.hwrand.fill(&scalar_seed);
+        const salted = Session.deriveSalt(tpm_key_point, scalar_seed) catch |err| {
+            log.err("SB-7: ECDH salt derivation failed: {t}", .{err});
+            return Error.TpmError;
+        };
+
+        var nonce_caller: [sha256_digest_len]u8 = undefined;
+        innigkeit.crypto.hwrand.fill(&nonce_caller);
+
+        var salt_buf: [Session.encrypted_salt_len]u8 = undefined;
+        const encrypted_salt = Session.marshalEncryptedSalt(&salt_buf, salted.ephemeral_public);
+
+        var cmd: [header_size + 4 + 4 + 2 + sha256_digest_len + 2 + Session.encrypted_salt_len + 1 + 6 + 2]u8 = undefined;
+        var off: usize = header_size;
+        off = putU32(&cmd, off, tpm_key); // tpmKey (salt target)
+        off = putU32(&cmd, off, rh_null); // bind (unbound: salt alone is the secret)
+        off = putU16(&cmd, off, sha256_digest_len);
+        @memcpy(cmd[off..][0..sha256_digest_len], &nonce_caller);
+        off += sha256_digest_len;
+        off = putU16(&cmd, off, @intCast(encrypted_salt.len));
+        @memcpy(cmd[off..][0..encrypted_salt.len], encrypted_salt);
+        off += encrypted_salt.len;
+        cmd[off] = @intFromEnum(session_type);
+        off += 1;
+        // symmetric: AES-128-CFB
+        off = putU16(&cmd, off, alg_aes);
+        off = putU16(&cmd, off, 128);
+        off = putU16(&cmd, off, alg_cfb);
+        off = putU16(&cmd, off, alg_sha256); // authHash
+        std.debug.assert(off == cmd.len);
+
+        writeHeader(&cmd, .no_sessions, cmd.len, .start_auth_session);
+        var rsp: [128]u8 = undefined;
+        const resp = try self.transport.transmit(&cmd, &rsp);
+        try checkRc(resp, .start_auth_session);
+        if (resp.len < header_size + 4) return Crb.Error.MalformedResponse;
+        const handle = std.mem.readInt(u32, resp[header_size..][0..4], .big);
+
+        const nonce_tpm_field = try readTpm2b(resp[header_size + 4 ..], 0);
+        if (nonce_tpm_field.bytes.len != sha256_digest_len) return Crb.Error.MalformedResponse;
+        var nonce_tpm: [sha256_digest_len]u8 = undefined;
+        @memcpy(&nonce_tpm, nonce_tpm_field.bytes);
+
+        return .{
+            .handle = handle,
+            .key = Session.deriveSessionKey(salted.salt, nonce_tpm, nonce_caller),
+            .nonce_caller = nonce_caller,
+            .nonce_tpm = nonce_tpm,
+        };
+    }
+
+    /// `TPM2_Unseal`, HMAC-authorized and response-encrypted via a salted
+    /// `session`. Unlike `unseal` (empty-password auth, no
+    /// confidentiality), this proves the response really came from the TPM
+    /// the session was salted against and hides the unsealed secret from a
+    /// passive bus interposer in transit. `item_name` is `item`'s computed
+    /// Name (`readPublic(item).name`, needed because a session HMAC's
+    /// `cpHash` uses an object's Name, not its raw handle -- TPM 2.0 Part 1
+    /// §19.6.2). The session is consumed (continueSession not set), matching
+    /// `unseal`'s existing semantics.
+    pub fn unsealAuthorized(self: Tpm, item: u32, item_name: []const u8, session: *Session.Session, out: []u8) Error![]u8 {
+        // cpHash = H(commandCode || name); Unseal's command has no further
+        // parameters after the handle+auth area.
+        var cp_hash: [sha256_digest_len]u8 = undefined;
+        {
+            var h = std.crypto.hash.sha2.Sha256.init(.{});
+            h.update(&std.mem.toBytes(std.mem.nativeToBig(u32, @intFromEnum(CommandCode.unseal))));
+            h.update(item_name);
+            h.final(&cp_hash);
+        }
+
+        var fresh_nonce: [sha256_digest_len]u8 = undefined;
+        innigkeit.crypto.hwrand.fill(&fresh_nonce);
+        session.rollNonceCaller(fresh_nonce);
+
+        const attrs: u8 = Session.attr_encrypt;
+        const hmac = session.commandHmac(cp_hash, attrs);
+
+        const auth_area_size = 4 + 2 + sha256_digest_len + 1 + 2 + sha256_digest_len;
+        var cmd: [header_size + 4 + 4 + auth_area_size]u8 = undefined;
+        var off: usize = header_size;
+        off = putU32(&cmd, off, item);
+        off = putU32(&cmd, off, auth_area_size);
+        off = putU32(&cmd, off, session.handle);
+        off = putU16(&cmd, off, sha256_digest_len);
+        @memcpy(cmd[off..][0..sha256_digest_len], &session.nonce_caller);
+        off += sha256_digest_len;
+        cmd[off] = attrs;
+        off += 1;
+        off = putU16(&cmd, off, sha256_digest_len);
+        @memcpy(cmd[off..][0..sha256_digest_len], &hmac);
+        off += sha256_digest_len;
+        std.debug.assert(off == cmd.len);
+
+        writeHeader(&cmd, .sessions, cmd.len, .unseal);
+        var rsp: [256]u8 = undefined;
+        const resp = try self.transport.transmit(&cmd, &rsp);
+        try checkRc(resp, .unseal);
+
+        // ST_SESSIONS response: header(10) || paramSize(4) || TPM2B_SENSITIVE_DATA || authArea{nonceTPM, attrs, hmac}.
+        if (resp.len < header_size + 4) return Crb.Error.MalformedResponse;
+        const param_size = std.mem.readInt(u32, resp[header_size..][0..4], .big);
+        const params_start = header_size + 4;
+        if (param_size > resp.len - params_start) return Crb.Error.MalformedResponse;
+        const params = resp[params_start..][0..param_size];
+        const auth_area = resp[params_start + param_size ..];
+
+        const data_field = try readTpm2b(params, 0);
+        if (data_field.next != params.len) return Crb.Error.MalformedResponse;
+
+        const resp_nonce = try readTpm2b(auth_area, 0);
+        if (resp_nonce.bytes.len != sha256_digest_len) return Crb.Error.MalformedResponse;
+        if (resp_nonce.next >= auth_area.len) return Crb.Error.MalformedResponse;
+        const resp_attrs = auth_area[resp_nonce.next];
+        const resp_hmac = try readTpm2b(auth_area, resp_nonce.next + 1);
+        var new_nonce_tpm: [sha256_digest_len]u8 = undefined;
+        @memcpy(&new_nonce_tpm, resp_nonce.bytes);
+
+        // rpHash = H(responseCode || commandCode || parameters-as-transmitted,
+        // i.e. still encrypted -- HMAC integrity-protects the wire bytes).
+        var rp_hash: [sha256_digest_len]u8 = undefined;
+        {
+            var h = std.crypto.hash.sha2.Sha256.init(.{});
+            h.update(resp[6..10]);
+            h.update(&std.mem.toBytes(std.mem.nativeToBig(u32, @intFromEnum(CommandCode.unseal))));
+            h.update(params);
+            h.final(&rp_hash);
+        }
+        session.verifyResponseHmac(rp_hash, resp_attrs, new_nonce_tpm, resp_hmac.bytes) catch |err| {
+            log.err("SB-7: Unseal response HMAC verification failed: {t}", .{err});
+            return Error.TpmError;
+        };
+
+        if (data_field.bytes.len > out.len) return Crb.Error.MalformedResponse;
+        @memcpy(out[0..data_field.bytes.len], data_field.bytes);
+
+        // Decrypt in place: `attr_encrypt` told the TPM to AES-128-CFB-encrypt
+        // the response's first (and only) parameter. Only the buffer content
+        // is encrypted, not its TPM2B size prefix (already stripped by readTpm2b).
+        session.decryptResponseParam(out[0..data_field.bytes.len]);
+
+        return out[0..data_field.bytes.len];
     }
 
     /// `TPM2_FlushContext`: evict a transient object or session handle.
@@ -488,16 +701,33 @@ pub const Tpm = struct {
     /// Recover data sealed by `sealToPcrs`. Succeeds only if every bound PCR
     /// still holds its seal-time value; a change to any one leaves the policy
     /// unsatisfiable and the TPM refuses to unseal.
+    ///
+    /// This is the primary disk-encryption key rescovery path (see
+    /// `EncryptedVolume.open`/`mountAtBoot`), so unlike `sealToPcrs` it uses
+    /// a *salted*, HMAC-authorized, response-encrypted session (via
+    /// `startSaltedAuthSession`/`unsealAuthorized`) rather than empty-password
+    /// `TPM_RS_PW`.
+    ///
+    /// As such, any recovered keys never cross the TPM bus in the clear, and a
+    /// passive interposer cannot forge the unseal.
     pub fn unsealWithPcrs(self: Tpm, parent: u32, pcrs: []const u32, obj: SealedObject, out: []u8) Error![]u8 {
         const item = try self.load(parent, obj);
         defer self.flushContext(item);
 
-        const session = try self.startAuthSession(.policy);
-        // unseal() consumes the session on success; flush it only if we error
-        // out before then (e.g. PolicyPCR/Unseal failure leaves it live).
-        errdefer self.flushContext(session);
-        try self.policyPcrSet(session, pcrs);
-        return self.unseal(item, session, out);
+        const item_info = try self.readPublic(item);
+
+        const parent_info = try self.readPublic(parent);
+        const parent_point = parent_info.ecc_point orelse {
+            log.err("SB-7: parent 0x{x:0>8} has no ECC point; expected our ECC storage primary", .{parent});
+            return Error.TpmError;
+        };
+
+        var session = try self.startSaltedAuthSession(parent, parent_point, .policy);
+        // unsealAuthorized() consumes the session on success; flush it only if
+        // we error out before then (e.g. PolicyPCR/Unseal failure leaves it live).
+        errdefer self.flushContext(session.handle);
+        try self.policyPcrSet(session.handle, pcrs);
+        return self.unsealAuthorized(item, item_info.name.slice(), &session, out);
     }
 
     /// Transmit a command and return the response *body* (the bytes after the
@@ -549,6 +779,53 @@ fn emptyPasswordAuth(buf: []u8, off: usize) usize {
     o += 1;
     o = putU16(buf, o, 0); // hmac (empty password)
     return o;
+}
+
+/// Parse `TPMT_PUBLIC` bytes (an outPublic TPM2B's content) for the ECC point
+/// in its `unique` field. Returns `null` for a non-ECC object (e.g. our
+/// keyedHash sealed objects) -- absence there is expected, not malformed.
+/// Assumes a NULL scheme/kdf, true of every ECC key this driver creates (the
+/// storage-primary template); a real non-NULL scheme/kdf on an ECC object we
+/// didn't create ourselves is rejected rather than mis-parsed.
+fn parseEccPoint(public_area: []const u8) Error!?EccPoint {
+    // type(2) || nameAlg(2) || objectAttributes(4) || authPolicy(TPM2B).
+    if (public_area.len < 8) return Crb.Error.MalformedResponse;
+    const obj_type = std.mem.readInt(u16, public_area[0..2], .big);
+    if (obj_type != alg_ecc) return null;
+
+    const auth_policy = try readTpm2b(public_area, 8);
+    var off = auth_policy.next;
+
+    // TPMS_ECC_PARMS.symmetric (TPMT_SYM_DEF_OBJECT): algorithm(2), then
+    // keyBits(2) + mode(2) unless algorithm is NULL.
+    if (off + 2 > public_area.len) return Crb.Error.MalformedResponse;
+    const sym_alg = std.mem.readInt(u16, public_area[off..][0..2], .big);
+    off += 2;
+    if (sym_alg != alg_null) off += 4;
+
+    // scheme (TPMT_ECC_SCHEME).
+    if (off + 2 > public_area.len) return Crb.Error.MalformedResponse;
+    const scheme = std.mem.readInt(u16, public_area[off..][0..2], .big);
+    off += 2;
+    if (scheme != alg_null) return Crb.Error.MalformedResponse;
+
+    off += 2; // curveID
+
+    // kdf (TPMT_KDF_SCHEME).
+    if (off + 2 > public_area.len) return Crb.Error.MalformedResponse;
+    const kdf = std.mem.readInt(u16, public_area[off..][0..2], .big);
+    off += 2;
+    if (kdf != alg_null) return Crb.Error.MalformedResponse;
+
+    // unique: TPMS_ECC_POINT{ x(TPM2B), y(TPM2B) }.
+    const x = try readTpm2b(public_area, off);
+    const y = try readTpm2b(public_area, x.next);
+
+    var point: EccPoint = undefined;
+    if (x.bytes.len != point.x.len or y.bytes.len != point.y.len) return Crb.Error.MalformedResponse;
+    @memcpy(&point.x, x.bytes);
+    @memcpy(&point.y, y.bytes);
+    return point;
 }
 
 /// Read a size-prefixed TPM2B field from `body` at `off`, returning its bytes

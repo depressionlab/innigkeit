@@ -46,6 +46,8 @@ Two gaps this hierarchy makes explicit rather than hides:
 
 - **`-Dtpm=true`** — build-managed `swtpm` + QEMU `tpm-crb` device (`build/TpmHarness.zig`). See `docs/secure-boot.md` SB-1..SB-4 for what's actually being tested.
 - **`-Dsecboot=true`** — own PK/KEK/db enrollment, signed/unsigned/tampered-config QEMU boot comparison (`build/Verify.zig`'s `registerSecbootSuite`). Degrades gracefully (skips with a note) if required tools/firmware are missing. See `docs/secure-boot.md` SB-6.
+- **`-Dcheckpoint_test=true`** — compiles in `testing/checkpoint.zig`'s deterministic-interleaving checkpoints (compiled out otherwise) and collects `testing/checkpoint.test.zig` on both arches; the build requires its `pass` line. Safe under `verify` too: its one script fails cleanly rather than panicking the guest even against a kernel with the bug it targets. See `docs/test-system-plan.md` §4. Not in CI.
+- **`-Dfault_inject_block_test=true`** — compiles in `testing/fault_inject_block.zig`'s block-device failure hooks (compiled out otherwise) and collects `testing/fault_injection_block.test.zig` on both arches; the build requires its `pass` line. Never touches real hardware on its failing path (every test arms a failure for the first request the code under test issues), so it's safe against whatever disk the test kernel actually booted from. See `docs/test-system-plan.md` §4. Not in CI.
 - **`-Darm=true`** — also run the arm QEMU suite as part of `verify`.
 - **`-Dcpus=1`** — single-core run of any of the above.
 

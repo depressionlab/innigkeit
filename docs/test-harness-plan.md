@@ -61,10 +61,24 @@ test "integration: spawn itest_spawn_wait and observe its exit status" {
 
 ---
 
+## Status update (test-system revamp pass, see `docs/test-system-plan.md`)
+
+**TH-2 and TH-4 are DONE, x86_64-only.** Both landed with real fixtures and
+real assertions, exactly as staged below — but while implementing TH-2,
+this pass found a **reproducible arm SMP kernel panic** triggered by
+spawning a second process before the first finishes loading (unrelated to
+IPC/cap-grants specifically — confirmed with two plain `itest_spawn_wait`
+spawns). Full diagnostic trail: `.claude/rules/arm.md`. Both tests (plus
+TH-4's spawn/kill leak-loop half) are gated `x86_64`-only until that's
+fixed; `docs/test-system-plan.md` §2 has the priority call (fix this before
+any further test-infrastructure investment) and §6 has exactly what
+shipped. TH-4's original deferral reason (no forced/multi-core
+termination) turned out to already be resolved by earlier work
+(`docs/roadmap.md`'s sibling-kill IPI cascade) — stale by the time this
+pass reached it.
+
 ## Explicitly deferred (reasons recorded, not designed further)
 
-- **TH-2 (IPC round-trip + capability transfer).** Two `itest_*` fixtures wired by `SpawnSpec.cap_grants` at spawn time, observed only via wait/notify from the kernel side — **not** kernel-task-as-IPC-party, which `transferCaps`'s `.user`-only check blocks and this plan does not touch.
-- **TH-4 (lifecycle: spawn/wait/kill, cleanup, no-leak across repeated spawn/kill).** Must scope around the confirmed gap that `processKill` only cooperatively signals the exit-`Notify` — there is no forced/multi-core termination yet. Test only the cooperative path, or treat forced termination as its own prerequisite kernel task.
 - **TH-3's real prerequisite (a process faults, the kernel survives) — DONE.** `memory/root.zig`'s `onPageFault` `.user` branch now terminates only the faulting process instead of panicking the whole kernel. A TH-3-equivalent test can now be written once Stage 3's fixture-app infrastructure exists: an `itest_*` fixture that deliberately dereferences a bad pointer, spawned via `Process.spawnFromInitfs` (Stage 2), asserting the kernel test suite itself keeps running and observing the fixture's `exit_notify` fire with status 139. Not written yet — needs Stage 3's fixture-app build support first, same as TH-1.
-- **TH-5 (WM client↔server over real IPC).** Depends on TH-2's cap-grant machinery plus the stashed WM protocol; stays stashed until TH-2 lands.
-- **Coverage/fuzzing/flake-tracking infrastructure.** Not needed for what's actually missing; out of scope for this plan.
+- **TH-5 (WM client↔server over real IPC).** Depends on TH-2's cap-grant machinery (now landed) plus the stashed WM protocol; stays stashed until the WM epic itself resumes (`CLAUDE.md`: "Display server epic is stashed") — not blocked on TH-2 anymore.
+- **Coverage/fuzzing/flake-tracking infrastructure.** Superseded by `docs/test-system-plan.md`, which stages exactly this (in-kernel fuzzing corpus-feedback channel, fault injection, a scoped formal model) rather than leaving it out of scope.

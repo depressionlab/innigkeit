@@ -16,7 +16,6 @@ pub fn create(allocator: std.mem.Allocator, io: std.Io, partition: ImageDescript
 
     const root_cluster = 2;
     const number_of_fat = 2;
-    const sectors_per_fat = 0x3F1; // TODO: Why 1009?
     const sectors_per_cluster = 1;
     const sectors_per_track = 32;
     const number_of_heads = 16;
@@ -24,7 +23,20 @@ pub fn create(allocator: std.mem.Allocator, io: std.Io, partition: ImageDescript
     const reserved_sectors = sectors_per_track; // TODO: Is it always one track reserved?
 
     const number_of_sectors = core.Size.from(slice.len, .byte).divide(sector_size);
-    const number_of_clusters: u32 = @intCast(number_of_sectors / sectors_per_cluster);
+    // Sized from the partition, not a constant: this used to be a fixed
+    // 1009 sectors (129,152 four-byte entries, ~63 MiB of 512-byte
+    // clusters) whatever the image size, so growing the image never grew
+    // what fit in it. One entry per sector (plus the two reserved entries)
+    // is a slight overestimate of the data clusters, which is harmless.
+    const entries_per_fat_sector = @intFromEnum(sector_size) / @sizeOf(filesystem.fat.FAT32Entry);
+    const sectors_per_fat: u32 = @intCast((number_of_sectors + 2 + entries_per_fat_sector - 1) / entries_per_fat_sector);
+
+    // Exclusive upper bound on a cluster number (clusters start at 2), so
+    // an image too small for its files fails with `error.NoFreeClusters`
+    // instead of writing past the FAT or the partition.
+    const number_of_clusters: u32 = @intCast(
+        (number_of_sectors - reserved_sectors - number_of_fat * sectors_per_fat) / sectors_per_cluster + root_cluster,
+    );
 
     const bpb = root.asPtr(*filesystem.fat.BPB, slice, 0, sector_size);
     bpb.* = filesystem.fat.BPB{
@@ -87,7 +99,7 @@ pub fn create(allocator: std.mem.Allocator, io: std.Io, partition: ImageDescript
     );
 
     const fat_begin = reserved_sectors;
-    const number_of_fat_entries = (sectors_per_fat * @intFromEnum(sector_size)) / 4;
+    const number_of_fat_entries: u32 = @intCast(sectors_per_fat * entries_per_fat_sector);
 
     const cluster_begin_sector = reserved_sectors + (number_of_fat * sectors_per_fat);
 

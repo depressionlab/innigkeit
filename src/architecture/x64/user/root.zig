@@ -71,6 +71,11 @@ export fn syscallDispatch(syscall_frame: *SyscallFrame) callconv(.c) void {
     innigkeit.user.onSyscall(.{ .arch_specific = syscall_frame });
 
     x64.instructions.disableInterrupts();
+
+    // A syscall always returns to user mode (via sysretq below), so this is
+    // always a safe point to act on a sibling's termination request.
+    // See `Current.checkPendingKill`.
+    innigkeit.Task.Current.get().checkPendingKill();
 }
 
 pub fn syscallEntry() callconv(.naked) noreturn {

@@ -32,6 +32,14 @@ log_scopes: []const []const u8,
 /// Resolved kernel version string (semver, or semver+git-describe suffix).
 version_string: []const u8,
 
+/// Compile `testing/checkpoint.zig`'s rendezvous points into the test
+/// binary and collect `testing/checkpoint.test.zig`.
+checkpoint_test: bool,
+
+/// Compile `testing/fauld_inject_block.zig`'s block-device failure seam
+/// into the test binary and collect `testing/fault_injection_block.test.zig`.
+fault_inject_block_test: bool,
+
 /// Kernel options module with the supplied kernel options availabe.
 kernel_options: *std.Build.Module,
 
@@ -62,6 +70,8 @@ pub fn get(b: *std.Build, version: std.SemanticVersion, architectures: []const B
     const log_scopes = try parseLogScopes(b);
     const version_string = buildVersionString(b, version, root_path);
     const emulator: EmulatorOptions = try .get(b);
+    const checkpoint_test = b.option(bool, "checkpoint_test", "Compile in deterministic-concurrency checkpoints and run their suite (default: false)") orelse false;
+    const fault_inject_block_test = b.option(bool, "fault_inject_block_test", "Compile in the block-device fault-injection seam and run its suite (default: false)") orelse false;
 
     return .{
         .optimize = b.standardOptimizeOption(.{}),
@@ -71,6 +81,8 @@ pub fn get(b: *std.Build, version: std.SemanticVersion, architectures: []const B
         .log_level = log_level,
         .log_scopes = log_scopes,
         .version_string = version_string,
+        .checkpoint_test = checkpoint_test,
+        .fault_inject_block_test = fault_inject_block_test,
         .arch_modules = try buildArchModules(b, architectures),
         .kernel_options = buildKernelOptionsModule(
             b,
@@ -79,6 +91,9 @@ pub fn get(b: *std.Build, version: std.SemanticVersion, architectures: []const B
             version_string,
             emulator.tpm_socket != null,
             emulator.expect_secure_boot,
+            emulator.fuzz_channel,
+            checkpoint_test,
+            fault_inject_block_test,
         ),
         .debug_kernel_options = buildKernelOptionsModule(
             b,
@@ -87,6 +102,9 @@ pub fn get(b: *std.Build, version: std.SemanticVersion, architectures: []const B
             version_string,
             emulator.tpm_socket != null,
             emulator.expect_secure_boot,
+            emulator.fuzz_channel,
+            checkpoint_test,
+            fault_inject_block_test,
         ),
         .internal_detection_module = detectionModule(b, .internal),
         .external_detection_module = detectionModule(b, .external),
@@ -112,6 +130,9 @@ pub fn withTestFlags(self: Options, b: *std.Build, tpm_socket: []const u8, expec
         self.version_string,
         true,
         expect_secure_boot,
+        self.emulator.fuzz_channel,
+        self.checkpoint_test,
+        self.fault_inject_block_test,
     );
     return copy;
 }
@@ -161,6 +182,9 @@ fn buildKernelOptionsModule(
     version_string: []const u8,
     tpm_test: bool,
     expect_secure_boot: bool,
+    fuzz_channel_test: bool,
+    checkpoint_test: bool,
+    fault_inject_block_test: bool,
 ) *std.Build.Module {
     const opts = b.addOptions();
     opts.addOption([]const u8, "innigkeit_version", version_string);
@@ -168,6 +192,9 @@ fn buildKernelOptionsModule(
     opts.addOption([]const []const u8, "log_scopes", log_scopes);
     opts.addOption(bool, "tpm_test", tpm_test);
     opts.addOption(bool, "expect_secure_boot", expect_secure_boot);
+    opts.addOption(bool, "fuzz_channel_test", fuzz_channel_test);
+    opts.addOption(bool, "checkpoint_test", checkpoint_test);
+    opts.addOption(bool, "fault_inject_block_test", fault_inject_block_test);
     return opts.createModule();
 }
 

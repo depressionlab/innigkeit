@@ -698,19 +698,27 @@ later session to rediscover from scratch.
 Verify gate: 153/107/85 → **157/111/89** (x64/arm/`test_native`) — both
 kernel suites and `test_native` gain `RawHeader.zig`'s 4 new tests.
 
-### Open questions
+### Open questions — resolved, see `docs/test-system-plan.md`
 
-- GPT/FAT structures are the remaining un-fuzzed raw-byte parsers, but
-  `.claude/rules/filesystem-library.md` notes they're build-time-only/
-  trusted-input tooling, a weaker fuzz case than a runtime
-  attacker-facing parser — `MADTIterator`'s bigger-scope fix above is the
-  stronger remaining lead if fuzz-target expansion continues.
-- Should fuzzing target host-side pure-logic parsers first (cheap, fits
-  `zig build --fuzz` directly) or is in-kernel/QEMU fuzzing also wanted
-  (much harder — would need a corpus-feeding mechanism across the
-  QEMU boundary; the `src/test.zig` fix above makes kernel-side fuzz
-  *tests* compile and run as smoke tests, but does not add real
-  coverage-guided fuzzing inside QEMU)?
+Both answered during the test-system revamp pass:
+
+- **`MADTIterator`'s bigger-scope fix — DONE.** Extracted the pure
+  bounds-safety walk into `MADTRawIterator.zig` (`std`-only, mirroring
+  `RawHeader.zig`'s precedent), wired into `test_native` + fuzzed.
+- **GPT/FAT — done, honestly scoped.** Confirmed (per
+  `.claude/rules/filesystem-library.md`'s existing finding) that
+  `gpt.zig`/`fat.zig` genuinely have no runtime "parse untrusted bytes"
+  boundary to fuzz. `protectiveMBR`'s bare-`usize` disk-size argument is
+  the one real exception (no implicit precondition a fuzzer could
+  violate) — fuzzing it found and fixed a real bug (`number_of_lba == 0`
+  underflowing the clamp arithmetic). See `docs/test-system-plan.md` §6.
+- **In-kernel/QEMU fuzzing — scoped in real architectural detail, not
+  started.** `docs/test-system-plan.md` §5 stages a Zircon-pattern
+  corpus-delivery-channel + coverage-counter-table design (host process
+  drives the loop, syscall dispatch as the first real target) rather than
+  leaving this as an open question — explicitly asked for by the project
+  owner as something worth building well since it generalizes beyond this
+  project.
 
 ---
 
@@ -803,14 +811,15 @@ NixOS-inspired plan last:
    remains a flagged architectural call. `zig build -l` grouping / a
    "getting started" entry point remain undone (a real redesign, not a
    bounded fix).
-4. **Test expansion** (§4) — **started.** Two fuzz tests added
-   (`VolumeHeader.parse`, `tcp/Segment.parse()`), surfacing and fixing a
-   real gap along the way (kernel-side custom test runner didn't support
-   `std.testing.fuzz` at all — confirmed the fix generalizes, not
-   file-specific). TH-2/4/5 (unit/integration) still staged, not started.
-   UDP/ICMP and ACPI parsers are the next fuzz targets; `elf/Header.zig`
-   needs a host-testability fix first; GPT/FAT are lower-priority
-   (build-time-only trust model, not runtime attacker-facing).
+4. **Test expansion** (§4) — **superseded by `docs/test-system-plan.md`**,
+   the full revamp requested 2026-09-15. TH-2/TH-4 now done (x86_64-only —
+   a real arm SMP panic was found along the way, tracked as the plan's
+   top priority); `MADTIterator`/GPT/FAT fuzzing both closed out (the
+   latter honestly scoped to the one genuinely fuzzable function,
+   `protectiveMBR` — found and fixed a real bug); a scoped formal model,
+   fault injection, and an in-kernel fuzzing corpus-feedback channel are
+   staged there. This entry is now historical — see the new doc for
+   current status rather than updating both in parallel.
 5. **NixOS-inspired design plan** (§5) — goal confirmed as "both, staged"
    (design influence now, nixpkgs interop as the explicit long-range
    goal); still needs the remaining open questions answered before real

@@ -2,6 +2,7 @@ const std = @import("std");
 
 const App = @import("build/App.zig");
 const Bundle = @import("build/Bundle.zig");
+const FuzzChannelHarness = @import("build/FuzzChannelHarness.zig");
 const ImageStep = @import("build/ImageStep.zig");
 const Kernel = @import("build/Kernel.zig");
 const Library = @import("build/Library.zig");
@@ -46,6 +47,7 @@ pub fn build(b: *std.Build) !void {
     {
         for (&[_]struct { name: []const u8, path: []const u8 }{
             .{ .name = "elf_raw_header", .path = "src/innigkeit/user/elf/RawHeader.zig" },
+            .{ .name = "madt_raw_iterator", .path = "src/innigkeit/acpi/tables/MADTRawIterator.zig" },
             .{ .name = "tcp_segment", .path = "src/innigkeit/network/tcp/Segment.zig" },
             .{ .name = "udp", .path = "src/innigkeit/network/udp.zig" },
             .{ .name = "icmp", .path = "src/innigkeit/network/icmp.zig" },
@@ -56,6 +58,7 @@ pub fn build(b: *std.Build) !void {
             .{ .name = "passphrase_keyslot", .path = "src/innigkeit/crypto/PassphraseKeyslot.zig" },
             .{ .name = "volume_header", .path = "src/innigkeit/filesystem/VolumeHeader.zig" },
             .{ .name = "tpm_kdf", .path = "src/innigkeit/drivers/tpm/kdf.zig" },
+            .{ .name = "tpm_session", .path = "src/innigkeit/drivers/tpm/Session.zig" },
             .{ .name = "recovery_flow", .path = "src/innigkeit/recovery.test.zig" },
         }) |entry| {
             const mod = b.createModule(.{ .root_source_file = b.path(entry.path) });
@@ -100,6 +103,13 @@ pub fn build(b: *std.Build) !void {
     else
         null;
 
+    // -Dfuzz_channel=true (see `QEMU.buildTestQemuStep`): x64-only for now,
+    // since networking is only x64 at the moment.
+    const fuzz_channel_harness: ?*FuzzChannelHarness = if (options.emulator.fuzz_channel)
+        try .create(b, tools.get("kernel_fuzz").?.normal_exe.getEmittedBin())
+    else
+        null;
+
     var x64_verdict: *VerdictStep = undefined;
     var arm_verdict: *VerdictStep = undefined;
 
@@ -110,10 +120,26 @@ pub fn build(b: *std.Build) !void {
         const test_kernel = try Kernel.buildTestKernel(b, libraries, options, entry.arch, apps, tools, &extra_binaries);
         const test_image = try ImageStep.buildTestImageStep(b, test_kernel, tools, entry.arch, options);
         const harness_for_arch: ?*TpmHarness = if (entry.arch == .x64) tpm_harness else null;
-        const required: []const []const u8 = if (harness_for_arch != null) &.{"pass  testing.tpm"} else &.{};
-        const test_qemu = try QEMU.buildTestQemuStep(b, entry.arch, test_image.image_file, options, required, harness_for_arch);
-        const final_step: *std.Build.Step = if (harness_for_arch) |h| &h.stop else &test_qemu.step;
-        b.step(entry.name, entry.desc).dependOn(final_step);
+        const fuzz_channel_harness_for_arch: ?*FuzzChannelHarness = if (entry.arch == .x64) fuzz_channel_harness else null;
+        var required: std.ArrayList([]const u8) = .empty;
+        if (harness_for_arch != null) try required.append(b.allocator, "pass  testing.tpm");
+        if (fuzz_channel_harness_for_arch != null) try required.append(b.allocator, "pass  testing.fuzz_channel");
+        if (options.checkpoint_test) try required.append(b.allocator, "pass  testing.checkpoint");
+        if (options.fault_inject_block_test) try required.append(b.allocator, "pass  testing.fault_injection_block");
+        const test_qemu = try QEMU.buildTestQemuStep(
+            b,
+            entry.arch,
+            test_image.image_file,
+            options,
+            required.items,
+            harness_for_arch,
+            fuzz_channel_harness_for_arch,
+        );
+        var final_step: *std.Build.Step = &test_qemu.step;
+        if (harness_for_arch) |h| final_step = &h.stop;
+        const top_level_step = b.step(entry.name, entry.desc);
+        top_level_step.dependOn(final_step);
+        if (fuzz_channel_harness_for_arch) |h| top_level_step.dependOn(&h.stop);
         b.step("image_" ++ entry.name, "Build the " ++ @tagName(entry.arch) ++ " test image (no QEMU run)").dependOn(&test_image.install_image.step);
         switch (entry.arch) {
             .x64 => x64_verdict = test_qemu,

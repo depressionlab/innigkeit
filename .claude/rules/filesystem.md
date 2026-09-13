@@ -80,3 +80,12 @@ real or mocked virtio-blk device — no such harness exists yet. If ext4
 gets a second superblock-validation gap in the future, standing up that
 harness (rather than re-verifying by code trace alone, as Stage 13 did)
 is worth the investment at that point.
+
+**Partial building block now exists, but doesn't close this gap.**
+`testing/fault_inject_block.zig` (docs/test-system-plan.md §4, fault
+injection staging step 2) can make a real `readBytes`/`writeBytes` call
+against `Ext4`'s actual `dev_idx` fail deterministically -- proving
+`Ext4`'s own device-error handling (not superblock-content handling)
+degrades cleanly. It cannot fabricate a corrupt-but-successfully-read
+superblock the way a mocked device would; that still needs the harness
+described above.

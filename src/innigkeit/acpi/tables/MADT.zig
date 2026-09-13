@@ -4,6 +4,8 @@ const innigkeit = @import("innigkeit");
 const acpi = innigkeit.acpi;
 const core = @import("core");
 
+const MADTRawIterator = @import("MADTRawIterator.zig");
+
 /// The Multiple APIC Description Table (MADT), provides OSPM with information necessary for operation on systems with
 /// APIC, SAPIC, GIC, or LPIC implementations.
 ///
@@ -1205,36 +1207,24 @@ pub const MADT = extern struct {
     }
 
     pub const MADTIterator = struct {
-        current_ptr: [*]const u8,
-        bytes_left: usize,
+        raw: MADTRawIterator.RawIterator,
 
         pub fn init(madt: *const MADT) MADTIterator {
             const start_ptr: [*]const u8 = @ptrCast(&madt._interrupt_controller_structures_start);
             const base_ptr: [*]const u8 = @ptrCast(madt);
             const end_ptr: [*]const u8 = base_ptr + madt.header.length;
+            const len = @intFromPtr(end_ptr) -| @intFromPtr(start_ptr);
 
-            return .{
-                .current_ptr = start_ptr,
-                .bytes_left = @intFromPtr(end_ptr) -| @intFromPtr(start_ptr),
-            };
+            return .{ .raw = .init(start_ptr[0..len]) };
         }
 
-        const header_size = @sizeOf(InterruptControllerEntry.Type) + @sizeOf(u8); // entry_type + length, before `specific`
-
-        /// Mirrors `Resources.Iterator.next()` (`uacpi.zig`): `entry.length` is
-        /// firmware-supplied, so it's checked against what's actually left in
-        /// the table before being trusted, not just against zero. A zero-length
-        /// entry would never advance `current_ptr`, hanging every caller's loop
-        /// forever; an over-length entry would let a caller's `entry.specific.*`
-        /// field read run past the table's mapped extent. Both are treated as
-        /// end-of-table.
+        /// The bounds-safety walk against a firmware-supplied `length` field
+        /// (mirrors `Resources.Iterator.next()` in `uacpi.zig`: rejects zero-
+        /// length and over-length entries, both as end-of-table) now lives in
+        /// `MADTRawIterator.zig`.
         pub fn next(madt_iterator: *MADTIterator) ?*const InterruptControllerEntry {
-            if (madt_iterator.bytes_left < header_size) return null;
-            const entry: *const InterruptControllerEntry = @ptrCast(madt_iterator.current_ptr);
-            if (entry.length == 0 or entry.length > madt_iterator.bytes_left) return null;
-            madt_iterator.current_ptr += entry.length;
-            madt_iterator.bytes_left -= entry.length;
-            return entry;
+            const raw_entry = madt_iterator.raw.next() orelse return null;
+            return @ptrCast(raw_entry.bytes.ptr);
         }
     };
 

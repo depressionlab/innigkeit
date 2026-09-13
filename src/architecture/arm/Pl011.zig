@@ -126,6 +126,9 @@ pub fn getInitOutput(base: u64) architecture.init.InitOutput {
             // real PL011 MMIO base reused here as an opaque state pointer.
             .state = @ptrFromInt(static.uart_base),
         },
-        .preference = .use,
+        // This is a QEMU `virt` specific fallback. A board whose firmware
+        // describes its console UART using ACPI (SPCR/DBG2) or device tree
+        // should use that instead (see `Output.zig`'s `getSerialOutput`).
+        .preference = .prefer_generic,
     };
 }

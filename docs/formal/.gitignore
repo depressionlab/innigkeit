@@ -1,0 +1,4 @@
+# TLC's own disk-backed state/fingerprint checkpoints (DiskStateQueue,
+# MSBDiskFPSet), written next to whichever .tla file it's invoked against.
+# Scratch, not something to commit.
+states/

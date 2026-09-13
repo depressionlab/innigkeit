@@ -1045,15 +1045,32 @@ pub fn loadPageTableImpl(physical_page: innigkeit.memory.PhysicalPage.Index) voi
     arm.semihost.write("[arm] loadPageTable: TTBR1 switched, MMU on\n");
 }
 
-/// Physical MMIO regions on the QEMU `virt` machine that the kernel needs
-/// before the device-tree/ACPI driven mappings exist. Mapped Device-nGnRE
-/// into the direct map so `toDirectMap` access works.
-const device_mmio_regions = [_]struct { base: u64, size: core.Size }{
-    // GIC distributor + CPU interface (GICv2): 0x0800_0000..0x0802_0000.
-    .{ .base = 0x0800_0000, .size = .from(128, .kib) },
-    // PL011 UART: one 4 KiB page at 0x0900_0000.
-    .{ .base = 0x0900_0000, .size = .from(4, .kib) },
-};
+/// Physical MMIO regions that the kernel needs to have mapped prior to
+/// registering device-tree or ACPI driven mappings. Mapped `Device-nGnRE`
+/// into the direct map so `toDirectMap` access works early.
+///
+/// The GIC distributor/CPU-interface bases come from `arm.gic.distributorBase()`/
+/// `cpuInterfaceBase()`:
+///     - We use QEMU `virt`'s fixed addresses by default, or whatever
+///       `captureSystemInformation`'s MADT parse discovers on non-virtualized
+///       hardware (see `arm/init.zig`).
+///
+/// This function's output is computed at call itme rather than using a comptime
+/// table constant, because these values can not be derived during compile time
+/// now that we use MADT. Additionally, we now map two 64 KiB regions as independent
+/// rather than one contiguous span because even though QEMU `virt` has an adjacent
+/// block, other hardware could not.
+///
+/// Note: currently our PL011 UART entry is still QEMU `virt` specific, because it
+/// backs only `arm.Pl011`'s hardcoded fallback output, not the ACPI-SPCR/DBG2
+/// (preferred) path (which maps its own MMIO dynamically via the heap allocator).
+fn deviceMmioRegions() [3]struct { base: u64, size: core.Size } {
+    return .{
+        .{ .base = arm.gic.distributorBase(), .size = .from(64, .kib) },
+        .{ .base = arm.gic.cpuInterfaceBase(), .size = .from(64, .kib) },
+        .{ .base = 0x0900_0000, .size = .from(4, .kib) },
+    };
+}
 
 /// True once the early device-MMIO regions have been mapped into the (single,
 /// shared) kernel page table. `loadPageTable` runs on every TTBR1 switch (
@@ -1073,7 +1090,7 @@ fn mapDeviceMmio(physical_page: innigkeit.memory.PhysicalPage.Index) void {
     const root_table = physical_page.baseAddress().toDirectMap().toPtr(*PageTable);
     const direct_map_base = innigkeit.memory.globals.direct_map.address;
 
-    for (device_mmio_regions) |region| {
+    for (deviceMmioRegions()) |region| {
         const phys: innigkeit.PhysicalAddress = .from(region.base);
         const virtual_range: innigkeit.VirtualRange = .from(
             direct_map_base.moveForward(.from(region.base, .byte)).toVirtualAddress(),
