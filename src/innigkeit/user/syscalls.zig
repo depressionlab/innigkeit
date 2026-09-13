@@ -164,6 +164,11 @@ pub fn dispatch(syscall: Syscall, frame: architecture.user.SyscallFrame) usize {
                             return wire(Error.Syscall.PermissionDenied);
                     }
 
+                    // Per-selector coverage counters for the in-kernel fuzzing
+                    // corpus-feedback channel.
+                    if (comptime @import("kernel_options").fuzz_channel_test)
+                        innigkeit.testing.fuzz_coverage.recordHit(tag);
+
                     return entry.handler(context) catch |err| wire(err);
                 }
             }

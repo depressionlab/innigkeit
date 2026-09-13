@@ -24,6 +24,7 @@ const tcp_sock = @import("tcp/Socket.zig");
 const udp_pkt = @import("udp.zig");
 
 const log = innigkeit.debug.log.scoped(.net_socket);
+const wallclock = innigkeit.time.wallclock;
 
 const SOCKET_MAX: usize = 16;
 const ARP_CACHE_MAX: usize = 16;
@@ -98,8 +99,8 @@ pub fn closeSocket(id: u8) void {
         task.wakeFromBlocked();
 }
 
-/// Send a UDP datagram. Resolves the target IP via ARP (blocking with up to
-/// 100 yield iterations ≈ ~500 ms). Returns false on error (no NIC, ARP
+/// Send a UDP datagram. Resolves the target IP via ARP (blocking, wallclock-
+/// bounded by `arp_timeout_ns`). Returns false on error (no NIC, ARP
 /// timeout, send failure).
 pub fn sendUdp(
     sock_id: u8,
@@ -463,8 +464,12 @@ pub fn closeTcp(id: u8) void {
     return tcp_sock.closeSocket(id);
 }
 
-/// Resolve dst_ip -> MAC. Sends an ARP request if not cached; yields up to 100
-/// times (each yield allows the net-poll thread to process one batch of frames).
+/// Bound on how long `resolveArpWithRetry` waits for an ARP reply.
+const arp_timeout_ns: u64 = 2 * std.time.ns_per_s;
+
+/// Resolve dst_ip -> MAC. Sends an ARP request if not cached; polls (yielding
+/// between checks, so the net-poll task can process incoming frames) until
+/// either the reply arrives or `arp_timeout_ns` elapses.
 fn resolveArpWithRetry(dst_ip: [4]u8, our_mac: *const [6]u8, our_ip: [4]u8) ?[6]u8 {
     if (lookupArpCache(dst_ip)) |m| return m;
 
@@ -473,8 +478,8 @@ fn resolveArpWithRetry(dst_ip: [4]u8, our_mac: *const [6]u8, our_ip: [4]u8) ?[6]
     arp_pkt.buildRequest(&req, our_mac, &our_ip, &dst_ip);
     _ = innigkeit.drivers.virtio.net.send(&req);
 
-    var tries: usize = 0;
-    while (tries < 100) : (tries += 1) {
+    const start = wallclock.read();
+    while (@intFromEnum(wallclock.elapsed(start, wallclock.read())) < arp_timeout_ns) {
         if (lookupArpCache(dst_ip)) |m| return m;
         const h: innigkeit.Task.Scheduler.Handle = .get();
         h.yield();

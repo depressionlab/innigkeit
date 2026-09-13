@@ -2,8 +2,8 @@
 //!
 //! Implements the synchronous command/response transport defined by the TCG PC
 //! Client Platform TPM Profile (PTP) CRB interface, selected when the ACPI TPM2
-//! table reports `start_method == command_response_buffer`. This is QEMU's
-//! `tpm-crb` device and the modern hardware default.
+//! table reports `start_method == command_response_buffer`. In QEMU, this is
+//! referred to as the `tpm-crb` device and is also the modern hardware default.
 //!
 //! A `Crb` value owns the memory-mapped control area and exposes a single
 //! `transmit(command, response_buf) -> response` primitive; higher-level TPM

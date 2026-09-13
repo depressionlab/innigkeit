@@ -1,15 +1,4 @@
-//! Transparent AES-XTS block-device layer.
-//!
-//! Wraps a backing block device and encrypts/decrypts every sector with
-//! `crypto/xts.zig`, keyed by an unsealed volume key, using the sector's LBA as
-//! the XTS tweak. Plaintext never touches the backing store; ciphertext is
-//! length-preserving so sector addressing is unchanged.
-//!
-//! Generic over the backing store so the encryption logic is exercised on the
-//! host (`zig build test_native`) against a RAM disk; the kernel instantiates it
-//! with a virtio-blk backing. The `comptime Backing` type must provide:
-//!   - `pub fn readSectors(self, lba: u64, buf: []u8, count: u32) !void`
-//!   - `pub fn writeSectors(self, lba: u64, buf: []const u8, count: u32) !void`
+//! AES-XTS-256 encrypted block device over `Backing`.
 
 const std = @import("std");
 const xts = @import("xts.zig");
@@ -17,8 +6,20 @@ const xts = @import("xts.zig");
 /// Standard 512-byte sector. XTS needs a 16-byte multiple; 512 qualifies.
 pub const sector_size = 512;
 
-/// AES-XTS-256 encrypted block device over `Backing`. The key is 64 bytes
-/// (32-byte data key || 32-byte tweak key).
+/// Transparent AES-XTS block-device layer over `Backing`.
+///
+/// Wraps a backing block device and encrypts/decrypts every sector with
+/// `crypto/xts.zig`, keyed by an unsealed volume key, using the sector's LBA as
+/// the XTS tweak. Plaintext never touches the backing store; ciphertext is
+/// length-preserving so sector addressing is unchanged.
+///
+/// The key is 64 bytes `(32-byte data key || 32-byte tweak key)`.
+///
+/// Generic over the backing store so the encryption logic is exercised on the
+/// host (`zig build test_native`) against a RAM disk; the kernel instantiates it
+/// with a virtio-blk backing. The `comptime Backing` type must provide:
+///   - `pub fn readSectors(self, lba: u64, buf: []u8, count: u32) !void`
+///   - `pub fn writeSectors(self, lba: u64, buf: []const u8, count: u32) !void`
 pub fn EncryptedBlockDevice(comptime Backing: type) type {
     const Cipher = xts.Xts(std.crypto.core.aes.Aes256);
     return struct {

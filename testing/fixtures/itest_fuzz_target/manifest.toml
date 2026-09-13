@@ -1,0 +1,8 @@
+name = "itest_fuzz_target"
+version = "0.1.0"
+description = "Test-only fixture: a minimally-entitled process that issues one attacker-controlled syscall descriptor received over a granted Endpoint, for the in-kernel fuzz-channel target test"
+
+[entitlements]
+spawn = false
+
+[trust]

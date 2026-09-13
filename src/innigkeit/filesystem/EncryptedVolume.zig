@@ -25,14 +25,18 @@ const VolumeHeader = @import("VolumeHeader.zig");
 const log = innigkeit.debug.log.scoped(.enc_volume);
 
 /// virtio-blk backing store for the `EncryptedBlockDevice`.
+///
+/// Always goes through the `*Raw` device functions, since this struct
+/// backs the cipher itself, and routing through the transparent-encryption
+/// entry point (`blk.readSectors`) would recurse back into it.
 pub const VirtioBacking = struct {
     dev_idx: usize,
 
     pub fn readSectors(self: VirtioBacking, lba: u64, buf: []u8, count: u32) blk.ReadError!void {
-        return blk.readSectors(self.dev_idx, lba, buf, count);
+        return blk.readSectorsRaw(self.dev_idx, lba, buf, count);
     }
     pub fn writeSectors(self: VirtioBacking, lba: u64, buf: []const u8, count: u32) blk.WriteError!void {
-        return blk.writeSectors(self.dev_idx, lba, buf, count);
+        return blk.writeSectorsRaw(self.dev_idx, lba, buf, count);
     }
 };
 
@@ -107,13 +111,18 @@ pub fn bootVolume() ?*Volume {
 /// disk carrying the `INNIKVOL` magic must unseal to become available, and a
 /// disk without it is a plaintext volume (FDE off). The disk is self-describing,
 /// so the choice is made once at provision time and survives reinstalls.
+///
+/// On success, registers `dev_idx` with `blk.registerCipher` so every later
+/// `blk.readSectors`/`blk.writeSectors` against it (including `vfs.zig`'s
+/// ext4/simple_fs mount) transparently read/writes plaintext through this volume,
+/// logically offset by `data_start_lba` past the header sector.
 pub fn mountAtBoot() void {
     const tpm_drv = innigkeit.drivers.tpm;
 
     var i: usize = 0;
     while (i < blk.deviceCount()) : (i += 1) {
         var sector: [sector_size]u8 = undefined;
-        blk.readSectors(i, header_lba, &sector, 1) catch continue;
+        blk.readSectorsRaw(i, header_lba, &sector, 1) catch continue;
         if (!std.mem.eql(u8, sector[0..8], &VolumeHeader.magic)) continue; // plaintext disk: FDE off
 
         if (tpm_drv.eventlog.locate()) |elog| {
@@ -138,9 +147,25 @@ pub fn mountAtBoot() void {
             log.warn("blk[{d}]: encrypted volume did not unseal ({t}); boot state untrusted or header damaged", .{ i, err });
             continue;
         };
+        blk.registerCipher(i, cipherRead, cipherWrite);
         log.info("blk[{d}]: encrypted data volume unsealed and mounted", .{i});
         return;
     }
+}
+
+/// `blk.CipherReadFn`/`CipherWriteFn` thunks for `blk.registerCipher`. There is
+/// only ever one `boot_volume`, so both ignore `dev_idx` (registered only for
+/// the one device it was unsealed against) and offset past the header sector.
+fn cipherRead(dev_idx: usize, lba: u64, buf: []u8, count: u32) blk.ReadError!void {
+    _ = dev_idx;
+    const vol = bootVolume() orelse return error.DeviceError;
+    return vol.readSectors(lba + data_start_lba, buf, count);
+}
+
+fn cipherWrite(dev_idx: usize, lba: u64, buf: []const u8, count: u32) blk.WriteError!void {
+    _ = dev_idx;
+    const vol = bootVolume() orelse return error.DeviceError;
+    return vol.writeSectors(lba + data_start_lba, buf, count);
 }
 
 // TPM-slot payload = private_len(u32 LE) || public_len(u32 LE) || private || public.

@@ -62,4 +62,13 @@ export fn interruptDispatch(interrupt_frame: *InterruptFrame) callconv(.c) void 
     }
 
     x64.instructions.disableInterrupts();
+
+    // A sibling may have marked this task for termination while it ran (or
+    // while it was off-CPU). The return to user mode below is the first
+    // point that's safe to act on this termination. See `Current.checkPendingKill`.
+    switch (interrupt_frame.cs.selector) {
+        .user_code, .user_code_32bit => innigkeit.Task.Current.get().checkPendingKill(),
+        .kernel_code => {},
+        else => unreachable,
+    }
 }

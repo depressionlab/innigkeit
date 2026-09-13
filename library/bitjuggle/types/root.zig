@@ -16,13 +16,13 @@ fn BitType(
     return extern struct {
         bits: Bitfield(FieldType, shift_amount, 1),
 
-        const BitTypeT = @This();
+        const Self = @This();
 
-        pub fn read(self: BitTypeT) ValueType {
+        pub fn read(self: Self) ValueType {
             return @bitCast(getBit(self.bits.field().*, shift_amount));
         }
 
-        pub fn write(self: *BitTypeT, value: ValueType) void {
+        pub fn write(self: *Self, value: ValueType) void {
             setBit(self.bits.field(), shift_amount, @bitCast(value));
         }
     };

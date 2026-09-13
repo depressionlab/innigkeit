@@ -124,7 +124,7 @@ const ImageDescription = @import("../tools/image_builder/image/ImageDescription.
 
 fn buildManifest(self: *ImageManifestStep) ![]const u8 {
     const b = self.step.owner;
-    var builder = ImageDescription.Builder.create(b.allocator, 64 * 1024 * 1024); // 64 MiB
+    var builder = ImageDescription.Builder.create(b.allocator, 128 * 1024 * 1024); // 128 MiB
     defer builder.deinit();
 
     if (self.architecture == .x64) {

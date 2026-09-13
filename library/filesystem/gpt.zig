@@ -39,8 +39,11 @@ pub fn protectiveMBR(
     const size_in_lba_clamped: u32 = if (number_of_lba > 0xFFFFFFFF)
         0xFFFFFFFF
     else
-        // Safe: the `if` above already bounds `number_of_lba <= 0xFFFFFFFF`.
-        @truncate(number_of_lba - 1);
+        // Saturating: `number_of_lba == 0` (a degenerate, but not type-excluded,
+        // input) would otherwise underflow the subtraction. The `if` above already
+        // bounds `number_of_lba <= 0xFFFFFFFF`, so `@truncate` alone is safe once
+        // the saturation has run.
+        @truncate(number_of_lba -| 1);
 
     // TODO: calulate this from the `number_of_lba`
     const ending_chs: u24 = 0xFFFFFF;
@@ -324,6 +327,24 @@ pub const partition_types = struct {
 
     pub const linux_filesystem_data: UUID = UUID.parse("0FC63DAF-8483-4772-8E79-3D69D8477DE4") catch unreachable;
 };
+
+test "fuzz: protectiveMBR never panics, for any disk size" {
+    try std.testing.fuzz({}, fuzzProtectiveMBR, .{});
+}
+
+fn fuzzProtectiveMBR(_: void, smith: *std.testing.Smith) !void {
+    const number_of_lba = smith.value(u64);
+
+    var mbr: MBR = undefined;
+    protectiveMBR(&mbr, number_of_lba);
+
+    try std.testing.expectEqual(MBR.mbr_signature, mbr.signature);
+    const expected_size_in_lba: u32 = if (number_of_lba > 0xFFFFFFFF)
+        0xFFFFFFFF
+    else
+        @truncate(number_of_lba -| 1);
+    try std.testing.expectEqual(expected_size_in_lba, mbr.record1.size_in_lba);
+}
 
 comptime {
     std.testing.refAllDecls(@This());

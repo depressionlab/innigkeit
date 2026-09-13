@@ -27,12 +27,10 @@ pub const functions: architecture.Functions = .{
             }
         }.setInstructionPointer,
 
-        // Single-executor M1: no IPIs are required (a panic on the sole
-        // executor simply halts it). Provide a no-op panic IPI so the panic
-        // path does not itself panic on a null slot.
-        .sendPanicIPI = struct {
-            fn sendPanicIPI() void {}
-        }.sendPanicIPI,
+        .sendPanicIPI = arm.ipi.sendPanicIPI,
+        .sendFlushIPI = arm.ipi.sendFlushIPI,
+        .sendRescheduleIPI = arm.ipi.sendRescheduleIPI,
+        .sendKillIPI = arm.ipi.sendKillIPI,
 
         // PCI INTx routing for virtio (M2 storage): allocate a generic handler
         // and bind it to a GIC SPI. See `arm/interrupts.zig`.

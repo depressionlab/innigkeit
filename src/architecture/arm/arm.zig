@@ -2,6 +2,7 @@ pub const gic = @import("gic.zig");
 pub const init = @import("init.zig");
 pub const instructions = @import("instructions.zig");
 pub const interrupts = @import("interrupts.zig");
+pub const ipi = @import("ipi.zig");
 pub const pan = @import("pan.zig");
 pub const Pl011 = @import("Pl011.zig");
 pub const registers = @import("registers.zig");

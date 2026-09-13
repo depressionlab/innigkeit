@@ -44,22 +44,6 @@ pub fn decrementInterruptDisable(self: Current) void {
         self.setKnownExecutor();
         architecture.interrupts.enable();
 
-        // Deferred sibling kill: a sibling thread in the same process decided (via
-        // `terminateCallingThread`'s cascade) that this task must die too.
-        // We use the same safe-point preconditions as the deferred preemption below,
-        // checked first since there is no point yielding a task that is about to be
-        // torn down anyway.
-        if (self.task.pending_kill.load(.acquire) and
-            self.task.spinlocks_held == 0 and
-            !self.task.is_scheduler_task and
-            self.task.state == .running)
-        {
-            @branchHint(.cold);
-            if (core.is_debug) std.debug.assert(self.task.type == .user);
-            const process = innigkeit.user.Thread.from(self.task).process;
-            process.terminateCallingThread(process.exit_status);
-        }
-
         // Deferred preemption: if a timer interrupt set needs_resched while we were
         // in an interrupt-disabled critical section, honour it now that we're back on
         // the task stack with no spinlocks held and no nesting.
@@ -70,6 +54,33 @@ pub fn decrementInterruptDisable(self: Current) void {
         {
             self.maybePreempt();
         }
+    }
+}
+
+/// Check this task's `Task.pending_kill` flag and terminate it if set.
+///
+/// Call this **only** from a point that is about to return control to
+/// user mode (e.g., a syscall's own return path, or an interrupt or
+/// exception return where the interrupted context was EL0/ring 3) -
+/// never from an arbitrary interrupt disable count transition.
+pub fn checkPendingKill(self: Current) void {
+    if (self.task.pending_kill.load(.acquire)) {
+        @branchHint(.cold);
+        if (core.is_debug) {
+            std.debug.assert(self.task.type == .user);
+            std.debug.assert(self.task.spinlocks_held == 0);
+            std.debug.assert(self.task.state == .running);
+        }
+
+        // Consume the flag prior to termination, as terminating a task
+        // takes the scheduler lock itself, whose reelase (still running
+        // on this task's own stack, since `state` doesn't flip to
+        // `.terminated` until the switch lands on the scheduler's own
+        // stack) must not re-satisfy this same check and recurse.
+        self.task.pending_kill.store(false, .release);
+
+        const process = innigkeit.user.Thread.from(self.task).process;
+        process.terminateCallingThread(process.exit_status);
     }
 }
 

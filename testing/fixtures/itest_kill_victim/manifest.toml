@@ -1,0 +1,8 @@
+name = "itest_kill_victim"
+version = "0.1.0"
+description = "Test-only fixture: busy-loops forever until force-signaled by process_kill, for the process_kill syscall integration test"
+
+[entitlements]
+spawn = false
+
+[trust]

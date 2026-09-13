@@ -55,16 +55,32 @@ export fn arm_handle_exception(frame: *arm.InterruptFrame, vector_idx: u8) callc
             const state_before_interrupt = innigkeit.Task.Current.onInterruptEntry();
             defer state_before_interrupt.onInterruptExit();
             gic.handleIrq(frame, state_before_interrupt);
+
+            // Vectors 9/13 are "lower-EL IRQ". This means that the interrupted
+            // context was `EL0` so this `eret` returns to user mode (i.e., the
+            // first safe point to act on a sibling's kill request). Vectors 1/5
+            // return to `EL1` (kernel mode), which is never safe. See
+            // `Current.checkPendingKill`.
+            if (vector_idx == 9 or vector_idx == 13) {
+                innigkeit.Task.Current.get().checkPendingKill();
+            }
         },
         4, 8 => {
             const esr: arm.EsrEl1 = .read();
             switch (esr.ec) {
                 .data_abort_lower_el, .data_abort_same_el => {
-                    if (handleDataAbort(frame, esr, vector_idx == 8)) return;
+                    if (handleDataAbort(frame, esr, vector_idx == 8)) {
+                        // vector_idx == 8 means that this abort was taken from `EL0`,
+                        // so returning here goes back to user mode.
+                        if (vector_idx == 8) innigkeit.Task.Current.get().checkPendingKill();
+                        return;
+                    }
                 },
                 .svc_aarch64 => {
                     if (vector_idx == 8) {
                         handleSvc(frame);
+                        // An SVC always comes from `EL0`, so this always returns to user mode.
+                        innigkeit.Task.Current.get().checkPendingKill();
                         return;
                     }
                     // SVC from EL1 (vector 4) would indicate a kernel-mode `svc`
@@ -125,13 +141,13 @@ fn dumpAndPanic(frame: *arm.InterruptFrame, vector_idx: u8) noreturn {
 /// Returns `true` if the fault was routed (caller returns from the
 /// exception normally); `false` if this fault isn't one the kernel's fault
 /// handler knows how to satisfy (an unrecognised `DataAbortIss.FaultClass`,
-/// or `FnV` set so `FAR_EL1` can't be trusted) — the caller falls back to
-/// the diagnostic panic exactly as before this routing existed.
+/// or `FnV` set so `FAR_EL1` can't be trusted). In this case, the caller
+/// falls back to the diagnostic panic exactly as before this routing existed.
 ///
 /// `from_lower_el` is `true` for vector 8 (a fault taken from a user task
 /// running at EL0), `false` for vector 4 (a fault taken while the kernel
-/// itself was running at EL1 — e.g. `memory.safe.memcpy` touching a bad
-/// user pointer).
+/// itself was running at EL1 (e.g. `memory.safe.memcpy` touching a bad
+/// user pointer)).
 fn handleDataAbort(frame: *arm.InterruptFrame, esr: arm.EsrEl1, from_lower_el: bool) bool {
     const iss = esr.dataAbort();
     if (iss.fnv) return false;
@@ -195,8 +211,11 @@ fn handleUserFault(esr: arm.EsrEl1) noreturn {
     const current_task: innigkeit.Task.Current = .get();
     const process: *innigkeit.user.Process = .from(current_task.task);
     const exit_status = exceptionDisposition(esr.ec);
-    log.warn("{f}: unhandled user-mode exception ec={t}, killing process (exit status {})", .{
-        process, esr.ec, exit_status,
+    log.warn("{f}: unhandled user-mode exception ec={s} (0x{x:0>2}), killing process (exit status {})", .{
+        process,
+        std.enums.tagName(arm.EsrEl1.ExceptionClass, esr.ec) orelse "unnamed",
+        @intFromEnum(esr.ec),
+        exit_status,
     });
     process.terminateCallingThread(exit_status);
 }

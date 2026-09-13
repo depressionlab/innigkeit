@@ -96,9 +96,9 @@ pub fn killRequestHandler(
     _: innigkeit.Task.Current.StateBeforeInterrupt,
 ) void {
     // The kill IPI's only job is to force an interrupt return on this
-    // executor; `Current.decrementInterruptDisable`'s safe-point check (run
-    // as this handler unwinds) re-checks whatever task is now current for
-    // `Task.pending_kill`. Count receipts for diagnostics and tests.
+    // executor; if that return lands in user mode, `Current.checkPendingKill`
+    // re-checks whatever task is now current for `Task.pending_kill` right
+    // there. Count receipts for diagnostics and tests.
     _ = innigkeit.Task.Current.get()
         .knownExecutor().scheduler.kill_ipi_count.fetchAdd(1, .monotonic);
 }

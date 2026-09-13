@@ -2,39 +2,37 @@
   description = "a fun tiny operating system";
 
   inputs.nixpkgs.url = "https://channels.nixos.org/nixpkgs-unstable/nixexprs.tar.zst";
-  inputs.systems.url = "github:nix-systems/default";
-  inputs.systems.inputs.nixpkgs.follows = "nixpkgs";
-  inputs.zig.url = "github:mitchellh/zig-overlay";
+  inputs.zig.url = "github:silversquirl/zig-flake";
   inputs.zig.inputs.nixpkgs.follows = "nixpkgs";
 
-  outputs =
-    inputs:
-    let
-      forEachSystem = inputs.nixpkgs.lib.genAttrs (import inputs.systems);
-      pkgs = forEachSystem (
-        system:
-        import inputs.nixpkgs {
-          inherit system;
-          overlays = [ inputs.zig.overlays.default ];
-        }
-      );
-    in
-    {
-      devShells = forEachSystem (system: {
-        default = pkgs.${system}.mkShellNoCC (rec {
-          buildInputs = with pkgs.${system}; [
-            zig
-            zls
-            gcc
-            qemu_full
-            pkg-config
-            gnumake
-            git
-            curl
-          ];
+  outputs = { nixpkgs, zig, ... }:
+    let forAllSystems = f: builtins.mapAttrs (
+      system: pkgs: f pkgs zig.packages.${system}.zig_0_16_0
+    ) nixpkgs.legacyPackages;
+  in {
+    devShells = forAllSystems(pkgs: zig: {
+      default = pkgs.mkShellNoCC {
+        packages = [
+          zig
+          zig.zls
+          pkgs.gcc
+          pkgs.qemu_full
+          pkgs.pkg-config
+          pkgs.gnumake
+          pkgs.gitMinimal
+          pkgs.curl
+          pkgs.ninja
+        ];
+      };
+    });
 
-          LD_LIBRARY_PATH = "${pkgs.${system}.lib.makeLibraryPath buildInputs}";
-        });
-      });
-    };
+    packages = forAllSystems(pkgs: zig: {
+      default = zig.makePackage {
+        pname = "innigkeit";
+        version = "0.1.0";
+        src = ./.;
+        zigReleaseMode = "fast";
+      };
+    });
+  };
 }

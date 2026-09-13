@@ -1,6 +1,7 @@
 //! Registers `zig build run_{arch}` steps that launch a disk image in QEMU.
 
 const Bundle = @import("Bundle.zig");
+const FuzzChannelHarness = @import("FuzzChannelHarness.zig");
 const ImageStep = @import("ImageStep.zig");
 const Options = @import("Options.zig");
 const Platform = @import("Platform.zig");
@@ -80,8 +81,14 @@ pub fn buildQemuCommand(
     run.addDecoratedDirectoryArg("file=", image, ",format=raw,if=none,id=drive0");
 
     // Network: user-mode networking (slirp). Guest IP 10.0.2.15, gateway 10.0.2.2.
+    // `-Dfuzz_channel=true` forwards a host UDP port to the fixed port
+    // `testing/fuzz_channel.test.zig`'s listener binds.
+    const netdev_backend = if (emu.fuzz_channel)
+        "user,id=net0,hostfwd=udp::9999-:9999"
+    else
+        "user,id=net0";
     run.addArgs(&.{
-        "-netdev", "user,id=net0",
+        "-netdev", netdev_backend,
         "-device", "virtio-net-pci,netdev=net0,disable-modern=on,disable-legacy=off",
     });
 
@@ -221,8 +228,7 @@ pub fn buildQemuCommand(
 /// cross-executor operations (e.g. TLB-flush IPIs) target offline executors
 fn testCpus(arch: Bundle.Architecture) u8 {
     return switch (arch) {
-        .arm => 1,
-        .riscv, .x64 => 4,
+        .arm, .riscv, .x64 => 4,
     };
 }
 
@@ -247,19 +253,28 @@ pub fn buildTestQemuStep(
     /// resulting verdict so the caller can fold the whole TPM lifecycle
     /// into whatever step it names as depending on the returned VerdictStep.
     tpm_harness: ?*TpmHarness,
+    fuzz_channel_harness: ?*FuzzChannelHarness,
 ) !*VerdictStep {
     var test_opts = options;
     test_opts.emulator.cpus = options.emulator.cpus orelse testCpus(arch);
-    // TODO: determine the best value for this
-    test_opts.emulator.memory = 256;
+    // TODO: arm has a bug at 512 MiB
+    test_opts.emulator.memory = switch (arch) {
+        .x64 => 512,
+        .arm, .riscv => 256,
+    };
     test_opts.emulator.display = false;
-    // TODO: TPM-like security on other arches
+    // TODO: TPM-like security and networking on other arches
     if (arch != .x64) test_opts.emulator.tpm_socket = null;
+    if (arch != .x64) test_opts.emulator.fuzz_channel = false;
 
     var log: std.Build.LazyPath = undefined;
     const run = try buildQemuCommand(b, arch, image, test_opts, .{ .log_out = &log });
     if (tpm_harness) |harness| {
         if (test_opts.emulator.tpm_socket != null)
+            run.step.dependOn(&harness.start);
+    }
+    if (fuzz_channel_harness) |harness| {
+        if (test_opts.emulator.fuzz_channel)
             run.step.dependOn(&harness.start);
     }
 
@@ -281,6 +296,10 @@ pub fn buildTestQemuStep(
     const verdict = try VerdictStep.create(b, run, log, required_substrings, true);
     if (tpm_harness) |harness| {
         if (test_opts.emulator.tpm_socket != null)
+            harness.stop.dependOn(&verdict.step);
+    }
+    if (fuzz_channel_harness) |harness| {
+        if (test_opts.emulator.fuzz_channel)
             harness.stop.dependOn(&verdict.step);
     }
     return verdict;

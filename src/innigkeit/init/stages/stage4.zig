@@ -27,6 +27,13 @@ pub fn start() !void {
         // Run the encrypted-volume boot scan so every test boot proves it is
         // safe on a disk with no INNIKVOL header (the GPT boot disk).
         innigkeit.filesystem.EncryptedVolume.mountAtBoot();
+        // -Dfuzz_channel=true: bring virtio-net up before the test suite runs,
+        // not after like the normal boot path below.
+        if (comptime builtin.cpu.arch == .x86_64 and @import("kernel_options").fuzz_channel_test) {
+            innigkeit.drivers.virtio.net.init();
+            innigkeit.drivers.virtio.net.setIp(.{ 10, 0, 2, 15 }); // QEMU user-mode default
+            try startNetPollThread();
+        }
         const failed = innigkeit.testing.runner.runAll();
         switch (comptime builtin.cpu.arch) {
             .x86_64 => {

@@ -68,6 +68,39 @@ test "tpm/crb: CreatePrimary yields a usable handle" {
     try std.testing.expect(handle != 0);
 }
 
+test "tpm/crb: ReadPublic on the storage primary yields its ECC point and a name" {
+    const tpm = innigkeit.drivers.tpm.device() orelse
+        return error.SkipZigTest;
+    const primary = try tpm.createPrimary();
+    defer tpm.flushContext(primary);
+
+    const info = try tpm.readPublic(primary);
+    try std.testing.expect(info.name.len > 0);
+    const point = info.ecc_point orelse return error.TestUnexpectedResult;
+    // Not the point at infinity / an all-zero placeholder.
+    try std.testing.expect(!std.mem.allEqual(u8, &point.x, 0));
+    try std.testing.expect(!std.mem.allEqual(u8, &point.y, 0));
+}
+
+test "tpm/crb: ReadPublic on a non-ECC (keyedHash) object reports no ECC point" {
+    const tpm = innigkeit.drivers.tpm.device() orelse
+        return error.SkipZigTest;
+    const primary = try tpm.createPrimary();
+    defer tpm.flushContext(primary);
+
+    const trial = try tpm.startAuthSession(.trial);
+    defer tpm.flushContext(trial);
+    try tpm.policyPcr(trial, 11);
+    const policy = try tpm.policyGetDigest(trial);
+    const sealed = try tpm.create(primary, policy, "sb7-readpublic-test");
+    const item = try tpm.load(primary, sealed);
+    defer tpm.flushContext(item);
+
+    const info = try tpm.readPublic(item);
+    try std.testing.expect(info.name.len > 0);
+    try std.testing.expect(info.ecc_point == null);
+}
+
 test "tpm/crb: PolicyPCR trial session yields a non-zero digest" {
     const tpm = innigkeit.drivers.tpm.device() orelse
         return error.SkipZigTest;
@@ -340,6 +373,20 @@ test "encrypted volume: provisioned data disk mounts via the boot scan" {
     var out: [512]u8 = undefined;
     try mounted.readSectors(ev.data_start_lba, &out, 1);
     try std.testing.expect(std.mem.eql(u8, &plain, &out));
+
+    // The above only proves that the `Volume` object works.
+    const plain2 = [_]u8{0x3C} ** 512;
+    try blk.writeSectors(1, 0, &plain2, 1);
+    var out2: [512]u8 = undefined;
+    try blk.readSectors(1, 0, &out2, 1);
+    try std.testing.expect(std.mem.eql(u8, &plain2, &out2));
+
+    // And it must really be routing through the cipher, not silently falling
+    // through to raw I/O: the physical sector (past the header) should hold
+    // ciphertext, not the plaintext just written.
+    var raw: [512]u8 = undefined;
+    try blk.readSectorsRaw(1, ev.data_start_lba, &raw, 1);
+    try std.testing.expect(!std.mem.eql(u8, &plain2, &raw));
 }
 
 // Kept last: this test extends firmware PCR 7 to prove multi-PCR binding, which

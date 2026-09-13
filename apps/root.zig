@@ -27,7 +27,37 @@ pub const apps: []const AppDescription = &.{
         .test_only = true,
     },
     .{
+        .name = "itest_instruction_abort",
+        .root_dir = "testing/fixtures",
+        .test_only = true,
+    },
+    .{
         .name = "itest_sibling_kill",
+        .root_dir = "testing/fixtures",
+        .test_only = true,
+    },
+    .{
+        .name = "itest_cap_sender",
+        .root_dir = "testing/fixtures",
+        .test_only = true,
+    },
+    .{
+        .name = "itest_cap_receiver",
+        .root_dir = "testing/fixtures",
+        .test_only = true,
+    },
+    .{
+        .name = "itest_kill_victim",
+        .root_dir = "testing/fixtures",
+        .test_only = true,
+    },
+    .{
+        .name = "itest_killer",
+        .root_dir = "testing/fixtures",
+        .test_only = true,
+    },
+    .{
+        .name = "itest_fuzz_target",
         .root_dir = "testing/fixtures",
         .test_only = true,
     },

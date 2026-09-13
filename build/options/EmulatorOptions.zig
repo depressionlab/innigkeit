@@ -20,6 +20,9 @@ tpm_state_dir: ?[]const u8,
 /// Set by the build script (image signed + booted under a Secure-Boot-enrolled
 /// OVMF) so the SecureBoot event-log test can assert the measured state is *enabled*.
 expect_secure_boot: bool,
+/// Wires a UDP hostfwd into the test boot image and brings up virtio-net early
+/// enough for `testing/fuzz_channel.test.zig` to reach it.
+fuzz_channel: bool,
 qemu_monitor: bool,
 remote_debug: bool,
 wad_path: []const u8,
@@ -42,6 +45,7 @@ pub fn get(b: *std.Build) !EmulatorOptions {
         break :wad b.pathResolve(&.{ p.root_dir.path orelse ".", p.sub_path });
     };
     const expect_secure_boot = b.option(bool, "expect_secure_boot", "Assert UEFI Secure Boot is enabled at boot") orelse false;
+    const fuzz_channel = b.option(bool, "fuzz_channel", "Run the in-kernel fuzz-channel PoC (x64-only, default: false)") orelse false;
 
     if (cpus) |c| {
         if (c == 0) std.debug.panic("'-Dcpus' must be greater than zero!", .{});
@@ -72,6 +76,7 @@ pub fn get(b: *std.Build) !EmulatorOptions {
         .tpm_socket = tpm_socket,
         .tpm_state_dir = tpm_state_dir,
         .expect_secure_boot = expect_secure_boot,
+        .fuzz_channel = fuzz_channel,
         .uefi = uefi,
         .wad_path = wad_path,
     };

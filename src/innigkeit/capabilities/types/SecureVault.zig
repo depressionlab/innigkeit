@@ -122,14 +122,7 @@ pub fn seal(
     if (out_blob.len < needed) return error.BufferTooSmall;
 
     var nonce: [Aead.nonce_length]u8 = undefined;
-    var i: usize = 0;
-    while (i < Aead.nonce_length) : (i += 8) {
-        // Pass the byte-slot index as a domain-separation constant so that
-        // successive calls to counterFallback produce distinct values even if
-        // the hardware clock doesn't advance between iterations.
-        const v: u64 = hwRand64() orelse counterFallback(i);
-        @memcpy(nonce[i..][0..8], &std.mem.toBytes(v));
-    }
+    innigkeit.crypto.hwrand.fill(&nonce);
 
     const ct = out_blob[Aead.nonce_length..][0..plaintext.len];
     var tag: [Aead.tag_length]u8 = undefined;
@@ -159,115 +152,7 @@ pub fn unseal(
 }
 
 fn fillRandomKey(key: *[Aead.key_length]u8) void {
-    var i: usize = 0;
-    while (i < Aead.key_length) : (i += 8) {
-        // Mix hardware RNG with timing counter for defense in depth: if RDRAND
-        // is weak or absent, the timer still provides unpredictability; if the
-        // timer is low-entropy at boot, RDRAND covers it.
-        const hw = hwRand64() orelse 0;
-        const timer = counterFallback(i);
-        @memcpy(key[i..][0..8], &std.mem.toBytes(hw ^ timer));
-    }
-}
-
-/// Returns true if RDRAND is supported on the current x86_64 CPU.
-///
-/// Executes CPUID leaf 1 and tests ECX bit 30 (RDRAND feature flag).
-/// Called once per `hwRand64` invocation; the result is a single CPUID
-/// instruction that the CPU typically executes in ~100 ns, which is negligible
-/// for a key-generation path that runs at vault creation / seal time.
-fn x64RdrandSupported() bool {
-    var ecx: u32 = undefined;
-    asm volatile ("cpuid"
-        : [ecx] "={ecx}" (ecx),
-        : [leaf] "{eax}" (@as(u32, 1)),
-        : .{ .eax = true, .ebx = true, .edx = true });
-    return (ecx >> 30) & 1 != 0;
-}
-
-/// Architecture-specific hardware random number.
-/// Returns null if not available or the instruction signals failure.
-inline fn hwRand64() ?u64 {
-    return switch (@import("builtin").cpu.arch) {
-        .x86_64 => blk: {
-            // Guard: RDRAND is not universally supported on x86_64. It was
-            // introduced with Ivy Bridge (Intel, 2012) and Jaguar (AMD, 2013).
-            // Issuing the instruction on an older CPU causes #UD (illegal
-            // opcode), which would fault the kernel. Check CPUID leaf 1
-            // ECX[30] before attempting the instruction.
-            if (!x64RdrandSupported()) break :blk null;
-
-            // Intel recommends retrying RDRAND up to 10 times; brief failure is
-            // common under high system load (DRNG reseeding, contention).
-            var attempts: usize = 0;
-            while (attempts < 10) : (attempts += 1) {
-                var v: u64 = undefined;
-                var ok: u8 = undefined;
-                asm volatile (
-                    \\ rdrand %[v]
-                    \\ setc %[ok]
-                    : [v] "=r" (v),
-                      [ok] "=r" (ok),
-                    :
-                    : .{ .cc = true });
-                if (ok != 0) break :blk v;
-            }
-            break :blk null;
-        },
-        .aarch64 => blk: {
-            // RNDR system register (ARMv8.5-A FEAT_RNG).
-            // Returns null via NZCV.Z=1 if the RNG is unavailable.
-            var v: u64 = undefined;
-            var ok: u64 = undefined;
-            asm volatile (
-            // RNDR by architectural encoding (S3_3_C2_C4_0); the `rndr` mnemonic
-            // only assembles when the target enables FEAT_RNG (+rand), which the
-            // freestanding aarch64 target does not.
-                \\ mrs %[v], S3_3_C2_C4_0
-                \\ cset %[ok], ne
-                : [v] "=r" (v),
-                  [ok] "=r" (ok),
-                :
-                // : .{ .cc = true }
-            );
-            break :blk if (ok != 0) v else null;
-        },
-        else => null,
-    };
-}
-
-/// Counter-based fallback when hardware random is unavailable.
-/// `slot_index` is mixed in as a domain-separation constant so repeated calls
-/// with a stalled clock produce distinct output.
-inline fn counterFallback(slot_index: usize) u64 {
-    const raw: u64 = switch (@import("builtin").cpu.arch) {
-        .x86_64 => blk: {
-            var low: u32 = undefined;
-            var high: u32 = undefined;
-            asm volatile ("rdtsc"
-                : [_] "={eax}" (low),
-                  [_] "={edx}" (high),
-            );
-            break :blk (@as(u64, high) << 32) | @as(u64, low);
-        },
-        .aarch64 => blk: {
-            var v: u64 = undefined;
-            asm volatile ("mrs %[v], cntvct_el0"
-                : [v] "=r" (v),
-            );
-            break :blk v;
-        },
-        .riscv64 => blk: {
-            // rdtime reads the real-time counter (guaranteed by the RISC-V spec).
-            var v: u64 = undefined;
-            asm volatile ("rdtime %[v]"
-                : [v] "=r" (v),
-            );
-            break :blk v;
-        },
-        else => 0,
-    };
-    return raw ^ (slot_index *% 0x9E3779B97F4A7C15);
+    innigkeit.crypto.hwrand.fill(key);
 }
 
 test "secure_vault: seal/unseal roundtrip" {

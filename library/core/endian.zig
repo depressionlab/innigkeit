@@ -8,8 +8,8 @@ const native_endian: Endian = @import("builtin").cpu.arch.endian();
 /// Copied from `std.mem`, changed to be inline and `desired_endianness` has been marked as comptime.
 pub inline fn nativeTo(comptime T: type, x: T, comptime desired_endianness: std.builtin.Endian) T {
     return switch (desired_endianness) {
-        .Little => nativeToLittle(T, x),
-        .Big => nativeToBig(T, x),
+        .little => nativeToLittle(T, x),
+        .big => nativeToBig(T, x),
     };
 }
 
@@ -18,8 +18,8 @@ pub inline fn nativeTo(comptime T: type, x: T, comptime desired_endianness: std.
 /// Copied from `std.mem`, changed to be inline.
 pub inline fn nativeToLittle(comptime T: type, x: T) T {
     return switch (native_endian) {
-        .Little => x,
-        .Big => @byteSwap(x),
+        .little => x,
+        .big => @byteSwap(x),
     };
 }
 
@@ -28,8 +28,8 @@ pub inline fn nativeToLittle(comptime T: type, x: T) T {
 /// Copied from `std.mem`, changed to be inline.
 pub inline fn nativeToBig(comptime T: type, x: T) T {
     return switch (native_endian) {
-        .Little => @byteSwap(x),
-        .Big => x,
+        .little => @byteSwap(x),
+        .big => x,
     };
 }
 
@@ -38,8 +38,8 @@ pub inline fn nativeToBig(comptime T: type, x: T) T {
 /// Copied from `std.mem`, changed to be inline and `desired_endianness` has been marked as comptime.
 pub inline fn toNative(comptime T: type, x: T, comptime endianness_of_x: std.builtin.Endian) T {
     return switch (endianness_of_x) {
-        .Little => littleToNative(T, x),
-        .Big => bigToNative(T, x),
+        .little => littleToNative(T, x),
+        .big => bigToNative(T, x),
     };
 }
 
@@ -48,8 +48,8 @@ pub inline fn toNative(comptime T: type, x: T, comptime endianness_of_x: std.bui
 /// Copied from `std.mem`, changed to be inline.
 pub inline fn littleToNative(comptime T: type, x: T) T {
     return switch (native_endian) {
-        .Little => x,
-        .Big => @byteSwap(x),
+        .little => x,
+        .big => @byteSwap(x),
     };
 }
 
@@ -58,8 +58,8 @@ pub inline fn littleToNative(comptime T: type, x: T) T {
 /// Copied from `std.mem`, changed to be inline.
 pub inline fn bigToNative(comptime T: type, x: T) T {
     return switch (native_endian) {
-        .Little => @byteSwap(x),
-        .Big => x,
+        .little => @byteSwap(x),
+        .big => x,
     };
 }
 
