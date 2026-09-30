@@ -258,3 +258,23 @@ test "integration: a busy-looping sibling thread is force-terminated when its pr
     const bits = try waitForNotify(result.exit_notify, 0xFF_01);
     try std.testing.expectEqual(@as(u8, 77), @as(u8, @truncate(bits >> 8)));
 }
+
+test "integration: open() with an oversized path_len returns InvalidArgument instead of panicking" {
+    const endpoint: *innigkeit.capabilities.Endpoint = try .create();
+    defer endpoint.unref();
+    endpoint.ref(); // one ref transfers to the fixture's cap grant below
+
+    const target = try innigkeit.user.Process.spawnFromInitfs(.{
+        .path = "itest_fuzz_target",
+        .cap_grants = &.{
+            .{ .cap_type = .endpoint, .ptr = endpoint, .rights = .{ .read = true, .write = true } },
+        },
+    });
+    defer target.exit_notify.unref();
+
+    const open_selector: u64 = 54;
+    endpoint.send(.{ .tag = open_selector, .words = .{ 0xDEAD_BEEF, std.math.maxInt(u64), 0, 0 } });
+
+    const bits = try waitForNotify(target.exit_notify, 0xFF_01);
+    try std.testing.expectEqual(@as(u8, 0), @as(u8, @truncate(bits >> 8)));
+}

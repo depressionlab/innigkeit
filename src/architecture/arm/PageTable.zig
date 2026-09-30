@@ -858,6 +858,8 @@ pub const PageTable = extern struct {
     pub const loadUserPageTable = loadUserPageTableImpl;
     /// See `flushAllTlbImpl`.
     pub const flushAllTlb = flushAllTlbImpl;
+    /// See `syncInstructionCacheImpl`.
+    pub const syncInstructionCache = syncInstructionCacheImpl;
 
     comptime {
         core.testing.expectSize(PageTable, small_page_size);
@@ -1151,6 +1153,64 @@ pub fn flushCacheImpl(virtual_range: innigkeit.VirtualRange) void {
             : [op] "r" (operand),
             : .{ .memory = true });
         current_virtual_address.moveForwardPageInPlace();
+    }
+
+    asm volatile (
+        \\ dsb ish
+        \\ isb
+        ::: .{ .memory = true });
+}
+
+/// Ensure code just written to `virtual_range` via an ordinary data-side
+/// store (e.g. the ELF loader's segment-copy step) is visible to
+/// instruction fetch before it is ever executed.
+///
+/// AArch64's instruction and data caches are **not** architecturally
+/// coherent with each other (unlike x86-64): a store through the data side
+/// is not guaranteed visible to a subsequent instruction fetch at the same
+/// address without explicit maintenance. The sequence is standard (see the
+/// Arm ARM's "Ensuring the visibility of updates to instructions"):
+/// clean each D-cache line touching the range to the point of unification
+/// (`DC CVAU`), barrier, invalidate each I-cache line touching the range
+/// (`IC IVAU`), then barrier + `ISB` so the pipeline can't still be holding
+/// a stale prefetched instruction from before the invalidate.
+///
+/// Line sizes come from `CTR_EL0`'s `DminLine`/`IminLine` fields (log2 of
+/// the line size in words) rather than a hardcoded constant. Real cores vary,
+/// and the fallback of "assume every line touching the range" via the
+/// *smallest* line size is always safe.
+pub fn syncInstructionCacheImpl(virtual_range: innigkeit.VirtualRange) void {
+    if (virtual_range.size.equal(.zero)) return;
+
+    const ctr = arm.registers.CTR_EL0.read();
+    const dcache_line_bytes: u64 = @as(u64, 4) << @as(u6, @truncate((ctr >> 16) & 0xF));
+    const icache_line_bytes: u64 = @as(u64, 4) << @as(u6, @truncate(ctr & 0xF));
+
+    const start = virtual_range.address.value;
+    const end = virtual_range.after().value;
+
+    asm volatile ("dsb ishst" ::: .{ .memory = true });
+
+    {
+        var addr = std.mem.alignBackward(u64, start, dcache_line_bytes);
+        while (addr < end) : (addr += dcache_line_bytes) {
+            asm volatile ("dc cvau, %[addr]"
+                :
+                : [addr] "r" (addr),
+                : .{ .memory = true });
+        }
+    }
+
+    asm volatile ("dsb ish" ::: .{ .memory = true });
+
+    {
+        var addr = std.mem.alignBackward(u64, start, icache_line_bytes);
+        while (addr < end) : (addr += icache_line_bytes) {
+            asm volatile ("ic ivau, %[addr]"
+                :
+                : [addr] "r" (addr),
+                : .{ .memory = true });
+        }
     }
 
     asm volatile (

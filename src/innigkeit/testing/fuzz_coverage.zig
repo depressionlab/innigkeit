@@ -10,10 +10,12 @@
 //! costs nothing in a normal build; this file itself always compiles
 //! (the table and its own tests are cheap either way).
 
+const innigkeit = @import("innigkeit");
 const libinnigkeit = @import("libinnigkeit");
 const std = @import("std");
 
 const Syscall = libinnigkeit.Syscall;
+const log = innigkeit.debug.log.scoped(.fuzz_coverage);
 
 var counters: std.enums.EnumArray(Syscall, std.atomic.Value(u32)) =
     .initFill(.init(0));
@@ -48,6 +50,9 @@ test "fuzz coverage: recordHit is reflected in the next dumpInto, other counters
 
     for (std.meta.tags(Syscall), 0..) |t, i| {
         const expected_delta: u32 = if (t == tag) 2 else 0;
-        try std.testing.expectEqual(before[i] + expected_delta, after[i]);
+        if (after[i] != before[i] + expected_delta) {
+            log.err("{t}: before={d} after={d} expected_delta={d}", .{ t, before[i], after[i], expected_delta });
+            return error.UnexpectedCoverageDelta;
+        }
     }
 }

@@ -68,6 +68,7 @@ pub const functions: architecture.Functions = .{
         .unmap = arm.PageTable.unmap,
         .changeProtection = arm.PageTable.changeProtection,
         .flushCache = arm.PageTable.flushCache,
+        .syncInstructionCache = arm.PageTable.syncInstructionCache,
         .enableAccessToUserMemory = arm.pan.enableAccessToUserMemory,
         .disableAccessToUserMemory = arm.pan.disableAccessToUserMemory,
         .safeMemcpy = arm.PageTable.safeMemcpy,

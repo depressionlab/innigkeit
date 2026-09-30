@@ -65,6 +65,9 @@ pub const functions: architecture.Functions = .{
         .unmap = x64.paging.PageTable.unmap,
         .changeProtection = x64.paging.PageTable.changeProtection,
         .flushCache = x64.paging.flushCache,
+        .syncInstructionCache = struct {
+            fn syncInstructionCache(_: innigkeit.VirtualRange) void {}
+        }.syncInstructionCache,
         .enableAccessToUserMemory = x64.instructions.enableAccessToUserMemory,
         .disableAccessToUserMemory = x64.instructions.disableAccessToUserMemory,
         .safeMemcpy = x64.paging.safeMemcpy,

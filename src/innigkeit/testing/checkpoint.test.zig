@@ -113,3 +113,76 @@ test "checkpoint: a process is not torn down while its failed loader thread stil
     const bits = try waitForNotify(result.exit_notify, 0x01);
     try std.testing.expectEqual(@as(u8, 0), @as(u8, @truncate(bits >> 8)));
 }
+
+/// Spawns A, holds it at `hold_point` (armed before spawning), then spawns
+/// B while A is held and waits for B's *entire* load-and-run to finish
+/// before releasing A.
+fn spawnOverlapping(hold_point: checkpoint.Point) !struct { a: u8, b: u8 } {
+    checkpoint.arm(hold_point);
+
+    const a = innigkeit.user.Process.spawnFromInitfs(.{ .path = "itest_spawn_wait" }) catch |err| {
+        _ = checkpoint.disarm(hold_point);
+        return err;
+    };
+    defer a.exit_notify.unref();
+
+    const a_subject = checkpoint.awaitCaught(hold_point, watchdog_ns) orelse {
+        _ = checkpoint.disarm(hold_point);
+        return error.WatchdogTimeout;
+    };
+    if (a_subject != a.child) {
+        checkpoint.release(hold_point);
+        return error.CaughtUnrelatedTask;
+    }
+
+    const b = innigkeit.user.Process.spawnFromInitfs(.{ .path = "itest_spawn_wait" }) catch |err| {
+        checkpoint.release(hold_point); // don't leave A stuck
+        return err;
+    };
+    defer b.exit_notify.unref();
+
+    const b_bits = waitForNotify(b.exit_notify, 0xFF_01) catch |err| {
+        checkpoint.release(hold_point); // don't leave A stuck
+        return err;
+    };
+
+    checkpoint.release(hold_point);
+    const a_bits = try waitForNotify(a.exit_notify, 0xFF_01);
+
+    return .{ .a = @as(u8, @truncate(a_bits >> 8)), .b = @as(u8, @truncate(b_bits >> 8)) };
+}
+
+// See `spawnOverlapping`'s doc comment. This one holds A before it
+// protects its own mapping (still RW).
+//
+// arm-gated: this reliably reproduces the still-open arm concurrent-spawn
+// race.
+test "checkpoint: a second process loads while the first is held pre-protect (concurrent-spawn race staging)" {
+    if (comptime builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+
+    const result = try spawnOverlapping(.loader_before_protect);
+    if (result.a != 42 or result.b != 42) {
+        log.err(
+            "pre-protect overlap: A exit={d} B exit={d} (expected 42/42)",
+            .{ result.a, result.b },
+        );
+        return error.UnexpectedExitStatus;
+    }
+}
+
+// See `spawnOverlapping`'s doc comment. This one holds A *after* it has
+// protected its own mapping (r-x, matching the hypothesis's premise).
+//
+// arm-gated: same reasoning as the pre-protect test above.
+test "checkpoint: a second process loads while the first is held post-protect (concurrent-spawn race staging)" {
+    if (comptime builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+
+    const result = try spawnOverlapping(.loader_after_protect);
+    if (result.a != 42 or result.b != 42) {
+        log.err(
+            "post-protect overlap: A exit={d} B exit={d} (expected 42/42)",
+            .{ result.a, result.b },
+        );
+        return error.UnexpectedExitStatus;
+    }
+}

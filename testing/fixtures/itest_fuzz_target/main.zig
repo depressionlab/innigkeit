@@ -26,7 +26,5 @@ pub fn main() void {
         });
     }
 
-    capabilities.endpointReply(endpoint_handle, &capabilities.Message{}) catch
-        @panic("endpointReply failed");
     innigkeit.process.exit(0);
 }
