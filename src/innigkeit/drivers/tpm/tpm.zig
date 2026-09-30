@@ -1,5 +1,6 @@
 //! TPM 2.0 command layer.
 
+// TODO: maybe split this file up?
 const std = @import("std");
 
 const Crb = @import("crb.zig");
@@ -447,7 +448,7 @@ pub const Tpm = struct {
         @memcpy(&new_nonce_tpm, resp_nonce.bytes);
 
         // rpHash = H(responseCode || commandCode || parameters-as-transmitted,
-        // i.e. still encrypted -- HMAC integrity-protects the wire bytes).
+        // i.e. still encrypted, because HMAC integrity-protects the wire bytes).
         var rp_hash: [sha256_digest_len]u8 = undefined;
         {
             var h = std.crypto.hash.sha2.Sha256.init(.{});
@@ -782,8 +783,11 @@ fn emptyPasswordAuth(buf: []u8, off: usize) usize {
 }
 
 /// Parse `TPMT_PUBLIC` bytes (an outPublic TPM2B's content) for the ECC point
-/// in its `unique` field. Returns `null` for a non-ECC object (e.g. our
-/// keyedHash sealed objects) -- absence there is expected, not malformed.
+/// in its `unique` field.
+///
+/// Returns `null` for a non-ECC object (e.g. our keyedHash sealed objects),
+/// absence there is expected, not malformed.
+///
 /// Assumes a NULL scheme/kdf, true of every ECC key this driver creates (the
 /// storage-primary template); a real non-NULL scheme/kdf on an ECC object we
 /// didn't create ourselves is rejected rather than mis-parsed.

@@ -340,7 +340,7 @@ fn cmdVerifyArtifact(init: std.process.Init, file_path: []const u8, sig_path: []
     @memcpy(std.mem.asBytes(&blob), sig_data[0..@sizeOf(ArtifactSigBlob)]);
 
     if (!std.mem.eql(u8, &blob.magic, &artifact_magic)) {
-        std.debug.print("error: bad magic (not an artifact signature -- did you mean 'verify'?)\n", .{});
+        std.debug.print("error: bad magic (not an artifact signature: did you mean 'verify'?)\n", .{});
         std.process.exit(1);
     }
 
