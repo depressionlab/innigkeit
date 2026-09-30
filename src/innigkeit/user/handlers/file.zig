@@ -43,13 +43,14 @@ pub fn open(context: Context) Error.Syscall!usize {
     const want_write = flags & 1 != 0;
 
     if (want_write and !context.entitled("storage")) return Error.Syscall.PermissionDenied;
+    if (path_len == 0 or path_len > max_path_len) return Error.Syscall.InvalidArgument;
     var path_buf: [max_path_len + 1]u8 = undefined;
     try validate.copyFromUser(path_buf[0..path_len], path_ptr);
 
     // The VFS roots everything at "/"; accept and strip a leading slash.
     var path: []const u8 = path_buf[0..path_len];
     while (path.len > 0 and path[0] == '/') path = path[1..];
-    if (path.len == 0 or path.len > max_path_len) return Error.Syscall.InvalidArgument;
+    if (path.len == 0) return Error.Syscall.InvalidArgument;
 
     var node = vfs.open(path, .{ .create = want_write }) catch |err| {
         log.debug("open({s}): {t}", .{ path, err });

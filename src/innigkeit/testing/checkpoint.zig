@@ -19,6 +19,16 @@ pub const Point = enum {
     /// `ProcessCleanup.cleanupProcess`, on entry, before its reference-count
     /// check or any teardown. Subject: the process being cleaned up.
     process_cleanup,
+    /// `elf.loader.loadAndJump`, after the ELF-segment copy loop (its
+    /// `UserAccess` window already released) but before the per-segment
+    /// `changeProtection` loop runs. The loading process's mapping is
+    /// still RW at this point. Subject: the process being loaded.
+    /// docs/test-system-plan.md sec4's "remaining first cause" staging.
+    loader_before_protect,
+    /// `elf.loader.loadAndJump`, immediately after the per-segment
+    /// `changeProtection` loop, before `AT_PHDR` computation / jump.
+    /// Subject: the process being loaded.
+    loader_after_protect,
 };
 
 const State = enum(u8) {

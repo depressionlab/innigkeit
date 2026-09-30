@@ -22,6 +22,14 @@ pub const CNTV_CVAL_EL0 = MSR(u64, "CNTV_CVAL_EL0");
 pub const MPIDR_EL1 = MSR(u64, "MPIDR_EL1");
 /// AArch64 Memory Model Feature Register 1 (read-only). PAN, bits [23:20].
 pub const ID_AA64MMFR1_EL1 = MSR(u64, "ID_AA64MMFR1_EL1");
+/// Cache Type Register (read-only).
+///
+/// `IminLine`/`DminLine` (bites [3:0]/[19:16]) give the smallest I-cache/
+/// D-cache line size on this core as log2(words).
+///
+/// Real cores vary, so cache-maintenance code must read this instead of
+/// hardcoding a line size. See `PageTAble.syncInstructionCacheImpl`.
+pub const CTR_EL0 = MSR(u64, "CTR_EL0");
 
 /// Switch to using SP_EL1 as the stack pointer at all ELs.
 pub fn spSel1() void {

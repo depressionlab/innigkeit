@@ -106,7 +106,11 @@ pub fn build(b: *std.Build) !void {
     // -Dfuzz_channel=true (see `QEMU.buildTestQemuStep`): x64-only for now,
     // since networking is only x64 at the moment.
     const fuzz_channel_harness: ?*FuzzChannelHarness = if (options.emulator.fuzz_channel)
-        try .create(b, tools.get("kernel_fuzz").?.normal_exe.getEmittedBin())
+        try .create(
+            b,
+            tools.get("kernel_fuzz").?.normal_exe.getEmittedBin(),
+            b.getInstallPath(.prefix, "fuzz-corpus"),
+        )
     else
         null;
 

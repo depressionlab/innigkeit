@@ -5,6 +5,7 @@
 //! `map -> copy -> protect -> AT_PHDR -> startProcess` sequence and does not
 //! itself make or change either trust decision.
 
+const architecture = @import("architecture");
 const innigkeit = @import("innigkeit");
 const log = innigkeit.debug.log.scoped(.elf_loader);
 const validate = @import("../validate.zig");
@@ -88,6 +89,18 @@ pub fn loadAndJump(thread: *innigkeit.user.Thread, elf_data: []const u8, proc_in
         }
     }
 
+    // Ensure freshly-copied executable segments are visible to instruction
+    // fetch before this process jumps into them.
+    {
+        var iter = try header.loadableRegionIterator(program_header_table);
+        while (try iter.next()) |region| {
+            if (!region.protection.execute) continue;
+            architecture.paging.syncInstructionCache(region.virtual_range.toVirtualRange());
+        }
+    }
+
+    innigkeit.testing.checkpoint.wait(.loader_before_protect, thread.process);
+
     // Apply per-segment protections.
     {
         var iter = try header.loadableRegionIterator(program_header_table);
@@ -101,6 +114,8 @@ pub fn loadAndJump(thread: *innigkeit.user.Thread, elf_data: []const u8, proc_in
             );
         }
     }
+
+    innigkeit.testing.checkpoint.wait(.loader_after_protect, thread.process);
 
     // Compute AT_PHDR: find the PT_LOAD segment that covers e_phoff, then
     // adjust by the segment's file-to-virtual offset.

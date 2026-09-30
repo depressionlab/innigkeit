@@ -165,6 +165,22 @@ pub fn flushCache(virtual_range: innigkeit.VirtualRange) callconv(core.inline_in
     )(virtual_range);
 }
 
+/// Ensure code just written to `virtual_range` (via a data-side write, e.g.
+/// the ELF loader's segment-copy step) is visible to instruction fetch
+/// before it is ever executed. See `Functions.zig`'s `syncInstructionCache`
+/// for why this cannot be skipped on every architecture.
+///
+/// Caller must ensure:
+///  - `virtual_range` is currently mapped in the *current* task's own
+///    address space (some architectures issue by-VA cache-maintenance
+///    instructions against it directly)
+pub fn syncInstructionCache(virtual_range: innigkeit.VirtualRange) callconv(core.inline_in_non_debug) void {
+    architecture.getFunction(
+        architecture.current_functions.paging,
+        "syncInstructionCache",
+    )(virtual_range);
+}
+
 /// Enable the kernel to access user memory.
 ///
 /// This is allowed to be a no-op if the architecture does not support stopping the kernel from accessing user

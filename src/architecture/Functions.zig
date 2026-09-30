@@ -220,6 +220,19 @@ paging: struct {
     ///   - the `virtual_range` address and size must be aligned to the standard page size
     flushCache: ?fn (virtual_range: innigkeit.VirtualRange) void = null,
 
+    /// Ensure code just written to `virtual_range` via an ordinary data write
+    /// (not an instruction fetch) is visible to instruction fetch, even before
+    /// it's executed.
+    ///
+    /// Implementation Note: This is allowed to be a no-op on an architecture
+    /// whose instruction and data caches are architecturally coherent (i.e.
+    /// x86_64). It is, however, not a no-op on architectures which require
+    /// explicit cache maintenance after writing executable code (i.e. AArch64
+    /// `DC CVAU` + `IC IVAU` + barriers). In that case, omission is a correctness
+    /// bug, since a process's freshly-copied text segment can be executed as
+    /// stale/garbage instructions.
+    syncInstructionCache: ?fn (virtual_range: innigkeit.VirtualRange) void = null,
+
     /// Enable the kernel to access user memory.
     ///
     /// This is allowed to be a no-op if the architecture does not support stopping the kernel from accessing user
