@@ -46,19 +46,6 @@ test "integration: spawn itest_spawn_wait and observe its exit status" {
 }
 
 test "integration: spawnFromInitfs rejects a missing path before creating a process" {
-    // History: this used to be a regression test for a process-reference
-    // double-decrement on every load failure (`.claude/rules/arm.md`):
-    // `loadAndStart` dropped a reference it never owned, so the process was
-    // torn down while its loader thread still awaited cleanup, panicking
-    // the kernel -- "thread not found in process threads!", or the refcount
-    // assert in `Process.create` when a follow-up spawn reused the slot.
-    // That's fixed. Separately, a spawn that was always going to fail this
-    // way used to still create a process, which then exited with status 0
-    // -- indistinguishable from real success to a waiting parent.
-    // `spawnFromInitfs` now resolves the initfs path (and codesig) before
-    // `Process.create` runs at all, so this specific failure returns
-    // `error.NotFound` synchronously and never creates a process or a
-    // notify to wait on.
     if (comptime builtin.cpu.arch != .x86_64 and builtin.cpu.arch != .aarch64) return error.SkipZigTest;
 
     try std.testing.expectError(

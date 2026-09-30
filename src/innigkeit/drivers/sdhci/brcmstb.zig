@@ -230,8 +230,7 @@ pub fn writeSectors(self: Sdhci, lba: u64, buf: []const u8, count: u32) Error!vo
 }
 
 /// The last block touched must fit the 32-bit command argument. Uses a
-/// saturating add so a huge `lba` can't wrap past the check
-/// (see `.claude/rules/drivers.md`).
+/// saturating add so a huge `lba` can't wrap past the check.
 fn checkRange(lba: u64, count: u32) Error!void {
     if (count == 0) return;
     const last_lba = lba +| (count - 1);
@@ -384,8 +383,8 @@ fn setClock(self: Sdhci, target_hz: u32) void {
 
 // There is no QEMU model of this hardware, so this test runs `setClock`
 // against a zeroed `Regs` in place of MMIO. It does two things: it forces
-// semantic analysis of this file (uncalled functions aren't type-checked, see
-// `.claude/rules/drivers.md`), and it pins the divider bit patterns, which
+// semantic analysis of this file (uncalled functions aren't type-checked),
+// and it pins the divider bit patterns, which
 // guards against the 8-bit divider bug described on `setClock`.
 //
 // It deliberately doesn't cover `reset`, `command` or the sector I/O paths. A
