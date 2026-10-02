@@ -25,7 +25,7 @@ const descriptor_len = 8 + 4 * 8;
 /// Selector value that ends the loop.
 const stop_sentinel: u64 = std.math.maxInt(u64);
 
-const max_iterations: usize = 100;
+const max_iterations: usize = 1 << 20;
 
 /// Same bound as the watchdog in `smp.test.zig`.
 const watchdog_ns: u64 = 60 * std.time.ns_per_s;

@@ -23,6 +23,13 @@ expect_secure_boot: bool,
 /// Wires a UDP hostfwd into the test boot image and brings up virtio-net early
 /// enough for `testing/fuzz_channel.test.zig` to reach it.
 fuzz_channel: bool,
+/// How many descriptors `tools/kernel_fuzz`'s mutation loop drives through the
+/// guest per run (`-Dfuzz_iterations=N`). Host-side only, so changing it does
+/// not rebuild the kernel.
+fuzz_iterations: u32,
+/// Pins the mutation loop's PRNG seed (`-Dfuzz_seed=0x...`) so a finding can be
+/// replayed; null means a fresh random seed, printed at the start of the run.
+fuzz_seed: ?u64,
 qemu_monitor: bool,
 remote_debug: bool,
 wad_path: []const u8,
@@ -46,6 +53,12 @@ pub fn get(b: *std.Build) !EmulatorOptions {
     };
     const expect_secure_boot = b.option(bool, "expect_secure_boot", "Assert UEFI Secure Boot is enabled at boot") orelse false;
     const fuzz_channel = b.option(bool, "fuzz_channel", "Run the in-kernel fuzz-channel PoC (x64-only, default: false)") orelse false;
+    const fuzz_iterations = b.option(u32, "fuzz_iterations", "Descriptors the -Dfuzz_channel mutation loop drives per run (default: 40)") orelse 40;
+    const fuzz_seed: ?u64 = if (b.option([]const u8, "fuzz_seed", "PRNG seed for the -Dfuzz_channel mutation loop, e.g. 0x9a91eaccae2d7158 (default: random, printed)")) |text|
+        std.fmt.parseInt(u64, text, 0) catch std.debug.panic("'-Dfuzz_seed' must be an integer (decimal or 0x-prefixed hex), got '{s}'", .{text})
+    else
+        null;
+    if (fuzz_iterations == 0) std.debug.panic("'-Dfuzz_iterations' must be greater than zero!", .{});
 
     if (cpus) |c| {
         if (c == 0) std.debug.panic("'-Dcpus' must be greater than zero!", .{});
@@ -77,6 +90,8 @@ pub fn get(b: *std.Build) !EmulatorOptions {
         .tpm_state_dir = tpm_state_dir,
         .expect_secure_boot = expect_secure_boot,
         .fuzz_channel = fuzz_channel,
+        .fuzz_iterations = fuzz_iterations,
+        .fuzz_seed = fuzz_seed,
         .uefi = uefi,
         .wad_path = wad_path,
     };

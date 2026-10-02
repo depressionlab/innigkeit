@@ -110,6 +110,8 @@ pub fn build(b: *std.Build) !void {
             b,
             tools.get("kernel_fuzz").?.normal_exe.getEmittedBin(),
             b.getInstallPath(.prefix, "fuzz-corpus"),
+            options.emulator.fuzz_iterations,
+            options.emulator.fuzz_seed,
         )
     else
         null;
