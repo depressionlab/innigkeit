@@ -19,16 +19,20 @@ const Step = std.Build.Step;
 
 exe: std.Build.LazyPath,
 corpus_dir: []const u8,
+iterations: u32,
+seed: ?u64,
 child: ?std.process.Child = null,
 
 start: Step,
 stop: Step,
 
-pub fn create(owner: *std.Build, exe: std.Build.LazyPath, corpus_dir: []const u8) error{OutOfMemory}!*FuzzChannelHarness {
+pub fn create(owner: *std.Build, exe: std.Build.LazyPath, corpus_dir: []const u8, iterations: u32, seed: ?u64) error{OutOfMemory}!*FuzzChannelHarness {
     const self = try owner.allocator.create(FuzzChannelHarness);
     self.* = .{
         .exe = exe,
         .corpus_dir = corpus_dir,
+        .iterations = iterations,
+        .seed = seed,
         .start = .init(.{
             .id = .custom,
             .name = "fuzz-channel-client-start",
@@ -66,8 +70,21 @@ fn makeStart(step: *Step, options: Step.MakeOptions) !void {
     cwd.createDirPath(io, b.pathJoin(&.{ self.corpus_dir, "interesting" })) catch |e|
         return step.fail("unable to create fuzz corpus interesting subdirectory: {t}", .{e});
 
+    var argv: std.ArrayList([]const u8) = .empty;
+    try argv.appendSlice(b.allocator, &.{
+        exe_path_str,
+        self.corpus_dir,
+        "--iterations",
+        b.fmt("{d}", .{self.iterations}),
+    });
+    if (self.seed) |seed|
+        try argv.appendSlice(b.allocator, &.{
+            "--seed",
+            b.fmt("0x{x}", .{seed}),
+        });
+
     self.child = std.process.spawn(io, .{
-        .argv = &.{ exe_path_str, self.corpus_dir },
+        .argv = &argv.items,
         .stdin = .ignore,
         .stdout = .inherit,
         .stderr = .inherit,

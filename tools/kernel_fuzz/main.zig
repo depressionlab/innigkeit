@@ -21,7 +21,7 @@ const payload = "innigkeit-fuzz-channel-poc";
 
 /// Descriptors sent before the stop sentinel. Must not exceed
 /// `max_iterations` in `fuzz_target.test.zig`.
-const mutation_loop_iterations: usize = 40;
+const default_iterations: usize = 40;
 
 /// Timeout for one handshake attempt.
 const per_attempt_timeout_ms: i64 = 300;
@@ -36,7 +36,29 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
 
     const args_slice = try init.minimal.args.toSlice(init.arena.allocator());
-    const corpus_dir: ?[]const u8 = if (args_slice.len >= 2) args_slice[1] else null;
+    var corpus_dir: ?[]const u8 = null;
+    var iterations: usize = default_iterations;
+    var seed_override: ?u64 = null;
+    var arg_index: usize = 1;
+    while (arg_index < args_slice.len) : (arg_index += 1) {
+        const arg = args_slice[arg_index];
+        if (std.mem.eql(u8, arg, "--iterations") or std.mem.eql(u8, arg, "--seed")) {
+            arg_index += 1;
+            if (arg_index >= args_slice.len) usageError("{s} needs a value", .{arg});
+            const value = std.fmt.parseInt(u64, args_slice[arg_index], 0) catch
+                usageError("{s} needs an integer, got '{s}'", .{ arg, args_slice[arg_index] });
+            if (std.mem.eql(u8, arg, "--seed")) {
+                seed_override = value;
+            } else {
+                if (value == 0) usageError("--iterations must be greater than zero", .{});
+                iterations = std.math.cast(usize, value) orelse usageError("--iterations is too large", .{});
+            }
+        } else if (std.mem.startsWith(u8, arg, "--") or corpus_dir != null) {
+            usageError("unexpected argument '{s}'", .{arg});
+        } else {
+            corpus_dir = arg;
+        }
+    }
     if (corpus_dir == null)
         std.debug.print("kernel_fuzz: no corpus directory given, crash/insteresting descriptors will not be saved\n", .{});
 
@@ -70,7 +92,7 @@ pub fn main(init: std.process.Init) !void {
                         std.debug.print("kernel_fuzz: no coverage dump received: {t}\n", .{err});
                         std.process.exit(1);
                     };
-                    try runMutationLoop(init.io, init.arena.allocator(), sock, dest, corpus_dir, before);
+                    try runMutationLoop(init.io, init.arena.allocator(), sock, dest, corpus_dir, before, iterations, seed_override);
                     return;
                 }
                 std.debug.print(
@@ -94,6 +116,11 @@ pub fn main(init: std.process.Init) !void {
             std.process.exit(1);
         }
     }
+}
+
+fn usageError(comptime fmt: []const u8, args: anytype) noreturn {
+    std.debug.print("kernel_fuzz: " ++ fmt ++ "\nusage: kernel_fuzz [corpus_dir] [--iterations N] [--seed S]\n", args);
+    std.process.exit(2);
 }
 
 const CoverageDump = struct {
@@ -229,12 +256,18 @@ fn runMutationLoop(
     dest: net.IpAddress,
     corpus_dir: ?[]const u8,
     baseline: CoverageDump,
+    iterations: usize,
+    seed_override: ?u64,
 ) !void {
     var seed: u64 = undefined;
-    io.random(std.mem.asBytes(&seed));
+    if (seed_override) |pinned| {
+        seed = pinned;
+    } else {
+        io.random(std.mem.asBytes(&seed));
+    }
     var prng = std.Random.DefaultPrng.init(seed);
     const random = prng.random();
-    std.debug.print("kernel_fuzz: mutation loop starting, seed=0x{x}, {d} iterations\n", .{ seed, mutation_loop_iterations });
+    std.debug.print("kernel_fuzz: mutation loop starting, seed=0x{x}, {d} iterations\n", .{ seed, iterations });
 
     var best_seen = baseline;
     var fuzz_corpus: corpus.Corpus = .{ .max_entries = 64 };
@@ -242,7 +275,7 @@ fn runMutationLoop(
     var interesting_count: usize = 0;
 
     var iteration: usize = 0;
-    while (iteration < mutation_loop_iterations) : (iteration += 1) {
+    while (iteration < iterations) : (iteration += 1) {
         // Explore/exploit: half the time mutate a corpus entry (if any),
         // otherwise generate a fresh descriptor.
         const to_send = if (fuzz_corpus.pickRandom(random)) |base|
@@ -264,10 +297,15 @@ fn runMutationLoop(
         if (reply.exit_status != 0) {
             crash_count += 1;
             std.debug.print(
-                "kernel_fuzz: iteration {d}: selector=0x{x} killed the target (exit_status={d})\n",
-                .{ iteration, to_send.selector, reply.exit_status },
+                "kernel_fuzz: iteration {d}: killed the target (exit_status={d}) selector=0x{x} words=[0x{x}, 0x{x}, 0x{x}, 0x{x}]\n",
+                .{
+                    iteration,        reply.exit_status,
+                    to_send.selector, to_send.words[0],
+                    to_send.words[1], to_send.words[2],
+                    to_send.words[3],
+                },
             );
-            if (corpus_dir) |dir| corpus.save(io, dir, "crashes", iteration, reply.exit_status, to_send);
+            if (corpus_dir) |dir| corpus.save(io, dir, "crashes", seed, iteration, reply.exit_status, to_send);
         }
 
         // "Interesting" = a slot going from zero to nonzero. Counters are
@@ -286,7 +324,7 @@ fn runMutationLoop(
             interesting_count += 1;
             // The corpus is capped at 64 small entries; ignore allocation failure.
             fuzz_corpus.add(allocator, to_send) catch {};
-            if (corpus_dir) |dir| corpus.save(io, dir, "interesting", iteration, null, to_send);
+            if (corpus_dir) |dir| corpus.save(io, dir, "interesting", seed, iteration, null, to_send);
         }
     }
 
@@ -298,6 +336,6 @@ fn runMutationLoop(
     }
     std.debug.print(
         "kernel_fuzz: mutation loop PASS: {d} iterations, {d} crash(es), {d} coverage-increasing descriptor(s), {d}/{d} selectors reached, corpus size {d}\n",
-        .{ mutation_loop_iterations, crash_count, interesting_count, nonzero_slots, best_seen.slot_count, fuzz_corpus.entries.items.len },
+        .{ iterations, crash_count, interesting_count, nonzero_slots, best_seen.slot_count, fuzz_corpus.entries.items.len },
     );
 }

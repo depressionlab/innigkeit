@@ -7,6 +7,12 @@ const std = @import("std");
 /// tuple taken directly from the host's fuzz-channel corpus entry.
 const endpoint_handle: capabilities.Handle = @enumFromInt(0);
 
+/// Must match `tools/kernel_fuzz/corpus.zig`'s `scratch_sentinel`.
+const scratch_sentinel: u64 = 0x5C5C_5C5C_5C5C_5C5C;
+
+/// Writable, non-empty (so a path/name read from it is never zero-length).
+var scratch: [256]u8 = @splat('a');
+
 /// Minimally-entitled fuzz target: receives one attacker-controlled syscall
 /// descriptor over the granted Endpoint and issues it for real, through the
 /// same `Syscall.invoke` any real app uses.
@@ -14,6 +20,10 @@ pub fn main() void {
     var msg: capabilities.Message = undefined;
     capabilities.endpointRecv(endpoint_handle, &msg) catch |err|
         std.debug.panic("endpointRecv failed: {t}", .{err});
+
+    for (&msg.words) |*word| {
+        if (word.* == scratch_sentinel) word.* = @intFromPtr(&scratch);
+    }
 
     // msg.tag is a raw, attacker-controlled u64: it may not name a real
     // syscall at all. Skip invoking anything for an out-of-range selector,

@@ -49,6 +49,10 @@ pub fn register(b: *std.Build) void {
         .path = "build/lints/hex_literal_case.zig",
     } }, .{});
     builder.addRule(.{ .custom = .{
+        .name = "unvalidated_arg_slice",
+        .path = "build/lints/unvalidated_arg_slice.zig",
+    } }, .{});
+    builder.addRule(.{ .custom = .{
         .name = "undocumented_zlinter_disable",
         .path = "build/lints/undocumented_zlinter_disable.zig",
     } }, .{});
