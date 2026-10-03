@@ -27,7 +27,7 @@ fn waitForNotify(notify: *innigkeit.capabilities.Notify, clear_mask: u64) !u64 {
     while (true) {
         const bits = notify.poll(clear_mask);
         if (bits != 0) return bits;
-        if (@intFromEnum(wallclock.elapsed(start, wallclock.read())) > watchdog_ns) {
+        if (@backingInt(wallclock.elapsed(start, wallclock.read())) > watchdog_ns) {
             log.err("watchdog tripped waiting for exit notify", .{});
             return error.WatchdogTimeout;
         }
@@ -36,7 +36,7 @@ fn waitForNotify(notify: *innigkeit.capabilities.Notify, clear_mask: u64) !u64 {
 }
 
 test "integration: spawn itest_spawn_wait and observe its exit status" {
-    if (comptime builtin.cpu.arch != .x86_64 and builtin.cpu.arch != .aarch64) return error.SkipZigTest;
+    if (comptime builtin.target.cpu.arch != .x86_64 and builtin.target.cpu.arch != .aarch64) return error.SkipZigTest;
 
     const result = try innigkeit.user.Process.spawnFromInitfs(.{ .path = "itest_spawn_wait" });
     defer result.exit_notify.unref();
@@ -46,7 +46,7 @@ test "integration: spawn itest_spawn_wait and observe its exit status" {
 }
 
 test "integration: spawnFromInitfs rejects a missing path before creating a process" {
-    if (comptime builtin.cpu.arch != .x86_64 and builtin.cpu.arch != .aarch64) return error.SkipZigTest;
+    if (comptime builtin.target.cpu.arch != .x86_64 and builtin.target.cpu.arch != .aarch64) return error.SkipZigTest;
 
     try std.testing.expectError(
         error.NotFound,
@@ -64,7 +64,7 @@ test "integration: spawnFromInitfs rejects a missing path before creating a proc
 }
 
 test "integration: unhandled user-mode exception isolates to the calling process, not the kernel" {
-    if (comptime builtin.cpu.arch != .x86_64 and builtin.cpu.arch != .aarch64) return error.SkipZigTest;
+    if (comptime builtin.target.cpu.arch != .x86_64 and builtin.target.cpu.arch != .aarch64) return error.SkipZigTest;
 
     // If either architecture's isolation path regressed back to panicking
     // the kernel, this test would never reach the assertion below.
@@ -86,7 +86,7 @@ test "integration: a user fault with an exception class the kernel does not name
     // ("invalid enum value") for any EC without a name. (e.g. the EL0
     // instruction abort this fixture triggers. On x64 the same fixture is
     // an ordinary user page fault; both must isolate as sigsegv).
-    if (comptime builtin.cpu.arch != .x86_64 and builtin.cpu.arch != .aarch64) return error.SkipZigTest;
+    if (comptime builtin.target.cpu.arch != .x86_64 and builtin.target.cpu.arch != .aarch64) return error.SkipZigTest;
 
     const result = try innigkeit.user.Process.spawnFromInitfs(.{ .path = "itest_instruction_abort" });
     defer result.exit_notify.unref();
@@ -99,7 +99,7 @@ test "integration: a user fault with an exception class the kernel does not name
 }
 
 test "integration: a capability transferred over IPC is usable by the receiving process" {
-    if (comptime builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    if (comptime builtin.target.cpu.arch != .x86_64) return error.SkipZigTest;
 
     const endpoint: *innigkeit.capabilities.Endpoint = try .create();
     endpoint.ref(); // one ref per grant below (sender + receiver)
@@ -180,7 +180,7 @@ test "integration: a capability without the grant right is dropped, not transfer
 }
 
 test "integration: process_kill force-signals another process's exit status" {
-    if (comptime builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    if (comptime builtin.target.cpu.arch != .x86_64) return error.SkipZigTest;
 
     const victim = try innigkeit.user.Process.spawnFromInitfs(.{ .path = "itest_kill_victim" });
     defer victim.exit_notify.unref();
@@ -248,7 +248,7 @@ test "integration: a busy-looping sibling thread is force-terminated when its pr
     // Same arch support as the tests above: sibling force-termination only
     // needs spawn_thread + exit_process, both already exercised by
     // itest_spawn_wait; riscv64 has no syscall dispatch at all yet.
-    if (comptime builtin.cpu.arch != .x86_64 and builtin.cpu.arch != .aarch64) return error.SkipZigTest;
+    if (comptime builtin.target.cpu.arch != .x86_64 and builtin.target.cpu.arch != .aarch64) return error.SkipZigTest;
 
     const result = try innigkeit.user.Process.spawnFromInitfs(.{
         .path = "itest_sibling_kill",

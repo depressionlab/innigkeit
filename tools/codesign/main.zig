@@ -317,7 +317,7 @@ fn cmdSignArtifact(
         };
         const hash_hex = std.fmt.bytesToHex(blob.file_hash, .lower);
         const basename = std.Io.Dir.path.basename(file_path);
-        const store_name = try std.fmt.allocPrint(arena, "{s}-{s}", .{ hash_hex, basename });
+        const store_name = try arena.print("{s}-{s}", .{ hash_hex, basename });
         const store_path = try std.Io.Dir.path.join(arena, &.{ dir, store_name });
         try writeFile(io, store_path, data);
         std.debug.print("Store copy: {s} -> {s}\n", .{ file_path, store_path });

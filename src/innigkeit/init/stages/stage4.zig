@@ -17,7 +17,7 @@ pub fn start() !void {
         // Bring up PCI and the virtio-blk driver so the disk-I/O tests can
         // exercise the real (interrupt-driven) completion path. Any failure
         // just leaves the boot device unavailable and those tests skip.
-        if (comptime builtin.cpu.arch == .x86_64 or builtin.cpu.arch == .aarch64) {
+        if (comptime builtin.target.cpu.arch == .x86_64 or builtin.target.cpu.arch == .aarch64) {
             innigkeit.pci.init.initializeECAM() catch |err|
                 log.warn("test setup: PCI ECAM init failed: {t}", .{err});
             innigkeit.drivers.virtio.blk.init();
@@ -29,13 +29,13 @@ pub fn start() !void {
         innigkeit.filesystem.EncryptedVolume.mountAtBoot();
         // -Dfuzz_channel=true: bring virtio-net up before the test suite runs,
         // not after like the normal boot path below.
-        if (comptime builtin.cpu.arch == .x86_64 and @import("kernel_options").fuzz_channel_test) {
+        if (comptime builtin.target.cpu.arch == .x86_64 and @import("kernel_options").fuzz_channel_test) {
             innigkeit.drivers.virtio.net.init();
             innigkeit.drivers.virtio.net.setIp(.{ 10, 0, 2, 15 }); // QEMU user-mode default
             try startNetPollThread();
         }
         const failed = innigkeit.testing.runner.runAll();
-        switch (comptime builtin.cpu.arch) {
+        switch (comptime builtin.target.cpu.arch) {
             .x86_64 => {
                 // ISA debug-exit: write 0 -> QEMU exits (0<<1)|1 = 1 (pass).
                 //                 write 1 -> QEMU exits (1<<1)|1 = 3 (fail).

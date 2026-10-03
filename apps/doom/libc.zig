@@ -4,12 +4,12 @@
 const std = @import("std");
 
 pub export fn snprintf(s: [*c]u8, n: c_ulong, format: [*c]const u8, ...) callconv(.c) c_int {
-    var args: std.builtin.VaList = @cVaStart();
+    var args: std.lang.VaList = @cVaStart();
     defer @cVaEnd(&args);
     return vsnprintf(s, n, format, &args);
 }
 
-export fn vsnprintf(s: [*c]u8, n: c_ulong, format: [*c]const u8, args: *std.builtin.VaList) callconv(.c) c_int {
+export fn vsnprintf(s: [*c]u8, n: c_ulong, format: [*c]const u8, args: *std.lang.VaList) callconv(.c) c_int {
     if (n == 0) return 0;
     var w: Writer = .{ .buf = s, .cap = n - 1, .len = 0 };
     formatV(&w, format, args);
@@ -65,7 +65,7 @@ const Writer = extern struct {
     }
 };
 
-fn formatV(w: *Writer, fmt_ptr: [*c]const u8, args: *std.builtin.VaList) callconv(.c) void {
+fn formatV(w: *Writer, fmt_ptr: [*c]const u8, args: *std.lang.VaList) callconv(.c) void {
     var i: usize = 0;
     while (fmt_ptr[i] != 0) {
         if (fmt_ptr[i] != '%') {

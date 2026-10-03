@@ -6,9 +6,9 @@
 
 // Pull in the C syscall exports so they are linked.
 const _syscalls = @import("syscalls.zig");
-// libc.zig uses std.builtin.VaList which is disabled on non-x86_64 in stage2_llvm.
+// libc.zig uses std.lang.VaList which is disabled on non-x86_64 in stage2_llvm.
 // On other architectures doom uses doom_stub.c so the C-level libc exports aren't needed.
-const _libc = if (@import("builtin").cpu.arch == .x86_64)
+const _libc = if (@import("builtin").target.cpu.arch == .x86_64)
     @import("libc.zig")
 else
     struct {};

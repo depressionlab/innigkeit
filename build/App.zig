@@ -274,9 +274,9 @@ fn createModule(
         }
     } else false;
     app_module.sanitize_c = if (app_has_c_sources) switch (options.optimize) {
-        .Debug => .full,
-        .ReleaseSafe, .ReleaseSmall => .trap,
-        .ReleaseFast => .off,
+        .debug => .full,
+        .safe, .small => .trap,
+        .fast => .off,
     } else .off;
 
     // Root wrapper module: injects entry boilerplate and std_options defaults.

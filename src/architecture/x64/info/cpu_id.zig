@@ -84,7 +84,7 @@ pub var max_hypervisor_leaf: u32 = 0;
 /// CPUID.00H: EBX, ECX, EDX
 ///
 /// See `cpuVendorString`.
-pub var _raw_cpu_vendor_string: [12]u8 = [_]u8{0} ** 12;
+pub var _raw_cpu_vendor_string: [12]u8 = @splat(0);
 
 /// Vendor identification string.
 ///
@@ -107,7 +107,7 @@ pub const Vendor = enum {
 /// CPUID.80000002H - CPUID.80000004H
 ///
 /// See `processorBrandString`.
-pub var _raw_processor_brand_string: [48]u8 = [_]u8{0} ** 48;
+pub var _raw_processor_brand_string: [48]u8 = @splat(0);
 
 /// Processor brand string.
 ///
@@ -2022,7 +2022,7 @@ pub const ProcessorFrequencyInformation = struct {
 /// CPUID.40000000H: EBX, ECX, EDX
 ///
 /// See `hypervisorVendor`.
-pub var _raw_hypervisor_vendor_string: [12]u8 = [_]u8{0} ** 12;
+pub var _raw_hypervisor_vendor_string: [12]u8 = @splat(0);
 
 /// Hypervisor identification string.
 ///
@@ -3667,7 +3667,7 @@ fn capture80000001H() void {
 fn capture80000002H_80000004H() void {
     if (max_extended_leaf < 0x80000004) return;
 
-    var brand_string_array: [12]u32 = [_]u32{0} ** 12;
+    var brand_string_array: [12]u32 = @splat(0);
     var i: usize = 0;
 
     for (0x80000002..0x80000004) |leaf| {
@@ -3841,7 +3841,7 @@ fn capture80000008H() void {
         // CPUID.80000008H: ECX[10] reserved
         // CPUID.80000008H: ECX[11] reserved
         if (vendor == .amd) apic_id_size = bitjuggle.getBits(cpuid_result.ecx, 12, 4);
-        if (vendor == .amd) performance_time_stamp_counter_size = @enumFromInt(bitjuggle.getBits(cpuid_result.ecx, 16, 2));
+        if (vendor == .amd) performance_time_stamp_counter_size = @fromBackingInt(@intCast(bitjuggle.getBits(cpuid_result.ecx, 16, 2)));
         // CPUID.80000008H: ECX[18] reserved
         // CPUID.80000008H: ECX[19] reserved
         // CPUID.80000008H: ECX[20] reserved
@@ -3936,7 +3936,7 @@ pub const CoreType = enum(u8) {
         if (!intel_hybrid or max_standard_leaf < 0x1A) return .unknown;
         const leaf = raw(0x1A, 0);
         if (leaf.eax == 0) return .unknown;
-        return @enumFromInt(@as(u8, @truncate(leaf.eax >> 24)));
+        return @fromBackingInt(@intCast(@as(u8, @truncate(leaf.eax >> 24))));
     }
 };
 

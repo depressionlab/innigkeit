@@ -1,12 +1,12 @@
 const std = @import("std");
 
-const Endian = std.builtin.Endian;
-const native_endian: Endian = @import("builtin").cpu.arch.endian();
+const Endian = std.lang.Endian;
+const native_endian: Endian = @import("builtin").target.cpu.arch.endian();
 
 /// Converts an integer which has host endianness to the desired endianness.
 ///
 /// Copied from `std.mem`, changed to be inline and `desired_endianness` has been marked as comptime.
-pub inline fn nativeTo(comptime T: type, x: T, comptime desired_endianness: std.builtin.Endian) T {
+pub inline fn nativeTo(comptime T: type, x: T, comptime desired_endianness: std.lang.Endian) T {
     return switch (desired_endianness) {
         .little => nativeToLittle(T, x),
         .big => nativeToBig(T, x),
@@ -36,7 +36,7 @@ pub inline fn nativeToBig(comptime T: type, x: T) T {
 /// Converts an integer from specified endianness to host endianness.
 ///
 /// Copied from `std.mem`, changed to be inline and `desired_endianness` has been marked as comptime.
-pub inline fn toNative(comptime T: type, x: T, comptime endianness_of_x: std.builtin.Endian) T {
+pub inline fn toNative(comptime T: type, x: T, comptime endianness_of_x: std.lang.Endian) T {
     return switch (endianness_of_x) {
         .little => littleToNative(T, x),
         .big => bigToNative(T, x),

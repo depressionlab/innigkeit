@@ -206,7 +206,7 @@ pub const SgiFilter = enum(u2) {
 /// register (not read-modify-write), so unlike x86-64's LAPIC ICR there
 /// is no interleaving hazard to guard with an interrupt-disable bracket.
 pub fn sendSgi(filter: SgiFilter, target_list: u8, id: u4) void {
-    gicdReg(0xF00).* = (@as(u32, @intFromEnum(filter)) << 24) |
+    gicdReg(0xF00).* = (@as(u32, @backingInt(filter)) << 24) |
         (@as(u32, target_list) << 16) |
         @as(u32, id);
 }
@@ -216,14 +216,14 @@ pub const MAX_IRQS: usize = 64;
 
 /// Simple flat dispatch table: one no-arg handler per IRQ id (0..MAX_IRQS-1).
 /// Used by the generic timer (PPI 27). Handlers are called with IRQs disabled.
-pub var handlers: [MAX_IRQS]?*const fn () void = .{null} ** MAX_IRQS;
+pub var handlers: [MAX_IRQS]?*const fn () void = @splat(null);
 
 /// Generic-model dispatch table, parallel to `handlers`: holds the
 /// `architecture.interrupts.Interrupt.Handler` for IRQs routed through the
 /// generic allocate/route abstraction (e.g. PCI INTx for virtio). A given IRQ
 /// id uses at most one of `handlers` / `generic_handlers`.
 pub var generic_handlers: [MAX_IRQS]?architecture.interrupts.Interrupt.Handler =
-    .{null} ** MAX_IRQS;
+    @splat(null);
 
 /// Register a no-arg handler for `irq` (used by the timer PPI).
 pub fn registerHandler(irq: u32, handler: *const fn () void) void {

@@ -48,7 +48,7 @@ fn waitForNotify(notify: *innigkeit.capabilities.Notify, clear_mask: u64) !u64 {
     while (true) {
         const bits = notify.poll(clear_mask);
         if (bits != 0) return bits;
-        if (@intFromEnum(wallclock.elapsed(start, wallclock.read())) > watchdog_ns) {
+        if (@backingInt(wallclock.elapsed(start, wallclock.read())) > watchdog_ns) {
             log.err("watchdog tripped waiting for exit notify", .{});
             return error.WatchdogTimeout;
         }
@@ -60,7 +60,7 @@ fn waitForNotify(notify: *innigkeit.capabilities.Notify, clear_mask: u64) !u64 {
 
 test "checkpoint: a process is not torn down while its failed loader thread still awaits cleanup" {
     // Same arch support as integration.test.zig's spawn tests.
-    if (comptime builtin.cpu.arch != .x86_64 and builtin.cpu.arch != .aarch64) return error.SkipZigTest;
+    if (comptime builtin.target.cpu.arch != .x86_64 and builtin.target.cpu.arch != .aarch64) return error.SkipZigTest;
 
     checkpoint.arm(.thread_cleanup);
     checkpoint.arm(.process_cleanup);
@@ -158,7 +158,7 @@ fn spawnOverlapping(hold_point: checkpoint.Point) !struct { a: u8, b: u8 } {
 // arm-gated: this reliably reproduces the still-open arm concurrent-spawn
 // race.
 test "checkpoint: a second process loads while the first is held pre-protect (concurrent-spawn race staging)" {
-    if (comptime builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    if (comptime builtin.target.cpu.arch != .x86_64) return error.SkipZigTest;
 
     const result = try spawnOverlapping(.loader_before_protect);
     if (result.a != 42 or result.b != 42) {
@@ -175,7 +175,7 @@ test "checkpoint: a second process loads while the first is held pre-protect (co
 //
 // arm-gated: same reasoning as the pre-protect test above.
 test "checkpoint: a second process loads while the first is held post-protect (concurrent-spawn race staging)" {
-    if (comptime builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    if (comptime builtin.target.cpu.arch != .x86_64) return error.SkipZigTest;
 
     const result = try spawnOverlapping(.loader_after_protect);
     if (result.a != 42 or result.b != 42) {

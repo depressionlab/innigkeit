@@ -1,6 +1,5 @@
 const architecture = @import("architecture");
 const boot = @import("boot");
-const builtin = @import("builtin");
 const innigkeit = @import("innigkeit");
 const std = @import("std");
 
@@ -85,7 +84,7 @@ pub fn bootstrap() !noreturn {
         try bootNonBootstrapExecutors();
     }
 
-    log.info("zig version: {s}", .{builtin.zig_version_string});
+    log.info("zig version: {s}", .{@import("builtin").zig_version_string});
 
     try @import("stage2.zig").start(new_bootstrap_executor);
     unreachable;
@@ -144,7 +143,7 @@ fn createExecutors() !struct { []innigkeit.Executor, *innigkeit.Executor } {
         const executor = &executors[i];
 
         executor.* = .{
-            .id = @enumFromInt(i),
+            .id = @fromBackingInt(@intCast(i)),
             .arch_specific = undefined, // set by `arch.init.prepareExecutor`
             ._current_task = undefined, // set below by `Task.init.createAndAssignInitTask`
             .scheduler = .{

@@ -99,27 +99,69 @@ explanation does not hold up" update are both superseded by it.
   as 42 and 77 from earlier fixtures. It is now reset in `create()`. Load
   failures now report 0, which is not a deliberate "failed to load" code.
   That choice is flagged in docs/test-system-plan.md §4, not made here.
-- **Still open: the load failure itself.** With the panic mechanism gone,
-  un-gating the concurrent-spawn tests on arm shows the original
-  symptom 1 plainly, on every attempt (2/2 boots): `spawn: loadAndJump
-  failed: BadAddress` for the *second* of two back-to-back spawns
-  (`itest_cap_receiver`). The two IPC tests then fail cleanly on their
-  watchdogs, since the receiver never runs. In the same polluted boot, the
-  `process_kill` test then hit a kernel-mode `current-EL SP_EL1
-  synchronous` panic that was not investigated. On x64 the same un-gated
-  set passed 2/2 (185/185, 0 skipped), including the 20-cycle loop. So
-  what hit x64 before was most likely this same refcount bug, triggered by
-  a rarer x64 load failure. **The gates are unchanged**: the first cause
-  is demonstrably live on arm, and x64's 2/2 is too little evidence to
-  call it absent there. Un-gating x64 is a judgment call left to the
-  project owner (docs/test-system-plan.md §4). The best next lead for the
-  first cause: both processes load the *same* ELF at the *same* user
-  virtual addresses, and the fault is a *permission* fault on a
-  first-touch `zero_fill` page. That fits the second loader running
-  against a stale translation (TLB or page-table root) left by the first
-  process's already-`changeProtection`'d r-x text mapping. It is a
-  hypothesis, untested. A checkpoint between `loadAndJump`'s copy and
-  protect steps is the natural way to test it.
+- **Still open: the load failure itself. Deterministically reproduced via
+  checkpoints (docs/test-system-plan.md §4 staging step 5); the original
+  characterization below (permission fault, B is the victim) is WRONG —
+  corrected findings follow.** With the panic mechanism gone, un-gating
+  the concurrent-spawn tests on arm shows the original symptom 1 plainly,
+  on every attempt (2/2 boots): `spawn: loadAndJump failed: BadAddress`
+  for the *second* of two back-to-back spawns (`itest_cap_receiver`). The
+  two IPC tests then fail cleanly on their watchdogs, since the receiver
+  never runs. In the same polluted boot, the `process_kill` test then hit
+  a kernel-mode `current-EL SP_EL1 synchronous` panic that was not
+  investigated. On x64 the same un-gated set passed 2/2 (185/185, 0
+  skipped), including the 20-cycle loop. So what hit x64 before was most
+  likely this same refcount bug, triggered by a rarer x64 load failure.
+  **The gates are unchanged**: the first cause is demonstrably live on
+  arm, and x64's 2/2 is too little evidence to call it absent there.
+  Un-gating x64 is a judgment call left to the project owner
+  (docs/test-system-plan.md §4).
+
+  **Corrected findings (checkpoint-driven deterministic repro,
+  `checkpoint.test.zig`'s `spawnOverlapping` + two
+  `loader_before_protect`/`loader_after_protect` tests, x64-only-gated,
+  arm skipped pending a fix).** The original hypothesis above (a
+  *permission* fault on B, caused by a stale TLB/page-table root left by
+  A's `changeProtection`) does not hold up under a controlled repro:
+
+  - **It is process A — the held, already-loaded process — that crashes
+    on resume, not process B.** B always exits 42 (clean) in every run.
+    A exits 139 (sigsegv) whenever the race hits. This completely
+    overturns the original framing, which blamed the second,
+    concurrently-loading process.
+  - **The fault is a translation fault (the page isn't mapped at all),
+    not a permission fault.** Confirmed with temporary `ESR_EL1`/
+    `FAR_EL1` diagnostics in `handleUserFault` (added and reverted): the
+    fault address is inside A's own, already-copied text segment.
+  - **Holding A before vs. after its own `changeProtection` call produces
+    the identical outcome** (A=139, B=42/0 depending on hold point) —
+    directly disproving the stale-permission-entry hypothesis, which
+    predicts a difference between the two hold points and shows none.
+  - **A real, independent AArch64 correctness gap was found and fixed
+    along the way, but confirmed NOT to be this bug's cause**: the ELF
+    loader was missing instruction-cache-coherency maintenance
+    (`DC CVAU`/`IC IVAU`/barriers) after copying executable segment data,
+    required on AArch64's non-coherent I/D caches (a no-op on x86-64).
+    Fixed via a new `architecture.paging.syncInstructionCache` interface
+    slot, real arm implementation reading `CTR_EL0` line sizes, wired
+    into `loader.zig` right after the segment-copy loop. Kept regardless
+    of this race (it's independently correct), but the deterministic
+    repro produces byte-identical A=139/B=42 results before and after
+    adding it — ruling it out as this bug's mechanism.
+
+  **Leading hypothesis, not yet confirmed**: a physical-page-table-page
+  aliasing or double-allocation bug in concurrent `AddressSpace`
+  population across two different processes — e.g. `arm/PageTable.zig`'s
+  `ensureNextTable` allocating/zeroing a table page for B's address space
+  that is actually still needed by, or aliased with, a page-table-level
+  page A's structure already depends on. That would explain a
+  *translation* fault appearing later in A's own, previously-working
+  mapping, consistent with everything observed above. Untested this pass.
+  The checkpoint-driven `spawnOverlapping` harness (`checkpoint.test.zig`)
+  is now in place to test it: the natural next step is a checkpoint
+  inside `ensureNextTable` itself (or around `AddressSpace.map()`'s
+  table-population path) to force the interleaving directly, rather than
+  relying on natural SMP timing.
 - **FOUND AND FIXED: arm's `handleUserFault` panicked on any exception
   class without a name.** It logged `esr.ec` with `{t}`, and for a
   non-exhaustive enum an unnamed value makes that formatter panic

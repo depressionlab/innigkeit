@@ -50,7 +50,7 @@ pub fn protectiveMBR(
 
     mbr.* = .{
         // `boot_code` unused by UEFI systems.
-        .boot_code = [_]u8{0} ** 440,
+        .boot_code = @splat(0),
 
         // Unused. Set to zero.
         .mbr_disk_signature = 0,
@@ -245,7 +245,7 @@ pub const PartitionEntry = extern struct {
     /// Null-terminated string containing a human-readable name of the partition.
     ///
     /// UNICODE16-LE encoded.
-    partition_name: [36]u16 = [_]u16{0} ** 36,
+    partition_name: [36]u16 = @splat(0),
 
     pub const Attribute = packed struct(u64) {
         /// If this bit is set, the partition is required for the platform to function.

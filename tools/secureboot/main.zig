@@ -130,7 +130,7 @@ fn cmdSign(init: std.process.Init, image_path: []const u8, db_key: []const u8, d
 
     var rand_bytes: [8]u8 = undefined;
     io.random(&rand_bytes);
-    const work = try std.fmt.allocPrint(arena, "/tmp/innigkeit-secureboot-sign-{s}", .{
+    const work = try arena.print("/tmp/innigkeit-secureboot-sign-{s}", .{
         std.fmt.bytesToHex(rand_bytes, .lower),
     });
     try cwd.createDirPath(io, work);
@@ -139,7 +139,7 @@ fn cmdSign(init: std.process.Init, image_path: []const u8, db_key: []const u8, d
     const conf_path = try std.Io.Dir.path.join(arena, &.{ work, "limine.conf" });
     const efi_path = try std.Io.Dir.path.join(arena, &.{ work, "BOOTX64.EFI" });
     const signed_path = try std.Io.Dir.path.join(arena, &.{ work, "BOOTX64.signed.EFI" });
-    const image_spec = try std.fmt.allocPrint(arena, "{s}@@{d}", .{ image_path, esp_lba * 512 });
+    const image_spec = try arena.print("{s}@@{d}", .{ image_path, esp_lba * 512 });
 
     // mtools refuses non-standard-looking FAT filesystems without this.
     try init.environ_map.put("MTOOLS_SKIP_CHECK", "1");
@@ -161,7 +161,7 @@ fn cmdSign(init: std.process.Init, image_path: []const u8, db_key: []const u8, d
         std.process.exit(1);
     }
 
-    switch (@import("builtin").os.tag) {
+    switch (@import("builtin").target.os.tag) {
         .linux => _ = runChecked(arena, io, &.{
             "sbsign",    "--key",
             db_key,      "--cert",

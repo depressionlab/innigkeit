@@ -80,7 +80,7 @@ pub fn toAbi(err: Error.Syscall) Error.Abi {
 /// The negated `i64` a handler/dispatch returns for an error (the value placed
 /// in the return register).
 pub fn code(err: Error.Syscall) i64 {
-    return @intFromEnum(toAbi(err));
+    return @backingInt(toAbi(err));
 }
 
 /// Map a wire code back to a `Error.Syscall`. Returns `Error.Unknown` for an
@@ -106,7 +106,7 @@ pub fn fromCode(raw: i64) Error.Syscall {
 const std = @import("std");
 
 test "error: Syscall <-> code round-trips and codes are unique/negative" {
-    var seen: [64]bool = .{false} ** 64;
+    var seen: [64]bool = @splat(false);
     const all = [_]Error.Syscall{
         error.PermissionDenied, error.BadHandle,       error.BadAddress,
         error.WouldBlock,       error.OutOfMemory,     error.NotFound,

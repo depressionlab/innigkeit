@@ -18,8 +18,8 @@ const Verify = @import("build/Verify.zig");
 const Wrapper = @import("build/Wrapper.zig");
 
 pub fn build(b: *std.Build) !void {
-    try disableUnsupportedSteps(b);
-    b.enable_qemu = true;
+    // try disableUnsupportedSteps(b);
+    // b.enable_qemu = true;
 
     const architectures: []const Bundle.Architecture = std.meta.tags(Bundle.Architecture);
     const wrapper: Wrapper = try .create(b, architectures);

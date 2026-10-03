@@ -5,7 +5,7 @@ const ElfFile = @This();
 const std = @import("std");
 
 is_64: bool,
-endian: std.builtin.Endian,
+endian: std.lang.Endian,
 
 /// This is `null` iff any of the required DWARF sections were missing. `ElfFile.load` does *not*
 /// call `Dwarf.open`, `Dwarf.scanAllFunctions`, etc; that is the caller's responsibility.
@@ -189,7 +189,7 @@ pub fn searchSymtab(ef: *ElfFile, gpa: std.mem.Allocator, vaddr: u64) error{
 
     if (symtab.bytes.len % symtab.entry_size != 0) return error.BadSymtab;
 
-    const swap_endian = ef.endian != @import("builtin").cpu.arch.endian();
+    const swap_endian = ef.endian != @import("builtin").target.cpu.arch.endian();
 
     switch (ef.is_64) {
         inline true, false => |is_64| {
@@ -236,7 +236,7 @@ pub fn searchSymtab(ef: *ElfFile, gpa: std.mem.Allocator, vaddr: u64) error{
 
 fn buildSymbolSearchTable(
     gpa: std.mem.Allocator,
-    endian: std.builtin.Endian,
+    endian: std.lang.Endian,
     comptime Sym: type,
     symbols: []align(1) const Sym,
 ) error{
@@ -246,7 +246,7 @@ fn buildSymbolSearchTable(
     var result: std.ArrayList(usize) = .empty;
     defer result.deinit(gpa);
 
-    const swap_endian = endian != @import("builtin").cpu.arch.endian();
+    const swap_endian = endian != @import("builtin").target.cpu.arch.endian();
 
     for (symbols, 0..) |sym_orig, sym_index| {
         var sym = sym_orig;
@@ -313,7 +313,7 @@ const Section = struct {
 
 const LoadInnerResult = struct {
     is_64: bool,
-    endian: std.builtin.Endian,
+    endian: std.lang.Endian,
     sections: Section.Array,
     mapped_mem: []align(std.heap.page_size_min) const u8,
 };
@@ -364,13 +364,13 @@ fn loadInner(
 
     var it = header.iterateSectionHeadersBuffer(mapped_mem);
     while (it.next() catch return error.TruncatedElfFile) |shdr| {
-        if (shdr.sh_type == @intFromEnum(std.elf.SHT.NULL) or shdr.sh_type == @intFromEnum(std.elf.SHT.NOBITS)) continue;
+        if (shdr.sh_type == @backingInt(std.elf.SHT.NULL) or shdr.sh_type == @backingInt(std.elf.SHT.NOBITS)) continue;
         if (shdr.sh_name > shstrtab.len) return error.TruncatedElfFile;
         const name = std.mem.sliceTo(shstrtab[@intCast(shdr.sh_name)..], 0);
 
         const section_id: Section.Id = inline for (@typeInfo(Section.Id).@"enum".fields) |s| {
             if (std.mem.eql(u8, "." ++ s.name, name)) {
-                break @enumFromInt(s.value);
+                break @fromBackingInt(@intCast(s.value));
             }
         } else continue;
 

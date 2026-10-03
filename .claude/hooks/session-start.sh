@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SessionStart hook
 #
-# 1. Zig 0.16.0 + host x86 QEMU: (repo setup.sh)
+# 1. Zig 0.17.0 + host x86 QEMU: (repo setup.sh)
 # 2. host AArch64 QEMU 8.2 + AAVMF firmware
 # 3. the Zig package cache
 # 4. ZLS matched to Zig
@@ -14,8 +14,8 @@ set -euo pipefail
 
 cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
 
-ZIG_VERSION="0.16.0"
-ZLS_VERSION="0.16.0" # keep in lockstep with ZIG_VERSION
+ZIG_VERSION="0.17.0"
+ZLS_VERSION="0.17.0" # keep in lockstep with ZIG_VERSION
 TOOLS="$PWD/.tools"
 ZIG_DIR="$TOOLS/zig-$ZIG_VERSION"
 ZLS_DIR="$TOOLS/zls"

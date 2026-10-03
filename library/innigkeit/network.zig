@@ -33,7 +33,7 @@ pub const Ip4 = [4]u8;
 
 /// Sender address filled by recv().
 pub const From = extern struct {
-    ip: Ip4 = .{0} ** 4,
+    ip: Ip4 = @splat(0),
     port: u16 = 0,
     _pad: u16 = 0,
 };

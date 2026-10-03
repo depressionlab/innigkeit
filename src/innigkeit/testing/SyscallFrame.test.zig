@@ -12,7 +12,7 @@ const std = @import("std");
 // syscall ABI passes arguments in rdi, rsi, rdx, r10, r8, r9 (rcx is clobbered
 // by the `syscall` instruction itself, so r10 stands in for it).
 test "x64: syscall args 1-6 come from rdi, rsi, rdx, r10, r8, r9" {
-    if (comptime @import("builtin").cpu.arch != .x86_64) return error.SkipZigTest;
+    if (comptime @import("builtin").target.cpu.arch != .x86_64) return error.SkipZigTest;
 
     const Frame = architecture.current_decls.user.SyscallFrame;
 

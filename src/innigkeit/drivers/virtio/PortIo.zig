@@ -20,7 +20,7 @@ const innigkeit = @import("innigkeit");
 base: u64,
 
 /// AArch64 (and any non-x86 target) reaches the legacy registers via MMIO.
-const is_mmio = @import("builtin").cpu.arch != .x86_64;
+const is_mmio = @import("builtin").target.cpu.arch != .x86_64;
 
 inline fn portBase(self: PortIo) u16 {
     return @truncate(self.base);
@@ -31,7 +31,7 @@ inline fn portBase(self: PortIo) u16 {
 /// is exactly what a virtio memory BAR needs (and they work for any MMIO
 /// address, not just config space).
 inline fn mmioAddress(self: PortIo, offset: u16) innigkeit.KernelVirtualAddress {
-    return @enumFromInt(self.base + offset);
+    return @fromBackingInt(@intCast(self.base + offset));
 }
 
 pub inline fn r8(self: PortIo, offset: u16) u8 {

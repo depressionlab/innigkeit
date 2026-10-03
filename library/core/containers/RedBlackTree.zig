@@ -22,7 +22,7 @@ const Side = enum(u1) {
     right,
 
     fn flip(self: @This()) @This() {
-        return @enumFromInt(1 - @intFromEnum(self));
+        return @fromBackingInt(@intCast(1 - @backingInt(self)));
     }
 };
 
@@ -1112,7 +1112,7 @@ test "fuzz" {
             const TreeMap = RedBlackTree;
             const HashMap = std.AutoHashMapUnmanaged(u8, u8);
 
-            var gpa = std.heap.DebugAllocator(.{}){};
+            var gpa: std.heap.SafeAllocator = .init(std.testing.allocator, .{});
             const alloc = gpa.allocator();
             defer _ = gpa.detectLeaks();
 

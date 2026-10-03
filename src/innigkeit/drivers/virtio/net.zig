@@ -304,6 +304,15 @@ pub fn waitRx() bool {
     return true;
 }
 
+/// Diagnostic tool that returns `true` if the device has published an RX
+/// frame that the net-poll task has not yet consumed.
+pub fn rxPending() bool {
+    const dev = if (g_dev != null) &g_dev.? else return false;
+    dev.rx_lock.lock();
+    defer dev.rx_lock.unlock();
+    return dev.rx.hasUsed();
+}
+
 /// Allocate all RX and TX buffer pages, freeing everything on failure.
 fn allocBufferPages(rx_pages: *[BUF_PAGES]PageIndex, tx_pages: *[BUF_PAGES]PageIndex) bool {
     var allocated: innigkeit.memory.PhysicalPage.List = .{};

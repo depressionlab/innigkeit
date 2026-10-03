@@ -14,7 +14,7 @@ pub inline fn from(thread: *innigkeit.user.Thread) *PerThread {
 
 pub const FpsimdState = extern struct {
     /// 32x128-bit SIMD/FP registers (V0–V31).
-    v: [32][16]u8 = .{.{0} ** 16} ** 32,
+    v: [32][16]u8 = @splat(@splat(0)),
     fpsr: u32 = 0,
     fpcr: u32 = 0,
 };

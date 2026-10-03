@@ -117,12 +117,12 @@ pub fn fromAcpi() ?Crb {
     }
 
     const control = tpm2.address;
-    if (@intFromEnum(control) == 0) {
+    if (@backingInt(control) == 0) {
         log.warn("TPM2 table reports a zero control-area address", .{});
         return null;
     }
-    if (@intFromEnum(control) < @sizeOf(RegsHead)) {
-        log.warn("TPM2 table reports a control-area address too low for the locality head (0x{x})", .{@intFromEnum(control)});
+    if (@backingInt(control) < @sizeOf(RegsHead)) {
+        log.warn("TPM2 table reports a control-area address too low for the locality head (0x{x})", .{@backingInt(control)});
         return null;
     }
 
@@ -131,7 +131,7 @@ pub fn fromAcpi() ?Crb {
     // does). The locality head sits `@sizeOf(RegsHead)` below the control area;
     // on QEMU's tpm-crb the whole device (head, control, cmd/rsp buffers) fits
     // in a single page.
-    const head_phys = @intFromEnum(control) - @sizeOf(RegsHead);
+    const head_phys = @backingInt(control) - @sizeOf(RegsHead);
     const region_size = core.Size.from(region_bytes, .byte);
     const mapping = innigkeit.memory.heap.allocateSpecial(.{
         .physical_range = .from(innigkeit.PhysicalAddress.from(head_phys), region_size),
@@ -142,7 +142,7 @@ pub fn fromAcpi() ?Crb {
         return null;
     };
 
-    const base = @intFromEnum(mapping.address);
+    const base = @backingInt(mapping.address);
     return .{
         // `base` is the virtual address that `allocateSpecial()` just mapped
         // for this device-MMIO region (uncached, just established above).
@@ -242,7 +242,7 @@ fn waitReg(reg: *volatile u32, mask: u32, value: u32, timeout_ms: u64) Error!voi
     const start = wallclock.read();
     while (true) {
         if (reg.* & mask == value) return;
-        if (@intFromEnum(wallclock.elapsed(start, wallclock.read())) > timeout_ns) {
+        if (@backingInt(wallclock.elapsed(start, wallclock.read())) > timeout_ns) {
             // One last read closes the race where the device flipped the bit
             // just as the deadline expired.
             if (reg.* & mask == value) return;
@@ -277,7 +277,7 @@ fn readVolatile(src: [*]volatile u8, dst: []u8) void {
 }
 
 inline fn deviceBarrier() void {
-    switch (@import("builtin").cpu.arch) {
+    switch (@import("builtin").target.cpu.arch) {
         .x86_64 => asm volatile ("mfence" ::: .{ .memory = true }),
         .aarch64 => asm volatile ("dsb sy" ::: .{ .memory = true }),
         else => asm volatile ("" ::: .{ .memory = true }),

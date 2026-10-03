@@ -190,38 +190,38 @@ pub const Syscall = enum(u64) {
     ///   riscv64: number in a7,  args in a0–a5,               return in a0.
     ///             ECALL does not clobber any registers; the kernel saves the full frame.
     pub inline fn call0(syscall: Syscall) isize {
-        return switch (builtin.cpu.arch) {
+        return switch (builtin.target.cpu.arch) {
             .aarch64 => asm volatile ("svc #0"
                 : [ret] "={x0}" (-> isize),
-                : [num] "{x8}" (@intFromEnum(syscall)),
+                : [num] "{x8}" (@backingInt(syscall)),
                 : .{ .memory = true }),
             .riscv64 => asm volatile ("ecall"
                 : [ret] "={a0}" (-> isize),
-                : [num] "{a7}" (@intFromEnum(syscall)),
+                : [num] "{a7}" (@backingInt(syscall)),
                 : .{ .memory = true }),
             .x86_64 => asm volatile ("syscall"
                 : [ret] "={rax}" (-> isize),
-                : [num] "{rax}" (@intFromEnum(syscall)),
+                : [num] "{rax}" (@backingInt(syscall)),
                 : .{ .rcx = true, .r11 = true, .memory = true }),
             else => |t| @compileError("unsupported architecture: " ++ @tagName(t)),
         };
     }
 
     pub inline fn call1(syscall: Syscall, arg1: usize) isize {
-        return switch (builtin.cpu.arch) {
+        return switch (builtin.target.cpu.arch) {
             .aarch64 => asm volatile ("svc #0"
                 : [ret] "={x0}" (-> isize),
-                : [num] "{x8}" (@intFromEnum(syscall)),
+                : [num] "{x8}" (@backingInt(syscall)),
                   [a1] "{x0}" (arg1),
                 : .{ .memory = true }),
             .riscv64 => asm volatile ("ecall"
                 : [ret] "={a0}" (-> isize),
-                : [num] "{a7}" (@intFromEnum(syscall)),
+                : [num] "{a7}" (@backingInt(syscall)),
                   [a1] "{a0}" (arg1),
                 : .{ .memory = true }),
             .x86_64 => asm volatile ("syscall"
                 : [ret] "={rax}" (-> isize),
-                : [num] "{rax}" (@intFromEnum(syscall)),
+                : [num] "{rax}" (@backingInt(syscall)),
                   [a1] "{rdi}" (arg1),
                 : .{ .rcx = true, .r11 = true, .memory = true }),
             else => |t| @compileError("unsupported architecture: " ++ @tagName(t)),
@@ -229,22 +229,22 @@ pub const Syscall = enum(u64) {
     }
 
     pub inline fn call2(syscall: Syscall, arg1: usize, arg2: usize) isize {
-        return switch (builtin.cpu.arch) {
+        return switch (builtin.target.cpu.arch) {
             .aarch64 => asm volatile ("svc #0"
                 : [ret] "={x0}" (-> isize),
-                : [num] "{x8}" (@intFromEnum(syscall)),
+                : [num] "{x8}" (@backingInt(syscall)),
                   [a1] "{x0}" (arg1),
                   [a2] "{x1}" (arg2),
                 : .{ .memory = true }),
             .riscv64 => asm volatile ("ecall"
                 : [ret] "={a0}" (-> isize),
-                : [num] "{a7}" (@intFromEnum(syscall)),
+                : [num] "{a7}" (@backingInt(syscall)),
                   [a1] "{a0}" (arg1),
                   [a2] "{a1}" (arg2),
                 : .{ .memory = true }),
             .x86_64 => asm volatile ("syscall"
                 : [ret] "={rax}" (-> isize),
-                : [num] "{rax}" (@intFromEnum(syscall)),
+                : [num] "{rax}" (@backingInt(syscall)),
                   [a1] "{rdi}" (arg1),
                   [a2] "{rsi}" (arg2),
                 : .{ .rcx = true, .r11 = true, .memory = true }),
@@ -253,24 +253,24 @@ pub const Syscall = enum(u64) {
     }
 
     pub inline fn call3(syscall: Syscall, arg1: usize, arg2: usize, arg3: usize) isize {
-        return switch (builtin.cpu.arch) {
+        return switch (builtin.target.cpu.arch) {
             .aarch64 => asm volatile ("svc #0"
                 : [ret] "={x0}" (-> isize),
-                : [num] "{x8}" (@intFromEnum(syscall)),
+                : [num] "{x8}" (@backingInt(syscall)),
                   [a1] "{x0}" (arg1),
                   [a2] "{x1}" (arg2),
                   [a3] "{x2}" (arg3),
                 : .{ .memory = true }),
             .riscv64 => asm volatile ("ecall"
                 : [ret] "={a0}" (-> isize),
-                : [num] "{a7}" (@intFromEnum(syscall)),
+                : [num] "{a7}" (@backingInt(syscall)),
                   [a1] "{a0}" (arg1),
                   [a2] "{a1}" (arg2),
                   [a3] "{a2}" (arg3),
                 : .{ .memory = true }),
             .x86_64 => asm volatile ("syscall"
                 : [ret] "={rax}" (-> isize),
-                : [num] "{rax}" (@intFromEnum(syscall)),
+                : [num] "{rax}" (@backingInt(syscall)),
                   [a1] "{rdi}" (arg1),
                   [a2] "{rsi}" (arg2),
                   [a3] "{rdx}" (arg3),
@@ -286,10 +286,10 @@ pub const Syscall = enum(u64) {
         arg3: usize,
         arg4: usize,
     ) isize {
-        return switch (builtin.cpu.arch) {
+        return switch (builtin.target.cpu.arch) {
             .aarch64 => asm volatile ("svc #0"
                 : [ret] "={x0}" (-> isize),
-                : [num] "{x8}" (@intFromEnum(syscall)),
+                : [num] "{x8}" (@backingInt(syscall)),
                   [a1] "{x0}" (arg1),
                   [a2] "{x1}" (arg2),
                   [a3] "{x2}" (arg3),
@@ -297,7 +297,7 @@ pub const Syscall = enum(u64) {
                 : .{ .memory = true }),
             .riscv64 => asm volatile ("ecall"
                 : [ret] "={a0}" (-> isize),
-                : [num] "{a7}" (@intFromEnum(syscall)),
+                : [num] "{a7}" (@backingInt(syscall)),
                   [a1] "{a0}" (arg1),
                   [a2] "{a1}" (arg2),
                   [a3] "{a2}" (arg3),
@@ -307,7 +307,7 @@ pub const Syscall = enum(u64) {
             // and must not be clobbered by a syscall. r10 is the Linux convention too.
             .x86_64 => asm volatile ("syscall"
                 : [ret] "={rax}" (-> isize),
-                : [num] "{rax}" (@intFromEnum(syscall)),
+                : [num] "{rax}" (@backingInt(syscall)),
                   [a1] "{rdi}" (arg1),
                   [a2] "{rsi}" (arg2),
                   [a3] "{rdx}" (arg3),
@@ -325,10 +325,10 @@ pub const Syscall = enum(u64) {
         arg4: usize,
         arg5: usize,
     ) isize {
-        return switch (builtin.cpu.arch) {
+        return switch (builtin.target.cpu.arch) {
             .aarch64 => asm volatile ("svc #0"
                 : [ret] "={x0}" (-> isize),
-                : [num] "{x8}" (@intFromEnum(syscall)),
+                : [num] "{x8}" (@backingInt(syscall)),
                   [a1] "{x0}" (arg1),
                   [a2] "{x1}" (arg2),
                   [a3] "{x2}" (arg3),
@@ -337,7 +337,7 @@ pub const Syscall = enum(u64) {
                 : .{ .memory = true }),
             .riscv64 => asm volatile ("ecall"
                 : [ret] "={a0}" (-> isize),
-                : [num] "{a7}" (@intFromEnum(syscall)),
+                : [num] "{a7}" (@backingInt(syscall)),
                   [a1] "{a0}" (arg1),
                   [a2] "{a1}" (arg2),
                   [a3] "{a2}" (arg3),
@@ -346,7 +346,7 @@ pub const Syscall = enum(u64) {
                 : .{ .memory = true }),
             .x86_64 => asm volatile ("syscall"
                 : [ret] "={rax}" (-> isize),
-                : [num] "{rax}" (@intFromEnum(syscall)),
+                : [num] "{rax}" (@backingInt(syscall)),
                   [a1] "{rdi}" (arg1),
                   [a2] "{rsi}" (arg2),
                   [a3] "{rdx}" (arg3),
@@ -366,10 +366,10 @@ pub const Syscall = enum(u64) {
         arg5: usize,
         arg6: usize,
     ) isize {
-        return switch (builtin.cpu.arch) {
+        return switch (builtin.target.cpu.arch) {
             .aarch64 => asm volatile ("svc #0"
                 : [ret] "={x0}" (-> isize),
-                : [num] "{x8}" (@intFromEnum(syscall)),
+                : [num] "{x8}" (@backingInt(syscall)),
                   [a1] "{x0}" (arg1),
                   [a2] "{x1}" (arg2),
                   [a3] "{x2}" (arg3),
@@ -379,7 +379,7 @@ pub const Syscall = enum(u64) {
                 : .{ .memory = true }),
             .riscv64 => asm volatile ("ecall"
                 : [ret] "={a0}" (-> isize),
-                : [num] "{a7}" (@intFromEnum(syscall)),
+                : [num] "{a7}" (@backingInt(syscall)),
                   [a1] "{a0}" (arg1),
                   [a2] "{a1}" (arg2),
                   [a3] "{a2}" (arg3),
@@ -389,7 +389,7 @@ pub const Syscall = enum(u64) {
                 : .{ .memory = true }),
             .x86_64 => asm volatile ("syscall"
                 : [ret] "={rax}" (-> isize),
-                : [num] "{rax}" (@intFromEnum(syscall)),
+                : [num] "{rax}" (@backingInt(syscall)),
                   [a1] "{rdi}" (arg1),
                   [a2] "{rsi}" (arg2),
                   [a3] "{rdx}" (arg3),
@@ -413,8 +413,8 @@ pub const Syscall = enum(u64) {
     /// _ = try Syscall.decode(Syscall.invoke(.mmap, .{ size, prot }));
     /// ```
     pub inline fn invoke(syscall: Syscall, args: anytype) isize {
-        const fields = @typeInfo(@TypeOf(args)).@"struct".fields;
-        return switch (fields.len) {
+        const fields = @typeInfo(@TypeOf(args)).@"struct";
+        return switch (fields.field_names.len) {
             0 => call0(syscall),
             1 => call1(syscall, @field(args, fields[0].name)),
             2 => call2(syscall, @field(args, fields[0].name), @field(args, fields[1].name)),

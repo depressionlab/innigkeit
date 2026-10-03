@@ -18,10 +18,10 @@ name: []const u8,
 /// Compiled with the user-requested optimize mode.
 normal_exe: *Step.Compile,
 
-/// Compiled with `.ReleaseSafe`. Equal to `normal_exe` when the user already requested `.ReleaseSafe`.
+/// Compiled with `.safe`. Equal to `normal_exe` when the user already requested `.safe`.
 release_safe_exe: *Step.Compile,
 
-/// Compiled with `.Debug`. Equal to `normal_exe` when the user has already requested `.Debug`.
+/// Compiled with `.debug`. Equal to `normal_exe` when the user has already requested `.debug`.
 debug_exe: *Step.Compile,
 
 test_exe: *Step.Compile,
@@ -34,7 +34,7 @@ pub fn getTools(
     b: *std.Build,
     wrapper: Wrapper,
     libraries: Library.Collection,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
 ) !Tool.Collection {
     const descriptions: []const ToolDescription = @import("../tools/root.zig").tools;
 
@@ -59,7 +59,7 @@ fn resolveTool(
     wrapper: Wrapper,
     libraries: Library.Collection,
     description: ToolDescription,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
 ) !Tool {
     const dependencies = try Library.resolveDeps(
         b,
@@ -86,7 +86,7 @@ fn resolveTool(
         .root_module = normal_module,
     }));
 
-    const release_safe_exe = if (optimize == .ReleaseSafe)
+    const release_safe_exe = if (optimize == .safe)
         normal_exe
     else
         b.addExecutable(.{
@@ -95,18 +95,18 @@ fn resolveTool(
                 b,
                 &description,
                 lazy_path,
-                .ReleaseSafe,
+                .safe,
                 dependencies,
             ),
         });
 
-    const debug_exe = if (optimize == .Debug) normal_exe else b.addExecutable(.{
+    const debug_exe = if (optimize == .debug) normal_exe else b.addExecutable(.{
         .name = description.name,
         .root_module = createModule(
             b,
             &description,
             lazy_path,
-            .Debug,
+            .debug,
             dependencies,
         ),
     });
@@ -171,7 +171,7 @@ fn createModule(
     b: *std.Build,
     desc: *const ToolDescription,
     root_source_file: std.Build.LazyPath,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     dependencies: []const *const Library,
 ) *std.Build.Module {
     const module = b.createModule(.{
@@ -179,9 +179,9 @@ fn createModule(
         .target = b.graph.host,
         .optimize = optimize,
         .sanitize_c = switch (optimize) {
-            .Debug => .full,
-            .ReleaseSafe, .ReleaseSmall => .trap,
-            .ReleaseFast => .off,
+            .debug => .full,
+            .safe, .small => .trap,
+            .fast => .off,
         },
     });
 

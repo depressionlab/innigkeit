@@ -20,7 +20,7 @@ pub const ParseError = error{
 /// project's own typed wrappers.
 pub const RawHeader = struct {
     is_64: bool,
-    endian: std.builtin.Endian,
+    endian: std.lang.Endian,
     type: u16,
     machine: u16,
     entry: u64,
@@ -43,7 +43,7 @@ pub fn parse(elf_header_slice: []const u8) ParseError!RawHeader {
     if (!std.mem.eql(u8, ident.magic(), HeaderIdent.MAGIC)) return error.InvalidMagic;
     if (ident.version() != current_version) return error.InvalidVersion;
 
-    const endian: std.builtin.Endian = switch (ident.endian()) {
+    const endian: std.lang.Endian = switch (ident.endian()) {
         .little => .little,
         .big => .big,
         else => return error.InvalidEndian,
@@ -64,7 +64,7 @@ pub fn parse(elf_header_slice: []const u8) ParseError!RawHeader {
 /// EI_VERSION's only defined value (matches `innigkeit.user.elf.Version.current`).
 const current_version = 1;
 
-fn innerParse(elf_header_slice: []const u8, comptime is_64: bool, endian: std.builtin.Endian) ParseError!RawHeader {
+fn innerParse(elf_header_slice: []const u8, comptime is_64: bool, endian: std.lang.Endian) ParseError!RawHeader {
     const HeaderT = if (is_64) RawElf64Header else RawElf32Header;
     const FileOffset = if (is_64) u64 else u32;
     const raw_elf_header: *align(1) const HeaderT = std.mem.bytesAsValue(HeaderT, elf_header_slice);
@@ -133,11 +133,11 @@ const HeaderIdent = extern struct {
     }
 
     fn class(self: *const HeaderIdent) Class {
-        return @enumFromInt(self.value[4]);
+        return @fromBackingInt(@intCast(self.value[4]));
     }
 
     fn endian(self: *const HeaderIdent) Endian {
-        return @enumFromInt(self.value[5]);
+        return @fromBackingInt(@intCast(self.value[5]));
     }
 
     fn version(self: *const HeaderIdent) u8 {
@@ -184,7 +184,7 @@ test "parse accepts a well-formed 64-bit little-endian header" {
 
     const raw = try parse(&buf);
     try std.testing.expect(raw.is_64);
-    try std.testing.expectEqual(std.builtin.Endian.little, raw.endian);
+    try std.testing.expectEqual(std.lang.Endian.little, raw.endian);
     try std.testing.expectEqual(@as(u16, 2), raw.type);
     try std.testing.expectEqual(@as(u16, 0x3E), raw.machine);
     try std.testing.expectEqual(@as(u64, 0x1000), raw.entry);

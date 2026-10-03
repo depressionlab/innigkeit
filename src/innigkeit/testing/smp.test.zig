@@ -45,7 +45,7 @@ fn yieldNow() void {
 fn waitForCounter(counter: *const std.atomic.Value(u32), target: u32, what: []const u8) !void {
     const start = wallclock.read();
     while (counter.load(.acquire) < target) {
-        if (@intFromEnum(wallclock.elapsed(start, wallclock.read())) > watchdog_ns) {
+        if (@backingInt(wallclock.elapsed(start, wallclock.read())) > watchdog_ns) {
             log.err(
                 "watchdog tripped waiting for {s}: {d}/{d} completed",
                 .{ what, counter.load(.acquire), target },
@@ -106,7 +106,7 @@ var proof_state: struct {
 
 fn proofWorker(index: usize) void {
     const current: innigkeit.Task.Current = .get();
-    const id: usize = @intFromEnum(current.knownExecutor().id);
+    const id: usize = @backingInt(current.knownExecutor().id);
     current.decrementMigrationDisable(); // releaase the spawn-time pin
 
     proof_state.ran_on[index].store(id, .release);
@@ -346,7 +346,7 @@ fn blkWorker(slot: usize) void {
 }
 
 test "smp: concurrent blk reads from two executors return identical data" {
-    if (comptime @import("builtin").cpu.arch != .x86_64) return error.SkipZigTest;
+    if (comptime @import("builtin").target.cpu.arch != .x86_64) return error.SkipZigTest;
     if (!innigkeit.drivers.virtio.blk.isBootReady()) return error.SkipZigTest;
 
     blk_state = .{};
@@ -371,7 +371,7 @@ var ipi_state: struct {
 } = .{};
 
 fn ipiWakeWorker() void {
-    ipi_state.run_tick.store(@intFromEnum(wallclock.read()), .release);
+    ipi_state.run_tick.store(@backingInt(wallclock.read()), .release);
     _ = ipi_state.done.fetchAdd(1, .release);
 }
 
@@ -414,7 +414,7 @@ test "smp: reschedule IPI wakes an idle executor well before the next tick" {
                     if (executor == self_executor) continue;
                     if (executor.scheduler.idle.load(.seq_cst)) break :blk executor;
                 }
-                if (@intFromEnum(wallclock.elapsed(start, wallclock.read())) > watchdog_ns) {
+                if (@backingInt(wallclock.elapsed(start, wallclock.read())) > watchdog_ns) {
                     log.err("watchdog tripped waiting for an idle remote executor", .{});
                     return error.WatchdogTimeout;
                 }
@@ -434,8 +434,8 @@ test "smp: reschedule IPI wakes an idle executor well before the next tick" {
 
         try waitForCounter(&ipi_state.done, 1, "ipi wake worker");
 
-        const run_tick: wallclock.Tick = @enumFromInt(ipi_state.run_tick.load(.acquire));
-        const latency_ns = @intFromEnum(wallclock.elapsed(t0, run_tick));
+        const run_tick: wallclock.Tick = @fromBackingInt(@intCast(ipi_state.run_tick.load(.acquire)));
+        const latency_ns = @backingInt(wallclock.elapsed(t0, run_tick));
         const ipi_delta = target.scheduler.reschedule_ipi_count.load(.monotonic) - ipis_before;
         if (ipi_delta > 0) reschedule_ipi_seen = true;
 
@@ -478,7 +478,7 @@ fn stealWorker() void {
         // preemption point (needs_resched from the tick is honoured on the
         // 1 -> 0 transition), keeping the host executor live for other tasks.
         current.incrementInterruptDisable();
-        const id: u6 = @intCast(@intFromEnum(current.knownExecutor().id));
+        const id: u6 = @intCast(@backingInt(current.knownExecutor().id));
         current.decrementInterruptDisable();
         _ = steal_test_state.executors_seen.fetchOr(@as(u64, 1) << id, .acq_rel);
     }
@@ -523,7 +523,7 @@ test "smp: idle executors steal queued fair tasks from a busy executor" {
         const seen = steal_test_state.executors_seen.load(.acquire);
         if (@popCount(seen) >= 2 and totalStealCount() > steals_before) break;
 
-        if (@intFromEnum(wallclock.elapsed(start, wallclock.read())) > watchdog_ns) {
+        if (@backingInt(wallclock.elapsed(start, wallclock.read())) > watchdog_ns) {
             steal_test_state.stop.store(true, .release);
             waitForCounter(&steal_test_state.done, steal_worker_count, "steal workers (cleanup)") catch {};
             log.err(

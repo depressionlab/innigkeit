@@ -13,7 +13,6 @@
 //! during init, and the only runtime call is flush() which is cheap.
 
 const architecture = @import("architecture");
-const builtin = @import("builtin");
 const core = @import("core");
 const innigkeit = @import("innigkeit");
 const std = @import("std");
@@ -614,7 +613,7 @@ fn submitCmd(s: *GpuState, qp_virt: usize, qp_phys: usize, cmd_size: usize, cmd_
 ///
 /// See `drivers/tpm/crb.zig`'s `deviceBarrier`.
 inline fn deviceBarrier() void {
-    switch (builtin.cpu.arch) {
+    switch (@import("builtin").target.cpu.arch) {
         .x86_64 => asm volatile ("mfence" ::: .{ .memory = true }),
         .aarch64 => asm volatile ("dsb sy" ::: .{ .memory = true }),
         else => asm volatile ("" ::: .{ .memory = true }),

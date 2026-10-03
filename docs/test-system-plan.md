@@ -895,6 +895,60 @@ pass, 2026-09-26).**
    is staging step 5's territory (a new hand-picked site with its own
    script), so it was not started.
 
+**Staging step 5, done: the stale-translation hypothesis is disproven, and
+the original bug report's own fault-class characterization was wrong.**
+Added two new checkpoints (`Point.loader_before_protect`/
+`.loader_after_protect`, `loader.zig`) and a `spawnOverlapping` helper
+(`checkpoint.test.zig`) that holds process A at one of those two points
+while process B spawns and fully loads and runs concurrently, then
+releases A and checks both exit statuses. This makes the previously
+uncontrolled "two spawns racing" repro 100% deterministic instead of
+timing-dependent, and it overturns the original framing in two ways:
+
+- **It is process A — the one held, already-loaded process — that
+  crashes on resume, not process B**, the second, concurrently-loading
+  one the original write-up blamed. B always exits 42 (clean) in every
+  run; A exits 139 (sigsegv) whenever the race is hit.
+- **The fault is a translation fault (the page is not mapped at all),
+  not the permission fault** the "stale TLB/page-table root from B's
+  concurrent `changeProtection`" hypothesis required. Confirmed with
+  temporary `ESR_EL1`/`FAR_EL1` diagnostics in `arm/vectors.zig`'s
+  `handleUserFault` (added and reverted for this investigation): the
+  fault address falls inside A's own, already-copied text segment.
+
+Holding A before vs. after its own `changeProtection` call produces the
+identical outcome (A=139, B=42/0), which directly disproves the
+stale-permission-entry hypothesis those two checkpoints were built to
+test — a permission-fault theory predicts a difference between the two
+hold points, and there is none.
+
+Also implemented and kept, independent of this specific bug: AArch64 was
+missing instruction-cache-coherency maintenance after the ELF loader's
+segment-copy step (`architecture.paging.syncInstructionCache`, real
+`DC CVAU`/`IC IVAU`/barrier sequence on arm reading `CTR_EL0` line sizes,
+no-op on x86-64's architecturally coherent caches — new `Functions.zig`
+slot, wired in `loader.zig` right after the copy loop). This is a real,
+independently-justified AArch64 correctness gap (a process's just-copied
+executable segment is not guaranteed visible to instruction fetch without
+it) regardless of the race above — confirmed NOT to be this race's cause
+empirically: the deterministic repro produces byte-identical results
+before and after adding it.
+
+**Leading hypothesis, not yet confirmed**: a physical-page-table-structure
+aliasing or double-allocation bug in concurrent `AddressSpace`/page-table
+population — e.g. `arm/PageTable.zig`'s `ensureNextTable` allocating and
+zeroing a table page for B's address space that is actually still needed
+by (or aliased with) A's already-populated structure, which would explain
+a *translation* fault appearing later in A's own, previously-working
+mapping. Not tested this pass; the two race tests are gated to skip on
+arm (`if (comptime builtin.cpu.arch != .x86_64) return error.SkipZigTest;`
+in `checkpoint.test.zig`, both `loader_before_protect`/`loader_after_protect`
+variants) with x86_64 kept enabled as a real, positive confirmation the
+same repro is arm-specific (x64: 2/2 clean, A=42/B=42 both hold points).
+Un-gate on arm once the mechanism is found and fixed, matching this
+project's established "found, gated, fixed later, un-gated" arc for the
+same race's other tests.
+
 **Verification (follow-up pass).** `zig build check`, with and without
 `-Dcheckpoint_test=true`, is clean. `zig build test_x64`: 186/186 passed (2
 skipped). `zig build test_x64 -Dcheckpoint_test=true`: 187/187 passed (2
@@ -1216,6 +1270,202 @@ A real mutation loop (random selectors/args, coverage-guided corpus
 growth, crash triage against `VerdictStep`'s log-scanning) is real,
 substantial future work building on a now-proven, now-tested foundation
 across all four staging steps.
+
+**Staging step 5, done in a follow-up pass: the real corpus/mutation loop,
+and it immediately found a real, high-severity, pre-existing kernel bug.**
+`tools/kernel_fuzz` now drives `-Dfuzz_iterations` (default 40) random or
+mutated (selector, args) descriptors through `fuzz_target.test.zig`'s
+guest-side loop, each one a fresh `itest_fuzz_target` spawn (never two
+overlapping, matching the already-proven-safe sequential spawn/wait
+shape). `tools/kernel_fuzz/corpus.zig` generates descriptors (a mix of
+in-range/near-range/boundary/fully-arbitrary selectors, and boundary/
+random/small-int words) and mutates existing corpus entries (bit flip,
+word replace, increment, selector nudge); a descriptor is kept in the
+corpus only the first time it makes some coverage slot go from zero to
+nonzero (not on every repeat hit -- see the coverage-signal bug below).
+Crash-triage entries (non-zero exit status) and interesting entries are
+saved to `zig-out/fuzz-corpus/{crashes,interesting}/` as raw 40-byte wire
+dumps for replay.
+
+**The real bug this found: `open()`'s `path_len` argument was sliced into
+a fixed-size stack buffer before being range-checked.** `handlers/
+file.zig`'s `open()` formed `path_buf[0..path_len]` -- twice -- before the
+`path_len > max_path_len` check further down the function; Zig's slice-
+bounds safety check fires at slice construction, so any `path_len` past
+the 63-byte buffer panicked the *entire kernel* (`index out of bounds`),
+not a contained per-process fault. `open` carries no entitlement gate for
+read-only access, so any process, not just a privileged one, could take
+the whole kernel down with one syscall. Found on the very first mutation-
+loop run that reached the `open` selector with a large `path_len` word.
+Fixed by moving the range check before `path_buf` is ever sliced; a new,
+always-on (not gated behind `-Dfuzz_channel=true`) regression test drives
+the exact same descriptor deterministically via `itest_fuzz_target`
+(`integration.test.zig`'s "open() with an oversized path_len..."),
+confirmed passing on both arches. Every other handler that slices a fixed
+buffer by a raw syscall argument was audited and already clamps or
+validates first (`@min` against the buffer, or an explicit range check)
+-- `open` was the one exception. Full writeup: `.claude/rules/
+user-boundary.md`'s F3 entry.
+
+**Two real bugs in the fuzzer's own harness, found and fixed getting a
+clean run:**
+1. **A socket-handoff race caused duplicate descriptor delivery.**
+   `fuzz_channel.test.zig` closes its socket and `fuzz_target.test.zig`
+   opens a fresh one on the same port; a descriptor sent into that gap is
+   silently dropped (no listener bound yet). The fix retries iteration 0's
+   send specifically, but the retry interval was reused from the initial
+   handshake's fast-echo loop (300ms) -- far shorter than a real spawn+
+   dispatch+teardown cycle under this sandbox's unaccelerated TCG (several
+   real seconds). The result: iteration 0 was resent several times before
+   its first (slow) reply came back, and the guest -- which has no
+   sequence numbers -- processed each resend as a distinct new iteration,
+   visible in a real run's log as the same selector repeated across
+   several consecutive guest-side iteration numbers. This entry first said
+   the duplication was harmless because the loop still terminated; that was
+   wrong, see "Correction" below -- it skewed which descriptor each reply was
+   attributed to. The interval change described here reduced the duplication
+   but did not remove it; sequence numbers did.
+2. **The coverage-guided corpus signal was biased toward re-trying
+   whatever it found first.** "Interesting" was computed as "did any
+   slot's count increase," but these counters are cumulative for the
+   whole boot, so a repeat dispatch of an *already-seen* selector always
+   increases its own count -- every re-hit looked newly interesting. A
+   real run showed the effect directly: the corpus kept re-adding and
+   re-mutating variants of the first `nanosleep_ms` descriptor it found
+   (a real blocking syscall, correctly force-unblocked after 10s by
+   `fuzz_target.test.zig`'s hang-handling -- see below), crowding out
+   exploration of selectors not yet reached at all. Fixed: "interesting"
+   is now a zero-to-nonzero transition per slot, checked once, not every
+   count increase.
+
+**A third, deeper issue found and only partially closed: force-unblocking
+a hung descriptor doesn't stop the underlying thread, and that thread can
+later disturb an unrelated test.** `fuzz_target.test.zig`'s
+`waitForExitOrForceUnblock` bounds each iteration to `per_iteration_hang_ns`
+(10s): past that, it force-signals the target's exit notify directly (the
+same mechanism `process_kill`'s syscall handler already uses) so one
+descriptor that lands on a genuinely-blocking syscall with nothing to wake
+it (`nanosleep_ms` with a huge deadline, `net_tcp_connect`'s handshake wait,
+...) can't stall the rest of the loop. This does **not** stop the
+underlying kernel thread from actually running -- there is no real
+"force-kill an arbitrary thread now" primitive in this codebase (`process_
+kill`'s own doc comment already says it signals, not terminates) -- so a
+thread with a large-but-finite deadline stays parked and can wake up and
+run more code (its own exit path, itself a real syscall dispatch) at an
+unpredictable later time. This was caught by a *different*, pre-existing
+test: `testing.fuzz_coverage.test`'s own "recordHit is reflected in the
+next dumpInto" assertion (a tight, isolated before/after delta check)
+started failing intermittently right after the mutation loop ran,
+including in at least one run where the mutation loop itself reported
+*zero* crashes/hangs -- so a leaked thread from force-unblocking is a
+plausible contributor but not confirmed as the sole cause; the deeper
+mechanism (something about 40 rapid sequential spawn/teardown cycles
+perturbing global counter state some tests assume is quiescent) is not
+root-caused. Flagged rather than chased further, matching this project's
+established pattern for genuinely hard, load-bearing findings (`docs/
+DESIGN.md` Part 5) -- a real fix needs either a genuine thread-termination
+primitive or a redesign of what `fuzz_coverage.test`'s assertion can
+assume, neither of which is this pass's call to make unilaterally.
+
+**What *was* fixed, safely, regardless of root cause: `fuzz_coverage.
+test.zig`'s assertion used `std.testing.expectEqual`, whose failure path
+panics this kernel (`.claude/rules/testing-infra.md`) -- so a real,
+still-unexplained counter deviation was surfacing as a full kernel panic
+instead of a clean, diagnosable `FAIL`.** Converted to the project's own
+established safe pattern (manual comparison + `log.err` + a plain
+returned error). This doesn't fix the underlying deviation, but it means
+that whatever causes it from here on is a normal test failure, not a
+build-hanging panic -- itself a meaningful, scoped improvement.
+
+**Verification.** `zig build check` (with and without `-Dfuzz_channel=
+true`) clean. Default suites unaffected by anything in this section (the
+`open()` fix's own regression test runs unconditionally): `zig build
+test_x64` 187/187 passed (2 skipped, +1 from the new regression test),
+`zig build test_arm` 187/187 passed (13 skipped, same +1). Multiple real
+`-Dfuzz_channel=true` runs (each a genuine QEMU boot, not simulated)
+confirmed the mutation loop completes all 40 iterations and correctly
+handles a mix of valid/near-valid/malformed/fully-arbitrary descriptors,
+including at least one real force-unblocked hang (`nanosleep_ms`, force-
+unblocked cleanly after 10s) and, before the `open()` fix, the real crash
+this section describes. **The deeper, not-root-caused `fuzz_coverage.test`
+fragility above is real and reproducible, not a one-off**: the final
+verification run (all three fuzzer-harness/`open()` fixes applied) still
+hit it -- `FAIL testing.fuzz_coverage.test...: error.UnexpectedCoverageDelta`
+-- but, exactly as intended, as a clean `FAIL` line with the suite
+continuing to completion (`1/190 TEST(S) FAILED (2 skipped)`) rather than
+a kernel panic. This is a known, currently-expected failure mode of
+`-Dfuzz_channel=true` specifically (never part of default CI, which never
+sets that flag) until the deeper mechanism is root-caused -- recorded here
+rather than silently retried away.
+
+**Follow-up: pointer+length descriptors.** Blind random words almost never
+produce a mapped pointer, so a buffer-taking handler rejected nearly every
+descriptor at its first check and its length handling never ran against a
+good buffer -- the exact shape `open()`'s bug needed. `itest_fuzz_target`
+now owns a writable 256-byte scratch array and swaps any word equal to
+`scratch_sentinel` for its address; `tools/kernel_fuzz/corpus.zig` spends
+one descriptor in four on a hand-kept table of six ungated buffer-taking
+syscalls (`write`, `read`, `fs_open`, `fs_read`, `fs_write`, `open`),
+pairing the sentinel with a hostile length (buffer-size edges and integer-
+width edges). Costs: the table is a second, hand-maintained description of
+the ABI that goes stale silently if an argument order changes, and only 4
+words reach a handler, so a syscall whose buffer or length is its 5th/6th
+argument (`net_udp_send`) cannot be driven this way. One real x64 run (40
+iterations, 7 of them pointer+length: `read`x3, `fs_read`x2, `open`,
+`fs_open`) found nothing new -- a single run is weak evidence either way,
+not a clean bill of health. Same expected `fuzz_coverage` failure as above.
+
+**Running a campaign.** `-Dfuzz_iterations=N` (default 40) and
+`-Dfuzz_seed=0x...` (default: random, printed at the start) are host-side
+only, so changing them does not rebuild the kernel. Findings are saved under
+`zig-out/fuzz-corpus/{crashes,interesting}/` as `seed<hex>_iter<N>_...bin`
+(raw 40-byte descriptors), so campaigns with different seeds do not overwrite
+each other. A pinned seed replays: two runs of seed `0x1234`, 8 iterations,
+dispatched the identical sequence. Replay is only as deterministic as the
+kernel's coverage feedback (the corpus feeds back into what is generated), so
+a long run on different hardware may diverge from a recorded one -- keep the
+crash file, not just the seed. The build exits 1 whenever the known
+`fuzz_coverage` failure fires; judge a run by the `kernel_fuzz:` summary line
+and the log, and kill a stale `qemu-system-x86_64` after any failed run (it
+keeps the host UDP port).
+
+**First campaigns on faster hardware, and a correction.** Four seeds
+(`0x1`-`0x4`, 2000 iterations each) and 20 repeats of the plain x64 suite were
+run on a faster machine (KVM). Results:
+
+- *No kernel panic in about 4,600 iterations.* Seed `0x1` completed all 2000
+  and reached all 61 syscalls (`61/61`). 20/20 repeats of the plain suite
+  printed `ALL 187 TEST(S) PASSED`. The repeats say nothing about the
+  spawn/kill loop test, which is still skipped in source; they only show the
+  default suite is stable there.
+- *Seeds `0x2`, `0x3`, `0x4` stopped early (iterations 803, 1705, 110), all on
+  `net_udp_close`.* UDP socket ids are one global table with no owner
+  (`network/socket.zig`), so a fuzzed process can close the harness's own
+  channel socket, after which the guest cannot send its reply and the host
+  times out. In a Debug kernel the `network` entitlement gate is off, so the
+  unprivileged fixture reaches these handlers; in a release kernel it would be
+  refused. Even with the entitlement, any process can close, read from or send
+  on another process's UDP socket by guessing a small integer. That is a design
+  gap (sockets are not capabilities), recorded here and not fixed.
+  `fuzz_target.test.zig` now redirects a UDP descriptor aimed at its own
+  channel socket to a neighbouring id, since the channel is not what is being
+  fuzzed.
+- *Correction: the duplicate delivery above was not harmless.* The guest ran
+  2001 iterations for the 2000 asked for. A resend of iteration 0 was
+  dispatched as a separate iteration, and from then on every reply was
+  attributed to the descriptor sent one step after the one that produced it.
+  The odd exit statuses in those campaigns (37, 56, 157, 227, ...) were
+  `exit_process` arguments credited to the wrong descriptor, and **the crash
+  and interesting files those four campaigns saved name the wrong
+  descriptors.** Do not replay them. Fixed with a sequence number on every
+  descriptor and reply: the guest answers a repeated number from a cached
+  reply instead of dispatching again, and the host discards replies for any
+  other number. Checked by forcing every descriptor to be sent at least twice:
+  the guest dispatched exactly the requested count, in the same order as an
+  unforced run of the same seed.
+- The guest also now drops a datagram of the wrong length instead of failing
+  the whole test. A forced experiment showed one stray handshake datagram
+  reaching the loop's socket aborted the run before it started.
 
 ---
 

@@ -84,7 +84,7 @@ fn makeStart(step: *Step, options: Step.MakeOptions) !void {
         });
 
     self.child = std.process.spawn(io, .{
-        .argv = &argv.items,
+        .argv = argv.items,
         .stdin = .ignore,
         .stdout = .inherit,
         .stderr = .inherit,

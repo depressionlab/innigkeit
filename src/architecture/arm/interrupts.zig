@@ -30,7 +30,7 @@ const log = innigkeit.debug.log.scoped(.interrupt);
 /// Pending allocations: handlers that have been allocated but not yet routed.
 /// Indexed by the `Interrupt` value returned from `allocate`.
 const MAX_PENDING: usize = 16;
-var pending: [MAX_PENDING]?Handler = .{null} ** MAX_PENDING;
+var pending: [MAX_PENDING]?Handler = @splat(null);
 var pending_lock: innigkeit.sync.TicketSpinLock = .{};
 
 /// Allocate an interrupt for `handler`. The handler is held pending until
@@ -43,13 +43,13 @@ pub fn allocate(handler: Handler) architecture.interrupts.Interrupt.AllocateErro
         if (slot.* != null) continue;
         slot.* = handler;
         log.debug("allocated interrupt (pending slot {})", .{i});
-        return @enumFromInt(i);
+        return @fromBackingInt(@intCast(i));
     }
     return error.InterruptAllocationFailed;
 }
 
 pub fn deallocate(interrupt: ArchInterrupt) void {
-    const i = @intFromEnum(interrupt);
+    const i = @backingInt(interrupt);
     if (i >= MAX_PENDING) return;
     pending_lock.lock();
     defer pending_lock.unlock();
@@ -62,7 +62,7 @@ pub fn routeInterruptPci(
     interrupt: ArchInterrupt,
     gsi: u32,
 ) architecture.interrupts.Interrupt.RouteError!void {
-    const i = @intFromEnum(interrupt);
+    const i = @backingInt(interrupt);
 
     pending_lock.lock();
     const handler = if (i < MAX_PENDING) pending[i] else null;

@@ -20,7 +20,7 @@ pub fn exportEntry() void {
 
 fn _innigkeit_entry() callconv(.naked) noreturn {
     if (builtin.unwind_tables != .none or !builtin.strip_debug_info) {
-        switch (builtin.cpu.arch) {
+        switch (builtin.target.cpu.arch) {
             .aarch64 => asm volatile (".cfi_undefined lr"),
             .riscv64 => if (builtin.zig_backend != .stage2_riscv64)
                 asm volatile (".cfi_undefined ra"),
@@ -30,7 +30,7 @@ fn _innigkeit_entry() callconv(.naked) noreturn {
     }
 
     // Move this to the riscv prong below when this is resolved: https://github.com/ziglang/zig/issues/20918
-    if (builtin.cpu.arch.isRISCV() and builtin.zig_backend != .stage2_riscv64) {
+    if (builtin.target.cpu.arch.isRISCV() and builtin.zig_backend != .stage2_riscv64) {
         asm volatile (
             \\ .weak __global_pointer$
             \\ .hidden __global_pointer$
@@ -41,7 +41,7 @@ fn _innigkeit_entry() callconv(.naked) noreturn {
         );
     }
 
-    asm volatile (switch (builtin.cpu.arch) {
+    asm volatile (switch (builtin.target.cpu.arch) {
             .aarch64 =>
             \\ mov fp, #0
             \\ mov lr, #0
@@ -140,10 +140,10 @@ fn callMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
     innigkeit.process.exit(@call(.always_inline, callMain, .{ {}, env_block }));
 }
 
-const use_debug_allocator = switch (builtin.mode) {
-    .Debug => true,
-    .ReleaseSafe => !builtin.link_libc,
-    .ReleaseFast, .ReleaseSmall => !builtin.link_libc and builtin.single_threaded,
+const use_debug_allocator = switch (builtin.optimize) {
+    .debug => true,
+    .safe => !builtin.link_libc,
+    .fast, .small => !builtin.link_libc and builtin.single_threaded,
 };
 
 // Module-level so that its backing memory is in BSS rather than on the call stack.
@@ -229,7 +229,7 @@ inline fn wrapMain(result: anytype) u8 {
     const unwrapped_result = result catch |err| {
         std.log.err("{t}", .{err});
         if (@errorReturnTrace()) |trace| {
-            switch (builtin.os.tag) {
+            switch (builtin.target.os.tag) {
                 .freestanding, .other => {
                     // No DWARF symbolication yet; print raw instruction addresses.
                     std.log.err("error return trace ({d} frames):", .{trace.index});

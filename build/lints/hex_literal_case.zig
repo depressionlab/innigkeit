@@ -59,8 +59,7 @@ fn run(
         defer gpa.free(upper_digits);
         _ = std.ascii.upperString(upper_digits, digits);
 
-        const fixed = try std.fmt.allocPrint(gpa, "0x{s}", .{upper_digits});
-
+        const fixed = try gpa.print("0x{s}", .{upper_digits});
         const loc_start: zlinter.results.LintProblemLocation = .startOfToken(tree, token);
         const loc_end: zlinter.results.LintProblemLocation = .endOfToken(tree, token);
 

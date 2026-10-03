@@ -65,7 +65,7 @@ pub const std_options: std.Options = .{
 /// Writes "PANIC: <msg>\n" to stderr, then calls exit_process(1).
 /// Exported as `pub const panic` so that both @panic("literal") and
 /// std.debug.panic("fmt", .{args}) route here.
-pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
+pub fn panic(msg: []const u8, _: ?*std.lang.StackTrace, _: ?usize) noreturn {
     innigkeit.io.stderr.writeAll("PANIC: ") catch {};
     innigkeit.io.stderr.writeAll(msg) catch {};
     innigkeit.io.stderr.writeAll("\n") catch {};

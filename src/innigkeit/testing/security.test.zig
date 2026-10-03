@@ -11,7 +11,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 
 test "x64: SMEP is enforced at runtime (CR4 bit 20)" {
-    if (comptime builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    if (comptime builtin.target.cpu.arch != .x86_64) return error.SkipZigTest;
     const cr4: u64 = asm ("mov %%cr4, %[value]"
         : [value] "=r" (-> u64),
     );
@@ -20,7 +20,7 @@ test "x64: SMEP is enforced at runtime (CR4 bit 20)" {
 }
 
 test "x64: SMAP is enforced at runtime (CR4 bit 21)" {
-    if (comptime builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    if (comptime builtin.target.cpu.arch != .x86_64) return error.SkipZigTest;
     const cr4: u64 = asm ("mov %%cr4, %[value]"
         : [value] "=r" (-> u64),
     );

@@ -158,7 +158,7 @@ const VIRT_PCI_IO_FALLBACK_BASE: u64 = 0x3EFF_0000;
 ///
 /// Returns null (the device is skipped) on an unexpected BAR layout.
 fn resolveBar0(func: *innigkeit.pci.Function) ?u64 {
-    if (builtin.cpu.arch == .x86_64) {
+    if (builtin.target.cpu.arch == .x86_64) {
         const bar0 = func.read(u32, 0x10);
         if (bar0 & 1 == 0) {
             log.warn("virtio-blk BAR0 is not an I/O BAR ({x}), skipping", .{bar0});
@@ -214,8 +214,8 @@ fn resolveBar0(func: *innigkeit.pci.Function) ?u64 {
         log.err("virtio-blk: failed to map I/O aperture phys=0x{x}: {t}", .{ phys_base, err });
         return null;
     };
-    log.debug("virtio-blk: I/O regs phys=0x{x} mapped at 0x{x}", .{ phys_base, @intFromEnum(mapping.address) });
-    return @intFromEnum(mapping.address);
+    log.debug("virtio-blk: I/O regs phys=0x{x} mapped at 0x{x}", .{ phys_base, @backingInt(mapping.address) });
+    return @backingInt(mapping.address);
 }
 
 fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
@@ -308,7 +308,7 @@ fn tryInit(addr: innigkeit.pci.Address, func: *innigkeit.pci.Function) void {
     // are fast under QEMU, so the bounded-spin poll path is correct and cheap.
     // The interrupt-driven-completion test (below) skips while this is false.
     // x86-64 keeps interrupt-driven completion. See docs/aarch64-port.md.
-    if (builtin.cpu.arch != .x86_64) devices[idx].?.irq_enabled = false;
+    if (builtin.target.cpu.arch != .x86_64) devices[idx].?.irq_enabled = false;
 
     log.info("virtio-blk[{}] ready ({s} mode)", .{
         idx,
@@ -356,8 +356,8 @@ fn submitRequest(
     req_type: u32,
     data_flags: u16,
 ) ReadError!void {
-    const scratch_phys = @intFromEnum(dev.scratch_page.baseAddress());
-    const req_phys = @intFromEnum(dev.req_page.baseAddress());
+    const scratch_phys = @backingInt(dev.scratch_page.baseAddress());
+    const req_phys = @backingInt(dev.req_page.baseAddress());
     const req_virt = dev.req_page.baseAddress().toDirectMap().toPtr([*]u8);
 
     const header: BlkReqHeader = .{ .type_ = req_type, .ioprio = 0, .sector = lba };

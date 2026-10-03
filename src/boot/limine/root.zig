@@ -46,7 +46,7 @@ const Arch = enum {
     x86_64,
 };
 
-pub const arch: Arch = switch (@import("builtin").cpu.arch) {
+pub const arch: Arch = switch (@import("builtin").target.cpu.arch) {
     .aarch64 => .aarch64,
     .loongarch64 => .loongarch64,
     .riscv64 => .riscv64,

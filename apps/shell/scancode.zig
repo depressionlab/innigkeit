@@ -6,7 +6,7 @@ pub fn get(shift: bool) *const [128]u8 {
 }
 
 fn buildNormal() [128]u8 {
-    var t = [_]u8{0} ** 128;
+    var t: [128]u8 = @splat(0);
     t[0x02] = '1';
     t[0x03] = '2';
     t[0x04] = '3';
@@ -63,7 +63,7 @@ fn buildNormal() [128]u8 {
 }
 
 fn buildShift() [128]u8 {
-    var t = [_]u8{0} ** 128;
+    var t: [128]u8 = @splat(0);
     t[0x02] = '!';
     t[0x03] = '@';
     t[0x04] = '#';

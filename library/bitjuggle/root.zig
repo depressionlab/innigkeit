@@ -199,7 +199,7 @@ test getBits {
 /// try std.testing.expect(getBit(val, 0) == 1);
 /// ```
 pub inline fn setBit(target: anytype, comptime bit: comptime_int, value: u1) void {
-    const ptr_type_info: std.builtin.Type = @typeInfo(@TypeOf(target));
+    const ptr_type_info: std.lang.Type = @typeInfo(@TypeOf(target));
     comptime {
         if (ptr_type_info != .pointer) @compileError("not a pointer!");
     }
@@ -253,7 +253,7 @@ pub fn setBits(
     comptime number_of_bits: comptime_int,
     value: anytype,
 ) void {
-    const ptr_type_info: std.builtin.Type = @typeInfo(@TypeOf(target));
+    const ptr_type_info: std.lang.Type = @typeInfo(@TypeOf(target));
     comptime {
         if (ptr_type_info != .pointer) @compileError("not a pointer!");
     }
@@ -284,7 +284,7 @@ pub fn setBits(
     const peer_value: TargetType = value;
 
     // Panic if runtime safety is enabled and value exceeds bit range.
-    if (@import("builtin").mode == .Debug or @import("builtin").mode == .ReleaseSafe) {
+    if (@import("builtin").optimize == .debug or @import("builtin").optimize == .safe) {
         if (getBits(peer_value, 0, (end_bit - start_bit)) != peer_value) {
             @panic("value exceeds bit range!");
         }
@@ -310,7 +310,7 @@ test setBits {
 }
 
 comptime {
-    if (@import("builtin").cpu.arch.endian() != .little)
+    if (@import("builtin").target.cpu.arch.endian() != .little)
         @compileError("'bitjuggle' assumes little endian!");
 }
 

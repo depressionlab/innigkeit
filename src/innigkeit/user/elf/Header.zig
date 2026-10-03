@@ -7,7 +7,7 @@ const std = @import("std");
 const RawHeader = @import("RawHeader.zig");
 
 is_64: bool,
-endian: std.builtin.Endian,
+endian: std.lang.Endian,
 
 /// Object file type.
 type: innigkeit.user.elf.ObjectType,
@@ -56,8 +56,8 @@ pub fn parse(elf_header_slice: []const u8) ParseError!Header {
     return .{
         .is_64 = raw.is_64,
         .endian = raw.endian,
-        .type = @enumFromInt(raw.type),
-        .machine = @enumFromInt(raw.machine),
+        .type = @fromBackingInt(@intCast(raw.type)),
+        .machine = @fromBackingInt(@intCast(raw.machine)),
         .entry = .from(raw.entry),
         .program_header_offset = .from(raw.program_header_offset, .byte),
         .program_header_entry_size = .from(raw.program_header_entry_size, .byte),
@@ -107,10 +107,10 @@ pub const IterateError = error{
 ///
 /// The provided slice must match the location and size given by `programHeaderTableLocation`.
 pub fn iterateProgramHeaders(self: *const Header, program_header_table: []const u8) IterateError!innigkeit.user.elf.ProgramHeader.Iterator {
-    if (@intFromEnum(self.program_header_entry_size) < innigkeit.user.elf.ProgramHeader.requiredEntrySize(self.is_64)) {
+    if (@backingInt(self.program_header_entry_size) < innigkeit.user.elf.ProgramHeader.requiredEntrySize(self.is_64)) {
         return error.ProgramHeaderEntryTooSmall;
     }
-    if (program_header_table.len < @intFromEnum(self.program_header_entry_size.multiplyScalar(self.program_header_entry_count))) {
+    if (program_header_table.len < @backingInt(self.program_header_entry_size.multiplyScalar(self.program_header_entry_count))) {
         return error.ProgramHeaderTableTruncated;
     }
 
@@ -147,19 +147,19 @@ pub fn print(self: *const Header, writer: *std.Io.Writer, indent: usize) !void {
     try writer.print("entry: 0x{x},\n", .{self.entry.value});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("program_header_offset: 0x{x},\n", .{@intFromEnum(self.program_header_offset)});
+    try writer.print("program_header_offset: 0x{x},\n", .{@backingInt(self.program_header_offset)});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("program_header_entry_size: 0x{x},\n", .{@intFromEnum(self.program_header_entry_size)});
+    try writer.print("program_header_entry_size: 0x{x},\n", .{@backingInt(self.program_header_entry_size)});
 
     try writer.splatByteAll(' ', new_indent);
     try writer.print("program_header_entry_count: {},\n", .{self.program_header_entry_count});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("section_header_offset: 0x{x},\n", .{@intFromEnum(self.section_header_offset)});
+    try writer.print("section_header_offset: 0x{x},\n", .{@backingInt(self.section_header_offset)});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("section_header_entry_size: 0x{x},\n", .{@intFromEnum(self.section_header_entry_size)});
+    try writer.print("section_header_entry_size: 0x{x},\n", .{@backingInt(self.section_header_entry_size)});
 
     try writer.splatByteAll(' ', new_indent);
     try writer.print("section_header_entry_count: {},\n", .{self.section_header_entry_count});

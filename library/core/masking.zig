@@ -1,5 +1,5 @@
 const std = @import("std");
-const Type = std.builtin.Type;
+const Type = std.lang.Type;
 
 /// Generates a mask to isolate a field of a `packed struct` while keeping it
 /// shifted relative to its bit offset in the struct.
