@@ -23,7 +23,7 @@ pub fn custom(
     {
         const io = b.graph.io;
         const codesign_opts = b.addOptions();
-        const key_bytes = b.build_root.handle.readFileAlloc(
+        const key_bytes = b.root.root_dir.handle.readFileAlloc(
             io,
             "keys/codesign_public.key",
             b.allocator,
@@ -34,7 +34,7 @@ pub fn custom(
             break :blk try b.allocator.alloc(u8, 32);
         };
         defer b.allocator.free(key_bytes);
-        const default_key: [32]u8 = if (key_bytes.len >= 32) key_bytes[0..32].* else [_]u8{0} ** 32;
+        const default_key: [32]u8 = if (key_bytes.len >= 32) key_bytes[0..32] else @splat(0);
         codesign_opts.addOption([32]u8, "default_public_key", default_key);
         module.addImport("codesign_key_options", codesign_opts.createModule());
     }

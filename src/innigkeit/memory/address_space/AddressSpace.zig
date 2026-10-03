@@ -225,8 +225,10 @@ pub const MapError = error{
 
 /// Map a range into the address space.
 pub fn map(self: *AddressSpace, options: MapOptions) MapError!innigkeit.VirtualRange {
-    errdefer |err| log.debug("{s}: map failed {t}", .{ self.name(), err });
+    self.mapInner(options) catch |err| log.debug("{s}: map failed {t}", .{ self.name(), err });
+}
 
+fn mapInner(self: *AddressSpace, options: MapOptions) MapError!innigkeit.VirtualRange {
     if (log.levelEnabled(.verbose)) {
         if (options.base) |base| log.verbose("{s}: map {f} @ {f} - protection: {f} - {t}", .{
             self.name(),
@@ -564,8 +566,10 @@ pub const ChangeProtectionError = error{
 
 /// Change the protection and/or maximum protection of a range in the address space.
 pub fn changeProtection(self: *AddressSpace, range: innigkeit.VirtualRange, change: ChangeProtection) ChangeProtectionError!void {
-    errdefer |err| log.debug("{s}: change protection failed {t}", .{ self.name(), err });
+    self.changeProtectionInner(range, change) catch |err| log.debug("{s}: change protection failed {t}", .{ self.name(), err });
+}
 
+fn changeProtectionInner(self: *AddressSpace, range: innigkeit.VirtualRange, change: ChangeProtection) ChangeProtectionError!void {
     const request = change.toRequest();
 
     log.verbose("{s}: change protection of {f} to {f}", .{ self.name(), range, request });
@@ -906,8 +910,10 @@ pub const UnmapError = error{
 
 /// Unmap a range from the address space.
 pub fn unmap(self: *AddressSpace, range: innigkeit.VirtualRange) UnmapError!void {
-    errdefer |err| log.debug("{s}: unmap failed {t}", .{ self.name(), err });
+    self.unmapInner(range) catch |err| log.debug("{s}: unmap failed {t}", .{ self.name(), err });
+}
 
+fn unmapInner(self: *AddressSpace, range: innigkeit.VirtualRange) UnmapError!void {
     log.verbose("{s}: unmap {f}", .{ self.name(), range });
 
     if (!range.pageAligned()) {
@@ -1113,8 +1119,10 @@ pub const HandlePageFaultError = error{
 ///
 /// Called `uvm_fault` in OpenBSD uvm.
 pub fn handlePageFault(self: *AddressSpace, page_fault_details: innigkeit.memory.PageFaultDetails) HandlePageFaultError!void {
-    errdefer |err| log.debug("{s}: page fault failed {t}", .{ self.name(), err });
+    self.handlePageFaultInner(page_fault_details) catch |err| log.debug("{s}: page fault failed {t}", .{ self.name(), err });
+}
 
+pub fn handlePageFaultInner(self: *AddressSpace, page_fault_details: innigkeit.memory.PageFaultDetails) HandlePageFaultError!void {
     log.verbose("{s}: page fault {f}", .{
         self.name(),
         page_fault_details,

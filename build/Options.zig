@@ -15,7 +15,7 @@ const ArchModules = std.AutoHashMapUnmanaged(Bundle.Architecture, *std.Build.Mod
 root_path: []const u8,
 
 /// Optimisation mode for all Zig compilations.
-optimize: std.builtin.OptimizeMode,
+optimize: std.lang.Optimize,
 
 /// Options for the QEMU emulator for testing.
 emulator: EmulatorOptions,
@@ -63,7 +63,7 @@ pub const LogLevel = enum { debug, verbose };
 
 pub fn get(b: *std.Build, version: std.SemanticVersion, architectures: []const Bundle.Architecture) !Options {
     const root_path = b.fmt("{s}" ++ std.Io.Dir.path.sep_str, .{
-        b.build_root.path orelse @panic("build root has no filesystem path!"),
+        b.root.root_dir.path orelse @panic("build root has no filesystem path!"),
     });
 
     const log_level = b.option(LogLevel, "log_level", "Kernel log level");
@@ -89,7 +89,7 @@ pub fn get(b: *std.Build, version: std.SemanticVersion, architectures: []const B
             log_level,
             log_scopes,
             version_string,
-            emulator.tpm_socket != null,
+            emulator.tpm,
             emulator.expect_secure_boot,
             emulator.fuzz_channel,
             checkpoint_test,
@@ -100,7 +100,7 @@ pub fn get(b: *std.Build, version: std.SemanticVersion, architectures: []const B
             .verbose,
             &.{},
             version_string,
-            emulator.tpm_socket != null,
+            emulator.tpm,
             emulator.expect_secure_boot,
             emulator.fuzz_channel,
             checkpoint_test,

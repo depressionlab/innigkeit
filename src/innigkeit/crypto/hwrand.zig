@@ -7,7 +7,7 @@ const std = @import("std");
 ///
 /// Returns `null` if not available of the instruction signals failure.
 pub inline fn next() ?u64 {
-    return switch (builtin.cpu.arch) {
+    return switch (builtin.target.cpu.arch) {
         .x86_64 => blk: {
             // Guard: `RDRAND` is not universally supported on x86_64. It was
             // introduced with Ivy Bridge (Intel, 2012) and Jaguar (AMD, 2013).
@@ -73,7 +73,7 @@ fn x64RdrandSupported() bool {
 /// `slot_index` is mixed in as a domain-separation constant so repeated
 /// calls with a stalled clock produce distinct output.
 inline fn counterFallback(slot_index: usize) u64 {
-    const raw: u64 = switch (builtin.cpu.arch) {
+    const raw: u64 = switch (builtin.target.cpu.arch) {
         .x86_64 => blk: {
             var low: u32 = undefined;
             var high: u32 = undefined;

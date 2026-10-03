@@ -200,7 +200,7 @@ pub const ExtendedBPB_32 = extern struct {
     /// System identifier string. Always "FAT32   ".
     file_system_type: [8]u8 = [_]u8{ 'F', 'A', 'T', '3', '2', ' ', ' ', ' ' },
 
-    boot_code: [420]u8 = [_]u8{0} ** 420,
+    boot_code: [420]u8 = @splat(0),
 
     signature: u16 align(1) = filesystem.mbr.MBR.mbr_signature,
 
@@ -244,10 +244,10 @@ pub const Date = packed struct(u16) {
 
 pub const ShortFileName = extern struct {
     /// File name (padded with spaces)
-    name: [8]u8 align(1) = [_]u8{' '} ** 8,
+    name: [8]u8 align(1) = @splat(' '),
 
     /// File extension (padded with spaces)
-    extension: [3]u8 align(1) = [_]u8{' '} ** 3,
+    extension: [3]u8 align(1) = @splat(' '),
 
     /// Calculates the checksum for a short file name.
     ///
@@ -391,7 +391,7 @@ pub const DirectoryEntry = extern union {
         /// After the last character of the name, a 0x0000 is added.
         ///
         /// The remaining unused characters are filled with 0xFFFF.
-        first_characters: [5]u16 align(1) = [_]u16{0xFFFF} ** 5,
+        first_characters: [5]u16 align(1) = @splat(0xFFFF),
 
         /// Always equal to 0x0f if this is a long file name entry.
         ///
@@ -409,7 +409,7 @@ pub const DirectoryEntry = extern union {
         /// After the last character of the name, a 0x0000 is added.
         ///
         /// The remaining unused characters are filled with 0xFFFF.
-        middle_characters: [6]u16 align(1) = [_]u16{0xFFFF} ** 6,
+        middle_characters: [6]u16 align(1) = @splat(0xFFFF),
 
         _reserved: u16 align(1) = 0,
 
@@ -418,7 +418,7 @@ pub const DirectoryEntry = extern union {
         /// After the last character of the name, a 0x0000 is added.
         ///
         /// The remaining unused characters are filled with 0xFFFF.
-        final_characters: [2]u16 align(1) = [_]u16{0xFFFF} ** 2,
+        final_characters: [2]u16 align(1) = @splat(0xFFFF),
 
         pub const last_entry: u8 = 0x40;
         pub const maximum_number_of_characters = 13;
@@ -445,7 +445,7 @@ pub const MediaDescriptor = enum(u8) {
 pub const FSInfo = extern struct {
     lead_signature: u32 align(1) = 0x41615252,
 
-    _reserved1: [480]u8 align(1) = [_]u8{0} ** 480,
+    _reserved1: [480]u8 align(1) = @splat(0),
 
     signature: u32 align(1) = 0x61417272,
 
@@ -471,7 +471,7 @@ pub const FSInfo = extern struct {
     /// the volume.
     most_recently_allocated_cluster: u32 align(1),
 
-    _reserved2: [12]u8 align(1) = [_]u8{0} ** 12,
+    _reserved2: [12]u8 align(1) = @splat(0),
 
     trial_signature: u32 align(1) = 0xAA550000,
 };

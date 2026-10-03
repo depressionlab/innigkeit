@@ -67,7 +67,7 @@ pub const FileType = enum(u2) {
 pub const DirEntry = extern struct {
     inode: u64,
     type: FileType,
-    _pad: [3]u8 = .{0} ** 3,
+    _pad: [3]u8 = @splat(0),
     name_len: u8, // max 255
     // name follows inline (name_len bytes, no null terminator)
 };
@@ -126,21 +126,21 @@ pub const FsClient = struct {
     /// Get the root directory inode number.
     pub fn root(self: FsClient) !u64 {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(FsOp.root),
+            .tag = @backingInt(FsOp.root),
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(FsError.none)) return error.FsError;
+        if (msg.tag != @backingInt(FsError.none)) return error.FsError;
         return msg.words[0];
     }
 
     /// Get file metadata by inode number.
     pub fn stat(self: FsClient, inode: u64) !Stat {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(FsOp.stat),
+            .tag = @backingInt(FsOp.stat),
             .words = .{ inode, 0, 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(FsError.none)) return error.FsError;
+        if (msg.tag != @backingInt(FsError.none)) return error.FsError;
         var s: Stat = undefined;
         // Stat is 80 bytes; too big for 4 words (32 bytes). Use two messages or
         // accept that only part of Stat fits. For now, copy what fits (32 bytes).
@@ -156,11 +156,11 @@ pub const FsClient = struct {
     /// Returns a Frame handle and actual bytes read.
     pub fn readFile(self: FsClient, inode: u64, offset: u64, len: u32) !struct { frame: innigkeit.capabilities.Handle, bytes: u32 } {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(FsOp.read_file),
+            .tag = @backingInt(FsOp.read_file),
             .words = .{ inode, offset, @as(u64, len), 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(FsError.none)) return error.FsError;
+        if (msg.tag != @backingInt(FsError.none)) return error.FsError;
         return .{
             .frame = msg.caps[0],
             .bytes = @truncate(msg.words[0]),
@@ -172,11 +172,11 @@ pub const FsClient = struct {
     /// next_cursor == 0 means end of directory.
     pub fn readDir(self: FsClient, inode: u64, cursor: u64) !struct { frame: innigkeit.capabilities.Handle, next_cursor: u64 } {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(FsOp.read_dir),
+            .tag = @backingInt(FsOp.read_dir),
             .words = .{ inode, cursor, 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(FsError.none)) return error.FsError;
+        if (msg.tag != @backingInt(FsError.none)) return error.FsError;
         return .{
             .frame = msg.caps[0],
             .next_cursor = msg.words[0],
@@ -187,12 +187,12 @@ pub const FsClient = struct {
     /// The name is passed as a Frame capability (caps[0]).
     pub fn create(self: FsClient, parent: u64, file_type: FileType, name_frame: innigkeit.capabilities.Handle) !u64 {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(FsOp.create),
-            .words = .{ parent, @intFromEnum(file_type), 0, 0 },
+            .tag = @backingInt(FsOp.create),
+            .words = .{ parent, @backingInt(file_type), 0, 0 },
             .caps = .{ name_frame, 0, 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(FsError.none)) return error.FsError;
+        if (msg.tag != @backingInt(FsError.none)) return error.FsError;
         return msg.words[0];
     }
 
@@ -200,75 +200,75 @@ pub const FsClient = struct {
     /// Returns the number of bytes written.
     pub fn write(self: FsClient, inode: u64, offset: u64, data_frame: innigkeit.capabilities.Handle) !u32 {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(FsOp.write),
+            .tag = @backingInt(FsOp.write),
             .words = .{ inode, offset, 0, 0 },
             .caps = .{ data_frame, 0, 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(FsError.none)) return error.FsError;
+        if (msg.tag != @backingInt(FsError.none)) return error.FsError;
         return @truncate(msg.words[0]);
     }
 
     /// Create a hard link `inode` in `parent` with the given name.
     pub fn link(self: FsClient, parent: u64, inode: u64, name_frame: innigkeit.capabilities.Handle) !void {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(FsOp.link),
+            .tag = @backingInt(FsOp.link),
             .words = .{ parent, inode, 0, 0 },
             .caps = .{ name_frame, 0, 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(FsError.none)) return error.FsError;
+        if (msg.tag != @backingInt(FsError.none)) return error.FsError;
     }
 
     /// Remove a directory entry `name` from `parent`.
     pub fn unlink(self: FsClient, parent: u64, name_frame: innigkeit.capabilities.Handle) !void {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(FsOp.unlink),
+            .tag = @backingInt(FsOp.unlink),
             .words = .{ parent, 0, 0, 0 },
             .caps = .{ name_frame, 0, 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(FsError.none)) return error.FsError;
+        if (msg.tag != @backingInt(FsError.none)) return error.FsError;
     }
 
     /// Read a symlink target. Returns a Frame capability with the target path.
     pub fn readLink(self: FsClient, inode: u64) !innigkeit.capabilities.Handle {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(FsOp.read_link),
+            .tag = @backingInt(FsOp.read_link),
             .words = .{ inode, 0, 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(FsError.none)) return error.FsError;
+        if (msg.tag != @backingInt(FsError.none)) return error.FsError;
         return msg.caps[0];
     }
 
     /// Truncate a file to `size` bytes.
     pub fn truncate(self: FsClient, inode: u64, size: u64) !void {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(FsOp.truncate),
+            .tag = @backingInt(FsOp.truncate),
             .words = .{ inode, size, 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(FsError.none)) return error.FsError;
+        if (msg.tag != @backingInt(FsError.none)) return error.FsError;
     }
 
     /// Flush outstanding writes for `inode` to stable storage.
     pub fn sync(self: FsClient, inode: u64) !void {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(FsOp.sync),
+            .tag = @backingInt(FsOp.sync),
             .words = .{ inode, 0, 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(FsError.none)) return error.FsError;
+        if (msg.tag != @backingInt(FsError.none)) return error.FsError;
     }
 
     /// Flush the entire filesystem to stable storage.
     pub fn syncAll(self: FsClient) !void {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(FsOp.sync_all),
+            .tag = @backingInt(FsOp.sync_all),
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(FsError.none)) return error.FsError;
+        if (msg.tag != @backingInt(FsError.none)) return error.FsError;
     }
 
     /// Pre-allocate space for `inode` at `offset` for `len` bytes.
@@ -276,11 +276,11 @@ pub const FsClient = struct {
     /// Returns error.FsError with code not_supported on old filesystems.
     pub fn fallocate(self: FsClient, inode: u64, offset: u64, len: u64, keep_size: bool) !void {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(FsOp.fallocate),
+            .tag = @backingInt(FsOp.fallocate),
             .words = .{ inode, offset, len, @intFromBool(keep_size) },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(FsError.none)) return error.FsError;
+        if (msg.tag != @backingInt(FsError.none)) return error.FsError;
     }
 
     /// Copy a range of data from one file to another without userspace roundtrip.
@@ -299,12 +299,12 @@ pub const FsClient = struct {
         // switches to a Frame-based encoding for full XFS/btrfs support.
         // words: src_inode, src_off, dst_inode, dst_off
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(FsOp.copy_file_range),
+            .tag = @backingInt(FsOp.copy_file_range),
             .words = .{ src_inode, src_off, dst_inode, dst_off },
             .caps = .{ @truncate(len), 0, 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(FsError.none)) return error.FsError;
+        if (msg.tag != @backingInt(FsError.none)) return error.FsError;
         return msg.words[0];
     }
 };
@@ -354,24 +354,24 @@ pub const VfsClient = struct {
     /// Open a file by URI. Returns a FileHandle endpoint capability.
     pub fn open(self: VfsClient, uri_frame: innigkeit.capabilities.Handle, len: u32, flags: OpenFlags) !innigkeit.capabilities.Handle {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(VfsOp.open),
+            .tag = @backingInt(VfsOp.open),
             .words = .{ @as(u64, len), @as(u64, @bitCast(flags)), 0, 0 },
             .caps = .{ uri_frame, 0, 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(VfsError.none)) return error.VfsError;
+        if (msg.tag != @backingInt(VfsError.none)) return error.VfsError;
         return msg.caps[0];
     }
 
     /// Stat a path. Returns partial Stat (first 32 bytes fit in 4 words).
     pub fn stat(self: VfsClient, uri_frame: innigkeit.capabilities.Handle, len: u32) !Stat {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(VfsOp.stat),
+            .tag = @backingInt(VfsOp.stat),
             .words = .{ @as(u64, len), 0, 0, 0 },
             .caps = .{ uri_frame, 0, 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(VfsError.none)) return error.VfsError;
+        if (msg.tag != @backingInt(VfsError.none)) return error.VfsError;
         var s: Stat = std.mem.zeroes(Stat);
         @memcpy(
             @as([*]u8, @ptrCast(&s))[0..@min(@sizeOf(Stat), 32)],
@@ -383,12 +383,12 @@ pub const VfsClient = struct {
     /// Read directory entries at `uri`, starting at `cursor`.
     pub fn readDir(self: VfsClient, uri_frame: innigkeit.capabilities.Handle, len: u32, cursor: u64) !struct { frame: innigkeit.capabilities.Handle, next_cursor: u64 } {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(VfsOp.read_dir),
+            .tag = @backingInt(VfsOp.read_dir),
             .words = .{ @as(u64, len), cursor, 0, 0 },
             .caps = .{ uri_frame, 0, 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(VfsError.none)) return error.VfsError;
+        if (msg.tag != @backingInt(VfsError.none)) return error.VfsError;
         return .{
             .frame = msg.caps[0],
             .next_cursor = msg.words[0],
@@ -398,23 +398,23 @@ pub const VfsClient = struct {
     /// Create a directory at `uri`.
     pub fn mkdir(self: VfsClient, uri_frame: innigkeit.capabilities.Handle, len: u32) !void {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(VfsOp.mkdir),
+            .tag = @backingInt(VfsOp.mkdir),
             .words = .{ @as(u64, len), 0, 0, 0 },
             .caps = .{ uri_frame, 0, 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(VfsError.none)) return error.VfsError;
+        if (msg.tag != @backingInt(VfsError.none)) return error.VfsError;
     }
 
     /// Remove a file or directory at `uri`.
     pub fn unlink(self: VfsClient, uri_frame: innigkeit.capabilities.Handle, len: u32) !void {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(VfsOp.unlink),
+            .tag = @backingInt(VfsOp.unlink),
             .words = .{ @as(u64, len), 0, 0, 0 },
             .caps = .{ uri_frame, 0, 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(VfsError.none)) return error.VfsError;
+        if (msg.tag != @backingInt(VfsError.none)) return error.VfsError;
     }
 
     /// Rename/move a file system object.
@@ -426,12 +426,12 @@ pub const VfsClient = struct {
         new_len: u32,
     ) !void {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(VfsOp.rename),
+            .tag = @backingInt(VfsOp.rename),
             .words = .{ @as(u64, old_len), @as(u64, new_len), 0, 0 },
             .caps = .{ old_frame, new_frame, 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(VfsError.none)) return error.VfsError;
+        if (msg.tag != @backingInt(VfsError.none)) return error.VfsError;
     }
 };
 
@@ -443,11 +443,11 @@ pub const FileHandle = struct {
     /// Returns a Frame capability and actual bytes read.
     pub fn read(self: FileHandle, offset: u64, len: u32) !struct { frame: innigkeit.capabilities.Handle, bytes: u32 } {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(FileOp.read),
+            .tag = @backingInt(FileOp.read),
             .words = .{ offset, @as(u64, len), 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(VfsError.none)) return error.VfsError;
+        if (msg.tag != @backingInt(VfsError.none)) return error.VfsError;
         return .{
             .frame = msg.caps[0],
             .bytes = @truncate(msg.words[0]),
@@ -458,22 +458,22 @@ pub const FileHandle = struct {
     /// Returns the number of bytes written.
     pub fn write(self: FileHandle, offset: u64, data_frame: innigkeit.capabilities.Handle) !u32 {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(FileOp.write),
+            .tag = @backingInt(FileOp.write),
             .words = .{ offset, 0, 0, 0 },
             .caps = .{ data_frame, 0, 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(VfsError.none)) return error.VfsError;
+        if (msg.tag != @backingInt(VfsError.none)) return error.VfsError;
         return @truncate(msg.words[0]);
     }
 
     /// Get file metadata.
     pub fn stat(self: FileHandle) !Stat {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(FileOp.stat),
+            .tag = @backingInt(FileOp.stat),
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(VfsError.none)) return error.VfsError;
+        if (msg.tag != @backingInt(VfsError.none)) return error.VfsError;
         var s: Stat = std.mem.zeroes(Stat);
         @memcpy(
             @as([*]u8, @ptrCast(&s))[0..@min(@sizeOf(Stat), 32)],
@@ -485,18 +485,18 @@ pub const FileHandle = struct {
     /// Flush outstanding writes to stable storage.
     pub fn sync(self: FileHandle) !void {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(FileOp.sync),
+            .tag = @backingInt(FileOp.sync),
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(VfsError.none)) return error.VfsError;
+        if (msg.tag != @backingInt(VfsError.none)) return error.VfsError;
     }
 
     /// Close the file handle. The server closes the endpoint after replying.
     pub fn close(self: FileHandle) !void {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(FileOp.close),
+            .tag = @backingInt(FileOp.close),
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(VfsError.none)) return error.VfsError;
+        if (msg.tag != @backingInt(VfsError.none)) return error.VfsError;
     }
 };

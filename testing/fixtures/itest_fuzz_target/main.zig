@@ -11,7 +11,12 @@ const endpoint_handle: capabilities.Handle = @enumFromInt(0);
 const scratch_sentinel: u64 = 0x5C5C_5C5C_5C5C_5C5C;
 
 /// Writable, non-empty (so a path/name read from it is never zero-length).
-var scratch: [256]u8 = @splat('a');
+var scratch: [256 + 16]u8 = @splat('a');
+
+fn scratchPtr() usize {
+    const base = @intFromPtr(&scratch);
+    return if ((base & 0xFF) < 16) base + 16 else base;
+}
 
 /// Minimally-entitled fuzz target: receives one attacker-controlled syscall
 /// descriptor over the granted Endpoint and issues it for real, through the
@@ -22,7 +27,7 @@ pub fn main() void {
         std.debug.panic("endpointRecv failed: {t}", .{err});
 
     for (&msg.words) |*word| {
-        if (word.* == scratch_sentinel) word.* = @intFromPtr(&scratch);
+        if (word.* == scratch_sentinel) word.* = scratchPtr();
     }
 
     // msg.tag is a raw, attacker-controlled u64: it may not name a real

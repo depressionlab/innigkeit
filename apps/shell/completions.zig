@@ -25,7 +25,7 @@ pub const ALL_COMPLETIONS = BUILTIN_NAMES ++ KNOWN_PROGRAMS;
 pub const MAX = 50;
 
 var entries: [MAX][LineEditor.MAX + 1]u8 = undefined;
-var lens: [MAX]usize = [_]usize{0} ** MAX;
+var lens: [MAX]usize = @splat(0);
 pub var count: usize = 0;
 pub var total: usize = 0;
 

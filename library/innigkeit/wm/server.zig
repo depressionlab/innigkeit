@@ -81,7 +81,7 @@ pub fn Compositor(comptime max_surfaces: usize) type {
         /// Allocate a fresh surface for `client`, placed at (`x`,`y`), initially
         /// empty (0x0) and unmapped until its first buffer `commit`.
         pub fn createSurface(self: *Self, client: u32, x: i32, y: i32) Error!SurfaceId {
-            const id: SurfaceId = @enumFromInt(self.next_id);
+            const id: SurfaceId = @fromBackingInt(@intCast(self.next_id));
             _ = try self.stack.add(.{
                 .id = id,
                 .rect = .{ .x = x, .y = y, .w = 0, .h = 0 },
@@ -203,7 +203,7 @@ pub fn Server(comptime Platform: type, comptime max_surfaces: usize, comptime ma
         /// client id -> its event endpoint (server->client), `invalid_handle` until
         /// the client `connect`s. A request from an unregistered client still
         /// mutates compositor state, but no event can be delivered to it.
-        clients: [max_clients]Handle = [_]Handle{caps.invalid_handle} ** max_clients,
+        clients: [max_clients]Handle = @splat(caps.invalid_handle),
 
         pub fn init(platform: Platform, width: i32, height: i32) Self {
             return .{ .compositor = Compositor(max_surfaces).init(width, height), .platform = platform };
@@ -269,15 +269,15 @@ pub const SyscallPlatform = struct {
 const TestComp = Compositor(8);
 
 fn handle(n: u32) Handle {
-    return @enumFromInt(n);
+    return @fromBackingInt(@intCast(n));
 }
 
 test "createSurface allocates rising ids, empty and unmapped until commit" {
     var c = TestComp.init(800, 600);
     const a = try c.createSurface(1, 10, 20);
     const b = try c.createSurface(1, 0, 0);
-    try std.testing.expectEqual(@as(SurfaceId, @enumFromInt(1)), a);
-    try std.testing.expectEqual(@as(SurfaceId, @enumFromInt(2)), b);
+    try std.testing.expectEqual(@as(SurfaceId, @fromBackingInt(@intCast(1))), a);
+    try std.testing.expectEqual(@as(SurfaceId, @fromBackingInt(@intCast(2))), b);
 
     const sa = c.find(a).?;
     try std.testing.expect(!sa.mapped);
@@ -362,7 +362,7 @@ test "apply dispatches the protocol requests end to end" {
     // create_surface -> created(id).
     const out = try c.apply(1, .{ .create_surface = {} });
     const id = out.created;
-    try std.testing.expectEqual(@as(SurfaceId, @enumFromInt(1)), id);
+    try std.testing.expectEqual(@as(SurfaceId, @fromBackingInt(@intCast(1))), id);
 
     // attach -> none, but sizes the surface.
     try std.testing.expectEqual(
@@ -377,7 +377,7 @@ test "apply dispatches the protocol requests end to end" {
     );
 
     // a request against a missing surface surfaces NoSurface.
-    try std.testing.expectError(error.NoSurface, c.apply(1, .{ .destroy_surface = .{ .surface = @enumFromInt(999) } }));
+    try std.testing.expectError(error.NoSurface, c.apply(1, .{ .destroy_surface = .{ .surface = @fromBackingInt(@intCast(999)) } }));
 }
 
 test "createSurface enforces capacity" {
@@ -421,7 +421,7 @@ const FakePlatform = struct {
 
     fn createFrameNotify(self: *FakePlatform) error{}!Handle {
         defer self.next_notify += 1;
-        return @enumFromInt(self.next_notify);
+        return @fromBackingInt(@intCast(self.next_notify));
     }
 
     fn present(self: *FakePlatform, rect: Rect) void {
@@ -453,15 +453,15 @@ test "connect registers the event channel; create_surface replies surface_create
     try std.testing.expectEqual(@as(usize, 1), server.platform.sent_len);
     try std.testing.expectEqual(handle(77), server.platform.sent[0].channel);
     const ev = try protocol.Event.decode(server.platform.sent[0].msg);
-    try std.testing.expectEqual(@as(SurfaceId, @enumFromInt(1)), ev.surface_created.surface);
-    try std.testing.expectEqual(@as(Handle, @enumFromInt(1000)), ev.surface_created.frame);
+    try std.testing.expectEqual(@as(SurfaceId, @fromBackingInt(@intCast(1))), ev.surface_created.surface);
+    try std.testing.expectEqual(@as(Handle, @fromBackingInt(@intCast(1000))), ev.surface_created.frame);
 }
 
 test "commit presents the damage rect; empty damage presents nothing" {
     var server = TestServer.init(.{}, 800, 600);
     server.platform.pushReq(0, .{ .connect = .{ .event_endpoint = handle(1) } });
     server.platform.pushReq(0, .{ .create_surface = {} });
-    const id: SurfaceId = @enumFromInt(1);
+    const id: SurfaceId = @fromBackingInt(@intCast(1));
     server.platform.pushReq(0, .{ .attach_buffer = .{ .surface = id, .buffer = handle(2), .width = 100, .height = 100, .format = .bgrx8888 } });
     server.platform.pushReq(0, .{ .commit = .{ .surface = id, .damage = .{ .x = 10, .y = 10, .w = 30, .h = 30 } } });
     try run(&server);
@@ -491,5 +491,5 @@ test "a request from an unconnected client mutates state but delivers no event" 
     server.platform.pushReq(0, .{ .create_surface = {} });
     try run(&server);
     try std.testing.expectEqual(@as(usize, 0), server.platform.sent_len);
-    try std.testing.expect(server.compositor.find(@enumFromInt(1)) != null);
+    try std.testing.expect(server.compositor.find(@fromBackingInt(@intCast(1))) != null);
 }

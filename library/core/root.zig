@@ -11,14 +11,14 @@ pub const Size = @import("size.zig").Size;
 pub const TypeErasedCall = @import("containers/TypeErasedCall.zig").TypeErasedCall;
 pub const RedBlackTree = @import("containers/RedBlackTree.zig");
 
-const Endian = std.builtin.Endian;
-pub const is_debug = @import("builtin").mode == .Debug;
+const Endian = std.lang.Endian;
+pub const is_debug = @import("builtin").optimize == .debug;
 
 /// A calling convention that is `inline` in non-debug builds and `auto` in debug builds.
 ///
 /// This allows the effect of inlining for release builds but prevents missing
 /// debug information during debug builds.
-pub const inline_in_non_debug: std.builtin.CallingConvention =
+pub const inline_in_non_debug: std.lang.CallingConvention =
     if (is_debug) .auto else .@"inline";
 
 pub inline fn require(value: anytype, comptime message: []const u8) @TypeOf(value catch unreachable) {
@@ -40,7 +40,7 @@ pub const CleanupDecision = enum { keep, free };
 /// land in the high-order position instead of the low-order one.
 pub inline fn readIntPartial(comptime T: type, input: []const u8, endian: Endian) u64 {
     const len: usize = @min(@sizeOf(T), input.len);
-    var buffer = [_]u8{0} ** @sizeOf(T);
+    var buffer: [@sizeOf(T)]u8 = @splat(0);
     switch (endian) {
         .little => @memcpy(buffer[0..len], input[0..len]),
         .big => @memcpy(buffer[@sizeOf(T) - len ..], input[0..len]),
@@ -48,7 +48,7 @@ pub inline fn readIntPartial(comptime T: type, input: []const u8, endian: Endian
     return std.mem.readInt(T, &buffer, endian);
 }
 
-pub inline fn CopyPtrAttrs(comptime source: type, comptime size: std.builtin.Type.Pointer.Size, comptime child: type) type {
+pub inline fn CopyPtrAttrs(comptime source: type, comptime size: std.lang.Type.Pointer.Size, comptime child: type) type {
     switch (@typeInfo(source)) {
         .optional => |o| return CopyPtrAttrs(o.child, size, child),
         .pointer => |info| return @Pointer(size, info, child, null),
@@ -58,10 +58,11 @@ pub inline fn CopyPtrAttrs(comptime source: type, comptime size: std.builtin.Typ
 
 test readIntPartial {
     const hello = "hello";
-    const hello_zero_padded: [8]u8 = hello.* ++ .{0} ** 3;
+    const padding: [3]u8 = @splat(0);
+    const hello_zero_padded: [8]u8 = hello.* ++ padding;
     const expected: u64 = @bitCast(hello_zero_padded);
 
-    const endian = @import("builtin").cpu.arch.endian();
+    const endian = @import("builtin").target.cpu.arch.endian();
     const hello_int = readIntPartial(u64, hello, endian);
     try std.testing.expectEqual(expected, hello_int);
 }

@@ -29,7 +29,7 @@ pub const CoreHint = enum(u8) {
 /// Suggest to the scheduler which core class should run the calling thread.
 /// On non-hybrid systems the hint is stored but never acted upon.
 pub fn setCoreHint(hint: CoreHint) void {
-    _ = innigkeit.Syscall.invoke(.thread_set_hint, .{@as(usize, @intFromEnum(hint))});
+    _ = innigkeit.Syscall.invoke(.thread_set_hint, .{@as(usize, @backingInt(hint))});
 }
 
 /// Quality-of-Service class for `setQos`. Maps to scheduler weight + slice:
@@ -44,7 +44,7 @@ pub const Qos = enum(u8) {
 /// lowering one's own QoS is always permitted.
 pub fn setQos(qos: Qos) void {
     // TODO: is this type conversion necessary?
-    _ = innigkeit.Syscall.invoke(.thread_set_qos, .{@as(usize, @intFromEnum(qos))});
+    _ = innigkeit.Syscall.invoke(.thread_set_qos, .{@as(usize, @backingInt(qos))});
 }
 
 /// Spawn a new thread in the current process.
@@ -220,9 +220,9 @@ pub const InnigkeitThreadImpl = struct {
                 }
 
                 // Transition state: running -> completed, wake any join() waiter.
-                const prev: State = @enumFromInt(
-                    self.completion.state.swap(@intFromEnum(State.completed), .seq_cst),
-                );
+                const prev: State = @fromBackingInt(@intCast(
+                    self.completion.state.swap(@backingInt(State.completed), .seq_cst),
+                ));
                 switch (prev) {
                     .running => {
                         // join() will free; wake it
@@ -249,7 +249,7 @@ pub const InnigkeitThreadImpl = struct {
 
         instance.* = .{
             .completion = .{
-                .state = .init(@intFromEnum(State.running)),
+                .state = .init(@backingInt(State.running)),
                 .id = id,
                 .destroy = Instance.destroyFn,
             },
@@ -271,9 +271,9 @@ pub const InnigkeitThreadImpl = struct {
     /// Release the obligation to call join(); the thread frees its own
     /// Instance when it completes.
     pub fn detach(self: InnigkeitThreadImpl) void {
-        const prev: State = @enumFromInt(
-            self.completion.state.swap(@intFromEnum(State.detached), .seq_cst),
-        );
+        const prev: State = @fromBackingInt(@intCast(
+            self.completion.state.swap(@backingInt(State.detached), .seq_cst),
+        ));
         switch (prev) {
             .running => {}, // thread will destroy on completion
             .completed => self.completion.destroy(self.completion),
@@ -286,12 +286,12 @@ pub const InnigkeitThreadImpl = struct {
     /// May only be called once per handle. A second call is a programming
     /// error; in this implementation it silently returns without double-freeing.
     pub fn join(self: InnigkeitThreadImpl) void {
-        innigkeit.interop.debug_io.futexWaitUncancelable(u32, &self.completion.state.raw, @intFromEnum(State.running));
+        innigkeit.interop.debug_io.futexWaitUncancelable(u32, &self.completion.state.raw, @backingInt(State.running));
         // CAS completed -> detached claims the destroy right atomically.
         // A racing second join() loses the CAS and returns without double-freeing.
         if (self.completion.state.cmpxchgStrong(
-            @intFromEnum(State.completed),
-            @intFromEnum(State.detached),
+            @backingInt(State.completed),
+            @backingInt(State.detached),
             .acq_rel,
             .acquire,
         ) == null) {
@@ -317,7 +317,7 @@ test "Condition.signal and broadcast with no waiters" {
 }
 
 test "Thread.join waits for completion" {
-    if (@import("builtin").os.tag != .freestanding) return error.SkipZigTest;
+    if (@import("builtin").target.os.tag != .freestanding) return error.SkipZigTest;
     var flag: std.atomic.Value(u32) = .init(0);
     const t = try Thread.spawn(setFlag, .{&flag});
     t.join();
@@ -325,14 +325,14 @@ test "Thread.join waits for completion" {
 }
 
 test "Thread.detach does not crash" {
-    if (@import("builtin").os.tag != .freestanding) return error.SkipZigTest;
+    if (@import("builtin").target.os.tag != .freestanding) return error.SkipZigTest;
     // Detach before the thread has a chance to finish; kernel frees resources.
     const t = try Thread.spawn(justYield, .{});
     t.detach();
 }
 
 test "Mutex serializes concurrent increments" {
-    if (@import("builtin").os.tag != .freestanding) return error.SkipZigTest;
+    if (@import("builtin").target.os.tag != .freestanding) return error.SkipZigTest;
     var counter: u32 = 0;
     var mu: Mutex = .init;
     const State = struct { counter: *u32, mu: *Mutex };

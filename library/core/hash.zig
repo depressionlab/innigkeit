@@ -8,7 +8,7 @@ const readIntPartial = @import("core").readIntPartial;
 // borrowed from foldhash and modified a bit
 pub inline fn mix(x: u64, y: u64) u64 {
     const target = @import("builtin").target;
-    const cpu = @import("builtin").cpu;
+    const cpu = target.cpu;
 
     // sparc64 and wasm64 do not have 128-bit widening multiplication
     // x86-64 and aarch64 should have it regardless of abi, but abi may reduce ptr bit width

@@ -4,7 +4,7 @@
 /// this process (exit-Notify fires with `Process.ExitStatus.sigill`)
 /// instead of panicking the whole kernel.
 pub fn main() void {
-    switch (@import("builtin").cpu.arch) {
+    switch (@import("builtin").target.cpu.arch) {
         .x86_64 => asm volatile ("ud2"),
         .aarch64 => asm volatile ("udf #0"),
         .riscv64 => asm volatile ("unimp"),

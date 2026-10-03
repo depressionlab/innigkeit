@@ -15,7 +15,7 @@ pub const FramebufferInfo = extern struct {
     height: u32,
     pitch: u32, // bytes per scan line
     bpp: u8, // bits per pixel (always 32 for BGRX)
-    _pad: [3]u8 = .{0} ** 3,
+    _pad: [3]u8 = @splat(0),
 
     /// Pixels per row (stride in u32 units).
     pub fn stride(self: FramebufferInfo) u32 {

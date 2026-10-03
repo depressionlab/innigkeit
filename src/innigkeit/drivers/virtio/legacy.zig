@@ -146,7 +146,7 @@ pub const LegacyQueue = struct {
         // direct-map window over them is one contiguous virtual range.
         @memset(q.ringBase()[0 .. q.ring_page_count * PAGE_SIZE], 0);
 
-        const ring_phys = @intFromEnum(q.ring_pages[0].baseAddress());
+        const ring_phys = @backingInt(q.ring_pages[0].baseAddress());
         io.w32(REG_QUEUE_PFN, @intCast(ring_phys / PAGE_SIZE));
         log.debug("queue {} at phys=0x{x} (PFN={}, N={}, {} pages)", .{
             sel, ring_phys, ring_phys / PAGE_SIZE, queue_num, q.ring_page_count,
@@ -268,7 +268,7 @@ pub fn readIsr(io: PortIo) u8 {
 ///   gic_id = 32 + 3 + ((device_slot + (pin - 1)) % 4)
 /// where `pin` is 1..4 (INTA#..INTD#).
 fn resolveGsi(addr: innigkeit.pci.Address, pin: u8) ?u32 {
-    if (@import("builtin").cpu.arch == .x86_64) {
+    if (@import("builtin").target.cpu.arch == .x86_64) {
         return null; // caller uses interruptLine() on x86-64
     }
     const swizzle: u32 = (@as(u32, addr.device) + (@as(u32, pin) - 1)) % 4;
@@ -301,7 +301,7 @@ pub fn setupIrq(
         return false;
     }
 
-    const gsi: u32 = if (@import("builtin").cpu.arch == .x86_64) blk: {
+    const gsi: u32 = if (@import("builtin").target.cpu.arch == .x86_64) blk: {
         const line = func.interruptLine();
         if (line == 0 or line == 0xFF) {
             log.info("{s}: INTx line {} unusable, staying in poll mode", .{ what, line });
@@ -348,10 +348,10 @@ fn allocContiguousPages(pages: []innigkeit.memory.PhysicalPage.Index) bool {
     var attempts: usize = 0;
     while (attempts < 256) : (attempts += 1) {
         const page = innigkeit.memory.PhysicalPage.allocator.allocate() catch break;
-        const pfn = @intFromEnum(page);
+        const pfn = @backingInt(page);
 
         if (run_len > 0) {
-            const prev_pfn = @intFromEnum(run[run_len - 1]);
+            const prev_pfn = @backingInt(run[run_len - 1]);
             // Accept ascending or descending consecutive (free list prepends
             // in ascending order, so pops come out descending).
             const consecutive = (pfn == prev_pfn +% 1) or (pfn +% 1 == prev_pfn);
@@ -363,7 +363,7 @@ fn allocContiguousPages(pages: []innigkeit.memory.PhysicalPage.Index) bool {
                     // Sort ascending so pages[0] has the lowest PFN.
                     for (0..pages.len) |i| {
                         for (i + 1..pages.len) |j| {
-                            if (@intFromEnum(pages[j]) < @intFromEnum(pages[i])) {
+                            if (@backingInt(pages[j]) < @backingInt(pages[i])) {
                                 const tmp = pages[i];
                                 pages[i] = pages[j];
                                 pages[j] = tmp;

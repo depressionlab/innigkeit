@@ -560,7 +560,7 @@ fn onKernelPageFault(
 
 test "safe.memcpy: unmapped source returns BadAddress instead of panicking" {
     // riscv64 has no data-abort/page-fault routing of its own yet.
-    if (comptime @import("builtin").cpu.arch != .riscv64) return error.SkipZigTest;
+    if (comptime @import("builtin").target.cpu.arch != .riscv64) return error.SkipZigTest;
 
     const address_space = kernelAddressSpace();
 
@@ -582,7 +582,7 @@ test "safe.memcpy: unmapped source returns BadAddress instead of panicking" {
 
 test "safe.atomicLoadU32: unmapped address returns BadAddress instead of panicking" {
     // riscv64 has no data-abort/page-fault routing of its own yet.
-    if (comptime @import("builtin").cpu.arch != .riscv64) return error.SkipZigTest;
+    if (comptime @import("builtin").target.cpu.arch != .riscv64) return error.SkipZigTest;
 
     const address_space = kernelAddressSpace();
     const range = try address_space.map(.{

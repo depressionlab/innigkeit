@@ -2,6 +2,7 @@ keys/codesign_private.key
 keys/codesign_public.key
 keys/secureboot/
 INFO.md
+campaigns/
 
 # Added by cargo
 

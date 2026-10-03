@@ -12,7 +12,7 @@ a capability-based microkernel written in Zig (with Rust subsystems), targeting 
 
 ## prerequisites
 
-- Zig 0.16.0
+- Zig 0.17.0
 - QEMU 8.0-11.0+
 - Rust (`x86_64-unknown-none` target)
 

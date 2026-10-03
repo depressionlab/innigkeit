@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 
 test "x64: flush_request interrupt EOIs before its handler runs, not after" {
-    if (comptime builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    if (comptime builtin.target.cpu.arch != .x86_64) return error.SkipZigTest;
 
     const Interrupt = architecture.current_decls.interrupts.Interrupt;
     const timing = architecture.interrupts.eoiTimingForVectorForTesting(Interrupt.flush_request) orelse

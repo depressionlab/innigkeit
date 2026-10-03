@@ -170,7 +170,7 @@ pub const LogMode = enum(u8) {
 };
 
 pub fn setLogMode(mode: LogMode) void {
-    if (@intFromEnum(globals.log_mode) + 1 != @intFromEnum(mode)) {
+    if (@backingInt(globals.log_mode) + 1 != @backingInt(mode)) {
         std.debug.panic(
             "invalid log mode transition '{t}' -> '{t}'!",
             .{ globals.log_mode, mode },
@@ -188,9 +188,9 @@ pub const log_level: Level = blk: {
         };
     }
 
-    break :blk switch (@import("builtin").mode) {
-        .Debug => .info,
-        .ReleaseSafe, .ReleaseFast, .ReleaseSmall => .warn,
+    break :blk switch (@import("builtin").optimize) {
+        .debug => .info,
+        .safe, .fast, .small => .warn,
     };
 };
 
@@ -212,7 +212,7 @@ pub fn stdLogImpl(
 /// Determine if a specific scope and log level pair is enabled for logging.
 inline fn loggingEnabledFor(comptime scope: @EnumLiteral(), comptime message_level: Level) bool {
     comptime {
-        if (@intFromEnum(message_level) <= @intFromEnum(log_level)) return true;
+        if (@backingInt(message_level) <= @backingInt(log_level)) return true;
         if (scopeMatcherMatches(scope)) return true;
         if (scope == .uacpi_api) return false;
         return false;

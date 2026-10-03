@@ -83,7 +83,7 @@ inline fn PointerCastPreserveCV(comptime T: type, comptime PointerToT: type, com
 }
 
 comptime {
-    if (@import("builtin").cpu.arch.endian() != .little)
+    if (@import("builtin").target.cpu.arch.endian() != .little)
         @compileError("'bitjuggle' assumes little endian!");
 }
 

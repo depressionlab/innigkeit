@@ -1,5 +1,5 @@
 [target.x86_64-unknown-none]
-linker = "ld.lld"
+linker = "/nix/store/acpdvdly10v0bcvjls52anja2gzkaczk-lld-22.1.8/bin/ld.lld"
 rustflags = [
     "-C", "link-arg=--entry=_start",
     "-C", "link-arg=-static",

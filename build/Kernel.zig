@@ -203,9 +203,9 @@ pub fn buildTestKernel(
     innigkeit_module.omit_frame_pointer = false;
     innigkeit_module.single_threaded = true; // freestanding: no TLS segment
     innigkeit_module.sanitize_c = switch (options.optimize) {
-        .Debug => .full,
-        .ReleaseSafe => .trap,
-        .ReleaseFast, .ReleaseSmall => .off,
+        .debug => .full,
+        .safe => .trap,
+        .fast, .small => .off,
     };
     switch (architecture) {
         .arm, .riscv => {},
@@ -325,7 +325,7 @@ fn buildInitfsCached(
     extra_binaries: ?[]const ExtraBinary,
     include_test_only: bool,
 ) std.Build.LazyPath {
-    const slot = &initfs_cache[@intFromEnum(architecture)][@intFromBool(include_test_only)];
+    const slot = &initfs_cache[@backingInt(architecture)][@intFromBool(include_test_only)];
     if (slot.*) |cached| return cached;
 
     const archive = buildInitfs(b, architecture, apps, tools, extra_binaries, include_test_only);
@@ -361,9 +361,9 @@ fn buildRootModule(
         .optimize = options.optimize,
         .strip = false,
         .sanitize_c = switch (options.optimize) {
-            .Debug => .full,
-            .ReleaseSafe => .trap,
-            .ReleaseFast, .ReleaseSmall => .off,
+            .debug => .full,
+            .safe => .trap,
+            .fast, .small => .off,
         },
         .omit_frame_pointer = false,
     });
@@ -571,7 +571,7 @@ fn collectFilesRecursive(
     file_paths: *std.ArrayList([]const u8),
     dir_path: []const u8,
 ) !void {
-    var dir = try b.build_root.handle.openDir(
+    var dir = try b.root.openDir(
         b.graph.io,
         dir_path,
         .{ .iterate = true },

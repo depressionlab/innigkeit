@@ -44,8 +44,8 @@ pub const CreateOptions = struct {
     manifest: std.Build.LazyPath,
     /// Target CPU architecture (default: `.x64`).
     arch: Arch = .x64,
-    /// Optimize mode (default: `.Debug`).
-    optimize: std.builtin.OptimizeMode = .Debug,
+    /// Optimize mode (default: `.debug`).
+    optimize: std.lang.Optimize = .debug,
 
     pub const Arch = enum { x64, arm, riscv };
 };
@@ -146,7 +146,7 @@ pub fn build(b: *std.Build) void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("codesign/main.zig"),
             .target = b.graph.host,
-            .optimize = .ReleaseSafe,
+            .optimize = .safe,
         }),
     });
     codesign.root_module.addImport("toml", toml_dep.module("toml"));

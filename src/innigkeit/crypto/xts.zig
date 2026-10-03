@@ -26,7 +26,7 @@ const aes = std.crypto.core.aes;
 // to keep the suite actionable while the codegen bug is tracked but NOT because
 // arm is fine. The host suite (`zig build test_native`, x86-64) and the x64
 // kernel suite still run them.
-const aes_broken_on_target = builtin.cpu.arch == .aarch64 and builtin.os.tag == .freestanding;
+const aes_broken_on_target = builtin.target.cpu.arch == .aarch64 and builtin.target.os.tag == .freestanding;
 
 /// XTS over the given AES variant (`aes.Aes128` or `aes.Aes256`). The key is two
 /// concatenated AES keys: the data key followed by the tweak key.

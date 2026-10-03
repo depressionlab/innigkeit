@@ -4,7 +4,7 @@ const innigkeit = @import("innigkeit");
 const PerTask = @This();
 
 /// Callee-saved registers x19–x28.
-x19_x28: [10]u64 = .{0} ** 10,
+x19_x28: [10]u64 = @splat(0),
 /// Frame pointer (x29).
 fp: u64 = 0,
 /// Link register (x30).

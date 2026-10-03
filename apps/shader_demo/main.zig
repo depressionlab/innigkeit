@@ -105,7 +105,7 @@ fn renderTunnel(buf: []u32, W: u32, H: u32, t: u32, tbl: ?[]const TunnelPx) void
 
 const FIRE_W: u32 = 320;
 const FIRE_H: u32 = 200;
-var fire_state: [FIRE_H * FIRE_W]u8 = .{0} ** (FIRE_H * FIRE_W);
+var fire_state: [FIRE_H * FIRE_W]u8 = @splat(0);
 
 // Comptime fire color palette: black -> red -> orange -> yellow -> white
 const fire_pal: [256]u32 = blk: {

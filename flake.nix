@@ -7,7 +7,7 @@
 
   outputs = { nixpkgs, zig, ... }:
     let forAllSystems = f: builtins.mapAttrs (
-      system: pkgs: f pkgs zig.packages.${system}.zig_0_16_0
+      system: pkgs: f pkgs zig.packages.${system}.zig_0_17_0
     ) nixpkgs.legacyPackages;
   in {
     devShells = forAllSystems(pkgs: zig: {
