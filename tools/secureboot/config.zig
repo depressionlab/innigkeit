@@ -11,9 +11,9 @@ pub fn config(b: *std.Build, description: *const ToolDescription, module: *std.B
     const limine = b.dependency("limine_bin", .{});
 
     module.link_libc = true;
-    module.addIncludePath(limine.path("."));
+    module.addIncludePath(limine.path("limine-binary"));
     module.addCSourceFile(.{
-        .file = limine.path("limine.c"),
+        .file = limine.path("limine-binary/limine.c"),
         .flags = &.{ "-std=c99", "-Dmain=limine_main" },
     });
 }

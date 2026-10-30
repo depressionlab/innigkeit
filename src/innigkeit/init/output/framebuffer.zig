@@ -114,7 +114,7 @@ fn tryGetFramebufferOutputInner(memory_system_available: bool) !?Output {
         null,
         null,
         null,
-        @constCast(font),
+        font,
         8,
         16,
         1,
@@ -122,6 +122,7 @@ fn tryGetFramebufferOutputInner(memory_system_available: bool) !?Output {
         2,
         0,
         0,
+        true,
     ) orelse return error.FailedToInitializeFramebuffer;
 
     return .{

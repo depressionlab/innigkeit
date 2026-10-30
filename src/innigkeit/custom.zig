@@ -78,7 +78,6 @@ pub fn custom(
                 "osi.c",
                 "registers.c",
                 "resources.c",
-                "shareable.c",
                 "sleep.c",
                 "stdlib.c",
                 "tables.c",
