@@ -114,7 +114,7 @@ pub const TypeErasedCall = extern struct {
             /// `setTemplatedArgs` must be called before making use of the returned `TypeErasedCall.Templated`.
             pub fn prepare(comptime function: anytype, args: NonTemplateArgsTuple(@TypeOf(function))) @This() {
                 comptime {
-                    const function_parameters = @typeInfo(@TypeOf(function)).@"fn".params;
+                    const function_parameters = @typeInfo(@TypeOf(function)).@"fn".param_types;
                     if (function_parameters.len < template_parameters.len) {
                         @compileError(
                             std.fmt.comptimePrint(
@@ -125,11 +125,11 @@ pub const TypeErasedCall = extern struct {
                     }
 
                     for (function_parameters[0..template_parameters.len], template_parameters, 0..) |function_parameter, template_parameter, i| {
-                        if (function_parameter.type.? != template_parameter) {
+                        if (function_parameter.? != template_parameter) {
                             @compileError(
                                 std.fmt.comptimePrint(
                                     "function parameter {d} with type '{s}' does not match template parameter with type '{s}'",
-                                    .{ i, @typeName(function_parameter.type.?), @typeName(template_parameter) },
+                                    .{ i, @typeName(function_parameter.?), @typeName(template_parameter) },
                                 ),
                             );
                         }
@@ -170,11 +170,11 @@ pub const TypeErasedCall = extern struct {
                 }
 
                 const function_info = info.@"fn";
-                if (function_info.is_var_args) {
+                if (function_info.attrs.varargs) {
                     @compileError("Cannot create NonTemplateArgsTuple for variadic function");
                 }
 
-                const function_params = function_info.params;
+                const function_params = function_info.param_types;
 
                 if (function_params.len < template_parameters.len) {
                     @compileError(std.fmt.comptimePrint(
@@ -186,8 +186,8 @@ pub const TypeErasedCall = extern struct {
                 const non_templated_parameter_count = function_params.len - template_parameters.len;
 
                 var argument_field_list: [non_templated_parameter_count]type = undefined;
-                inline for (function_info.params[template_parameters.len..], 0..) |arg, i| {
-                    const T = arg.type orelse @compileError("cannot create NonTemplateArgsTuple for function with an 'anytype' parameter");
+                inline for (function_info.param_types[template_parameters.len..], 0..) |arg, i| {
+                    const T = arg orelse @compileError("cannot create NonTemplateArgsTuple for function with an 'anytype' parameter");
                     argument_field_list[i] = T;
                 }
 
@@ -230,11 +230,12 @@ inline fn usizeFromArg(arg: anytype) usize {
             return int_value;
         },
         .@"struct" => |stru| switch (stru.layout) {
-            .@"extern", .@"packed" => {
+            .@"packed" => {
                 const int_value: @Int(.unsigned, @sizeOf(ArgT) * 8) = @bitCast(arg);
                 return int_value;
             },
-            .auto => {
+            // `@bitCast` of an extern container is rejected since Zig 0.17.
+            .@"extern", .auto => {
                 const bytes = std.mem.asBytes(&arg);
                 const int_value: @Int(.unsigned, @sizeOf(ArgT) * 8) = @bitCast(bytes.*);
                 return int_value;
@@ -250,15 +251,16 @@ inline fn usizeFromArg(arg: anytype) usize {
         },
         .error_set => return @intFromError(arg),
         .@"enum" => |enu| return if (@typeInfo(enu.tag_type).int.signedness == .signed)
-            @bitCast(@as(isize, @intFromEnum(arg)))
+            @bitCast(@as(isize, @backingInt(arg)))
         else
-            @intFromEnum(arg),
+            @backingInt(arg),
         .@"union" => |uni| switch (uni.layout) {
-            .@"extern", .@"packed" => {
+            .@"packed" => {
                 const int_value: @Int(.unsigned, @sizeOf(ArgT) * 8) = @bitCast(arg);
                 return int_value;
             },
-            .auto => {
+            // `@bitCast` of an extern container is rejected since Zig 0.17.
+            .@"extern", .auto => {
                 const bytes = std.mem.asBytes(&arg);
                 const int_value: @Int(.unsigned, @sizeOf(ArgT) * 8) = @bitCast(bytes.*);
                 return int_value;
@@ -292,8 +294,8 @@ inline fn argFromUsize(comptime ArgT: type, value: usize) ArgT {
         .@"struct" => |stru| {
             const int_value: @Int(.unsigned, @sizeOf(ArgT) * 8) = @truncate(value);
             return switch (stru.layout) {
-                .@"extern", .@"packed" => @bitCast(int_value),
-                .auto => std.mem.bytesToValue(ArgT, std.mem.asBytes(&int_value)),
+                .@"packed" => @bitCast(int_value),
+                .@"extern", .auto => std.mem.bytesToValue(ArgT, std.mem.asBytes(&int_value)),
             };
         },
         .optional => |opt| {
@@ -311,15 +313,15 @@ inline fn argFromUsize(comptime ArgT: type, value: usize) ArgT {
         .@"enum" => |enu| {
             if (@typeInfo(enu.tag_type).int.signedness == .signed) {
                 const signed_value: isize = @bitCast(value);
-                return @enumFromInt(@as(enu.tag_type, @truncate(signed_value)));
+                return @fromBackingInt(@intCast(@as(enu.tag_type, @truncate(signed_value))));
             }
-            return @enumFromInt(@as(enu.tag_type, @truncate(value)));
+            return @fromBackingInt(@intCast(@as(enu.tag_type, @truncate(value))));
         },
         .@"union" => |uni| {
             const int_value: @Int(.unsigned, @sizeOf(ArgT) * 8) = @truncate(value);
             return switch (uni.layout) {
-                .@"extern", .@"packed" => @bitCast(int_value),
-                .auto => std.mem.bytesToValue(ArgT, std.mem.asBytes(&int_value)),
+                .@"packed" => @bitCast(int_value),
+                .@"extern", .auto => std.mem.bytesToValue(ArgT, std.mem.asBytes(&int_value)),
             };
         },
         else => unreachable, // `usizeFromArg` prevents us from reaching here
@@ -346,7 +348,7 @@ fn typeErasedFn(comptime function: anytype) struct { TypeErasedCall.TypeErasedFn
         @compileError("`function` must have a return type of `void`, `noreturn`, `!void` or `!noreturn`");
     };
 
-    const function_parameters = @typeInfo(@TypeOf(function)).@"fn".params;
+    const function_parameters = @typeInfo(@TypeOf(function)).@"fn".param_types;
 
     return .{ switch (function_parameters.len) {
         0 => struct {
@@ -364,10 +366,10 @@ fn typeErasedFn(comptime function: anytype) struct { TypeErasedCall.TypeErasedFn
             fn typeErased1Args(arg0: usize, _: usize, _: usize, _: usize, _: usize) callconv(.c) void {
                 return switch (comptime return_type) {
                     .void, .noreturn => function(
-                        argFromUsize(function_parameters[0].type.?, arg0),
+                        argFromUsize(function_parameters[0].?, arg0),
                     ),
                     .void_error_union, .noreturn_error_union => function(
-                        argFromUsize(function_parameters[0].type.?, arg0),
+                        argFromUsize(function_parameters[0].?, arg0),
                     ) catch |err| std.debug.panic(
                         "unhandled error: {t}!",
                         .{err},
@@ -379,12 +381,12 @@ fn typeErasedFn(comptime function: anytype) struct { TypeErasedCall.TypeErasedFn
             fn typeErased2Args(arg0: usize, arg1: usize, _: usize, _: usize, _: usize) callconv(.c) void {
                 return switch (comptime return_type) {
                     .void, .noreturn => function(
-                        argFromUsize(function_parameters[0].type.?, arg0),
-                        argFromUsize(function_parameters[1].type.?, arg1),
+                        argFromUsize(function_parameters[0].?, arg0),
+                        argFromUsize(function_parameters[1].?, arg1),
                     ),
                     .void_error_union, .noreturn_error_union => function(
-                        argFromUsize(function_parameters[0].type.?, arg0),
-                        argFromUsize(function_parameters[1].type.?, arg1),
+                        argFromUsize(function_parameters[0].?, arg0),
+                        argFromUsize(function_parameters[1].?, arg1),
                     ) catch |err| std.debug.panic(
                         "unhandled error: {t}!",
                         .{err},
@@ -396,14 +398,14 @@ fn typeErasedFn(comptime function: anytype) struct { TypeErasedCall.TypeErasedFn
             fn typeErased3Ags(arg0: usize, arg1: usize, arg2: usize, _: usize, _: usize) callconv(.c) void {
                 return switch (comptime return_type) {
                     .void, .noreturn => function(
-                        argFromUsize(function_parameters[0].type.?, arg0),
-                        argFromUsize(function_parameters[1].type.?, arg1),
-                        argFromUsize(function_parameters[2].type.?, arg2),
+                        argFromUsize(function_parameters[0].?, arg0),
+                        argFromUsize(function_parameters[1].?, arg1),
+                        argFromUsize(function_parameters[2].?, arg2),
                     ),
                     .void_error_union, .noreturn_error_union => function(
-                        argFromUsize(function_parameters[0].type.?, arg0),
-                        argFromUsize(function_parameters[1].type.?, arg1),
-                        argFromUsize(function_parameters[2].type.?, arg2),
+                        argFromUsize(function_parameters[0].?, arg0),
+                        argFromUsize(function_parameters[1].?, arg1),
+                        argFromUsize(function_parameters[2].?, arg2),
                     ) catch |err| std.debug.panic(
                         "unhandled error: {t}!",
                         .{err},
@@ -415,16 +417,16 @@ fn typeErasedFn(comptime function: anytype) struct { TypeErasedCall.TypeErasedFn
             fn typeErased4Args(arg0: usize, arg1: usize, arg2: usize, arg3: usize, _: usize) callconv(.c) void {
                 return switch (comptime return_type) {
                     .void, .noreturn => function(
-                        argFromUsize(function_parameters[0].type.?, arg0),
-                        argFromUsize(function_parameters[1].type.?, arg1),
-                        argFromUsize(function_parameters[2].type.?, arg2),
-                        argFromUsize(function_parameters[3].type.?, arg3),
+                        argFromUsize(function_parameters[0].?, arg0),
+                        argFromUsize(function_parameters[1].?, arg1),
+                        argFromUsize(function_parameters[2].?, arg2),
+                        argFromUsize(function_parameters[3].?, arg3),
                     ),
                     .void_error_union, .noreturn_error_union => function(
-                        argFromUsize(function_parameters[0].type.?, arg0),
-                        argFromUsize(function_parameters[1].type.?, arg1),
-                        argFromUsize(function_parameters[2].type.?, arg2),
-                        argFromUsize(function_parameters[3].type.?, arg3),
+                        argFromUsize(function_parameters[0].?, arg0),
+                        argFromUsize(function_parameters[1].?, arg1),
+                        argFromUsize(function_parameters[2].?, arg2),
+                        argFromUsize(function_parameters[3].?, arg3),
                     ) catch |err| std.debug.panic(
                         "unhandled error: {t}!",
                         .{err},
@@ -436,18 +438,18 @@ fn typeErasedFn(comptime function: anytype) struct { TypeErasedCall.TypeErasedFn
             fn typeErased5Args(arg0: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize) callconv(.c) void {
                 return switch (comptime return_type) {
                     .void, .noreturn => function(
-                        argFromUsize(function_parameters[0].type.?, arg0),
-                        argFromUsize(function_parameters[1].type.?, arg1),
-                        argFromUsize(function_parameters[2].type.?, arg2),
-                        argFromUsize(function_parameters[3].type.?, arg3),
-                        argFromUsize(function_parameters[4].type.?, arg4),
+                        argFromUsize(function_parameters[0].?, arg0),
+                        argFromUsize(function_parameters[1].?, arg1),
+                        argFromUsize(function_parameters[2].?, arg2),
+                        argFromUsize(function_parameters[3].?, arg3),
+                        argFromUsize(function_parameters[4].?, arg4),
                     ),
                     .void_error_union, .noreturn_error_union => function(
-                        argFromUsize(function_parameters[0].type.?, arg0),
-                        argFromUsize(function_parameters[1].type.?, arg1),
-                        argFromUsize(function_parameters[2].type.?, arg2),
-                        argFromUsize(function_parameters[3].type.?, arg3),
-                        argFromUsize(function_parameters[4].type.?, arg4),
+                        argFromUsize(function_parameters[0].?, arg0),
+                        argFromUsize(function_parameters[1].?, arg1),
+                        argFromUsize(function_parameters[2].?, arg2),
+                        argFromUsize(function_parameters[3].?, arg3),
+                        argFromUsize(function_parameters[4].?, arg4),
                     ) catch |err| std.debug.panic(
                         "unhandled error: {t}!",
                         .{err},

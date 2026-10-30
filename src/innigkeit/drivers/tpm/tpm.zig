@@ -232,7 +232,7 @@ pub const Tpm = struct {
         cmd[off] = pcr_select_min; // sizeofSelect
         off += 1;
         std.debug.assert(index >> 3 < pcr_select_min);
-        var select = [_]u8{0} ** pcr_select_min;
+        var select = @as([pcr_select_min]u8, @splat(0));
         select[index >> 3] |= @as(u8, 1) << @intCast(index & 0x7);
         @memcpy(cmd[off..][0..pcr_select_min], &select);
         off += pcr_select_min;
@@ -351,7 +351,7 @@ pub const Tpm = struct {
         off = putU16(&cmd, off, @intCast(encrypted_salt.len));
         @memcpy(cmd[off..][0..encrypted_salt.len], encrypted_salt);
         off += encrypted_salt.len;
-        cmd[off] = @intFromEnum(session_type);
+        cmd[off] = @backingInt(session_type);
         off += 1;
         // symmetric: AES-128-CFB
         off = putU16(&cmd, off, alg_aes);
@@ -395,7 +395,7 @@ pub const Tpm = struct {
         var cp_hash: [sha256_digest_len]u8 = undefined;
         {
             var h = std.crypto.hash.sha2.Sha256.init(.{});
-            h.update(&std.mem.toBytes(std.mem.nativeToBig(u32, @intFromEnum(CommandCode.unseal))));
+            h.update(&std.mem.toBytes(std.mem.nativeToBig(u32, @backingInt(CommandCode.unseal))));
             h.update(item_name);
             h.final(&cp_hash);
         }
@@ -453,7 +453,7 @@ pub const Tpm = struct {
         {
             var h = std.crypto.hash.sha2.Sha256.init(.{});
             h.update(resp[6..10]);
-            h.update(&std.mem.toBytes(std.mem.nativeToBig(u32, @intFromEnum(CommandCode.unseal))));
+            h.update(&std.mem.toBytes(std.mem.nativeToBig(u32, @backingInt(CommandCode.unseal))));
             h.update(params);
             h.final(&rp_hash);
         }
@@ -495,7 +495,7 @@ pub const Tpm = struct {
         @memset(cmd[off..][0..16], 0);
         off += 16;
         off = putU16(&cmd, off, 0); // encryptedSalt (empty)
-        cmd[off] = @intFromEnum(session_type);
+        cmd[off] = @backingInt(session_type);
         off += 1;
         off = putU16(&cmd, off, alg_null); // symmetric (no param encryption)
         off = putU16(&cmd, off, alg_sha256); // authHash
@@ -531,7 +531,7 @@ pub const Tpm = struct {
         off = putU16(&cmd, off, alg_sha256);
         cmd[off] = pcr_select_min;
         off += 1;
-        var select = [_]u8{0} ** pcr_select_min;
+        var select = @as([pcr_select_min]u8, @splat(0));
         for (indices) |index| {
             std.debug.assert(index >> 3 < pcr_select_min);
             select[index >> 3] |= @as(u8, 1) << @intCast(index & 0x7);
@@ -735,7 +735,7 @@ pub const Tpm = struct {
     /// 10-byte header), after checking the response code is success.
     fn run(self: Tpm, cmd: []const u8, rsp: []u8) Error![]u8 {
         const resp = try self.transport.transmit(cmd, rsp);
-        try checkRc(resp, @enumFromInt(std.mem.readInt(u32, cmd[6..][0..4], .big)));
+        try checkRc(resp, @fromBackingInt(@intCast(std.mem.readInt(u32, cmd[6..][0..4], .big))));
         return resp[header_size..];
     }
 };
@@ -745,16 +745,16 @@ fn checkRc(resp: []const u8, code: CommandCode) Error!void {
     if (resp.len < header_size) return Crb.Error.MalformedResponse;
     const rc = std.mem.readInt(u32, resp[6..][0..4], .big);
     if (rc != 0) {
-        log.err("TPM command 0x{x:0>8} failed: rc=0x{x:0>8}", .{ @intFromEnum(code), rc });
+        log.err("TPM command 0x{x:0>8} failed: rc=0x{x:0>8}", .{ @backingInt(code), rc });
         return Error.TpmError;
     }
 }
 
 /// Write a TPM 2.0 command header: tag(2) || commandSize(4) || commandCode(4).
 fn writeHeader(buf: []u8, tag: StructureTag, size: usize, code: CommandCode) void {
-    std.mem.writeInt(u16, buf[0..][0..2], @intFromEnum(tag), .big);
+    std.mem.writeInt(u16, buf[0..][0..2], @backingInt(tag), .big);
     std.mem.writeInt(u32, buf[2..][0..4], @intCast(size), .big);
-    std.mem.writeInt(u32, buf[6..][0..4], @intFromEnum(code), .big);
+    std.mem.writeInt(u32, buf[6..][0..4], @backingInt(code), .big);
 }
 
 /// Write a big-endian `u32` value at `off` in `buf`, returning the next offset.

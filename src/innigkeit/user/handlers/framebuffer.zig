@@ -24,7 +24,7 @@ const FramebufferInfo = extern struct {
     height: u32,
     pitch: u32,
     bpp: u8,
-    _pad: [3]u8 = .{0} ** 3,
+    _pad: [3]u8 = @splat(0),
 };
 
 /// Map the bootloader framebuffer (or virtio-gpu backing store if present)
@@ -49,8 +49,8 @@ pub fn framebufferMap(context: Context) Error.Syscall!usize {
     const page_size = architecture.paging.standard_page_size;
 
     const total_bytes: usize = @as(usize, info.pitch) * @as(usize, info.height);
-    const aligned_bytes = std.mem.alignForward(usize, total_bytes, @intFromEnum(page_size));
-    const n_pages = aligned_bytes / @intFromEnum(page_size);
+    const aligned_bytes = std.mem.alignForward(usize, total_bytes, @backingInt(page_size));
+    const n_pages = aligned_bytes / @backingInt(page_size);
 
     // Reserve a contiguous VA range. max_protection is capped at read+write
     // (not `.all`): unlike elf_loader.zig's transient rw-then-narrow mapping,
@@ -83,23 +83,23 @@ pub fn framebufferMap(context: Context) Error.Syscall!usize {
     for (0..n_pages) |i| {
         // Use saturating arithmetic: if the framebuffer PA wraps, refuse to map
         // arbitrary physical memory (kernel pages, MMIO) into userspace.
-        const phys_offset = i *| @intFromEnum(page_size);
-        if (phys_offset / @intFromEnum(page_size) != i) {
+        const phys_offset = i *| @backingInt(page_size);
+        if (phys_offset / @backingInt(page_size) != i) {
             process.address_space.page_table_lock.unlock();
             process.address_space.unlockEntriesAfterMap();
-            process.address_space.unmap(virt_range) catch {};
+            process.address_space.unmap(virt_range) catch |err| log.warn("rollback unmap of {f} failed: {t}", .{ virt_range, err });
             return Error.Syscall.InvalidArgument;
         }
-        const phys_val = @intFromEnum(info.phys_base) +| phys_offset;
-        if (phys_val < @intFromEnum(info.phys_base)) {
+        const phys_val = @backingInt(info.phys_base) +| phys_offset;
+        if (phys_val < @backingInt(info.phys_base)) {
             process.address_space.page_table_lock.unlock();
             process.address_space.unlockEntriesAfterMap();
-            process.address_space.unmap(virt_range) catch {};
+            process.address_space.unmap(virt_range) catch |err| log.warn("rollback unmap of {f} failed: {t}", .{ virt_range, err });
             return Error.Syscall.InvalidArgument;
         }
         const phys_addr = innigkeit.PhysicalAddress.from(phys_val);
         const phys_idx = innigkeit.memory.PhysicalPage.Index.fromAddress(phys_addr);
-        const virt_addr = innigkeit.VirtualAddress.from(virt_range.address.value + i * @intFromEnum(page_size));
+        const virt_addr = innigkeit.VirtualAddress.from(virt_range.address.value + i * @backingInt(page_size));
         innigkeit.memory.mapSinglePage(
             process.address_space.page_table,
             virt_addr,
@@ -109,7 +109,7 @@ pub fn framebufferMap(context: Context) Error.Syscall!usize {
         ) catch {
             process.address_space.page_table_lock.unlock();
             process.address_space.unlockEntriesAfterMap();
-            process.address_space.unmap(virt_range) catch {};
+            process.address_space.unmap(virt_range) catch |err| log.warn("rollback unmap of {f} failed: {t}", .{ virt_range, err });
             log.debug("framebuffer_map: mapSinglePage failed at page {}", .{i});
             return Error.Syscall.OutOfMemory;
         };
@@ -221,7 +221,7 @@ fn framebufferMapGpu(context: Context, gpu: *innigkeit.drivers.virtio.gpu.GpuSta
 
     const page_size = architecture.paging.standard_page_size;
     const n_pages = gpu.fb_pages.len;
-    const total_bytes = n_pages * @intFromEnum(page_size);
+    const total_bytes = n_pages * @backingInt(page_size);
 
     const process = context.process();
     // max_protection capped at read_write. this mapping is never
@@ -248,7 +248,7 @@ fn framebufferMapGpu(context: Context, gpu: *innigkeit.drivers.virtio.gpu.GpuSta
 
     process.address_space.page_table_lock.lock();
     for (gpu.fb_pages, 0..) |pg, i| {
-        const virt_addr = innigkeit.VirtualAddress.from(virt_range.address.value + i * @intFromEnum(page_size));
+        const virt_addr = innigkeit.VirtualAddress.from(virt_range.address.value + i * @backingInt(page_size));
         innigkeit.memory.mapSinglePage(
             process.address_space.page_table,
             virt_addr,
@@ -258,7 +258,7 @@ fn framebufferMapGpu(context: Context, gpu: *innigkeit.drivers.virtio.gpu.GpuSta
         ) catch {
             process.address_space.page_table_lock.unlock();
             process.address_space.unlockEntriesAfterMap();
-            process.address_space.unmap(virt_range) catch {};
+            process.address_space.unmap(virt_range) catch |err| log.warn("rollback unmap of {f} failed: {t}", .{ virt_range, err });
             return Error.Syscall.OutOfMemory;
         };
     }

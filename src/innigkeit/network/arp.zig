@@ -36,7 +36,7 @@ pub fn buildRequest(
     std.mem.writeInt(u16, std.mem.asBytes(&p.proto_type), 0x0800, .big);
     p.hw_size = 6;
     p.proto_size = 4;
-    std.mem.writeInt(u16, std.mem.asBytes(&p.op), @intFromEnum(Op.request), .big);
+    std.mem.writeInt(u16, std.mem.asBytes(&p.op), @backingInt(Op.request), .big);
     @memcpy(&p.sender_mac, our_mac);
     @memcpy(&p.sender_ip, our_ip);
     @memset(&p.target_mac, 0);
@@ -57,7 +57,7 @@ pub fn buildReply(
     std.mem.writeInt(u16, std.mem.asBytes(&p.proto_type), 0x0800, .big);
     p.hw_size = 6;
     p.proto_size = 4;
-    std.mem.writeInt(u16, std.mem.asBytes(&p.op), @intFromEnum(Op.reply), .big);
+    std.mem.writeInt(u16, std.mem.asBytes(&p.op), @backingInt(Op.reply), .big);
     @memcpy(&p.sender_mac, our_mac);
     @memcpy(&p.sender_ip, our_ip);
     @memcpy(&p.target_mac, req_mac);

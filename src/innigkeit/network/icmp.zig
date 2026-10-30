@@ -123,9 +123,9 @@ test "icmp: buildEchoReply sets type=REPLY and valid checksum" {
 }
 
 test "icmp: parseEcho round-trips buildEchoReply" {
-    const our_mac = [_]u8{0} ** 6;
+    const our_mac = @as([6]u8, @splat(0));
     const our_ip = [_]u8{ 10, 0, 0, 1 };
-    const req_mac = [_]u8{0} ** 6;
+    const req_mac = @as([6]u8, @splat(0));
     const req_ip = [_]u8{ 10, 0, 0, 2 };
     const payload = "hello icmp";
     const total = eth.HEADER_LEN + ipv4.HEADER_LEN + HEADER_LEN + payload.len;
@@ -142,7 +142,7 @@ test "icmp: parseEcho round-trips buildEchoReply" {
 }
 
 test "icmp: parseEcho rejects short packet" {
-    const short = [_]u8{0x08} ** 4;
+    const short = @as([4]u8, @splat(0x08));
     try std.testing.expectEqual(@as(?@TypeOf(parseEcho(&short).?), null), parseEcho(&short));
 }
 

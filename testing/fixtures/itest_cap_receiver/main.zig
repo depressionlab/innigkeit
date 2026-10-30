@@ -7,14 +7,14 @@ const capabilities = innigkeit.capabilities;
 /// because `endpointRecv` copied it in from the sender's transferred
 /// handle, proving IPC-mediated capability delegation actually works end
 /// to end, not just that a handle number round-trips.
-const endpoint_handle: capabilities.Handle = @enumFromInt(0);
+const endpoint_handle: capabilities.Handle = @fromBackingInt(@intCast(0));
 
 pub fn main() void {
     var msg: capabilities.Message = undefined;
     capabilities.endpointRecv(endpoint_handle, &msg) catch @panic("endpointRecv failed");
 
     if (msg.caps[0] == 0) @panic("sender did not transfer a capability");
-    const notify_handle: capabilities.Handle = @enumFromInt(msg.caps[0]);
+    const notify_handle: capabilities.Handle = @fromBackingInt(@intCast(msg.caps[0]));
 
     // Bit 0 = signaled, bits 8..15 = a magic payload byte the kernel test
     // checks to confirm this signal reached the *same* Notify object the

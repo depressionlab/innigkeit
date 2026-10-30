@@ -24,7 +24,7 @@ pub const bootstrap_allocator: innigkeit.memory.PhysicalPage.Allocator = .{
             const first_free_page_index = non_empty_region.first_free_page_index;
             non_empty_region.first_free_page_index = first_free_page_index + 1;
 
-            return @enumFromInt(@intFromEnum(non_empty_region.start_physical_page) + first_free_page_index);
+            return @fromBackingInt(@intCast(@backingInt(non_empty_region.start_physical_page) + first_free_page_index));
         }
     }.allocate,
     .deallocate = struct {
@@ -68,11 +68,11 @@ pub fn mapPagesArray(
         const entry_pages_range = innigkeit.KernelVirtualRange.from(
             pages_array_base.moveForward(
                 core.Size.of(innigkeit.memory.PhysicalPage).multiplyScalar(
-                    @intFromEnum(innigkeit.memory.PhysicalPage.Index.fromAddress(entry_range.address)),
+                    @backingInt(innigkeit.memory.PhysicalPage.Index.fromAddress(entry_range.address)),
                 ),
             ),
             core.Size.of(innigkeit.memory.PhysicalPage).multiplyScalar(
-                @intFromEnum(innigkeit.memory.PhysicalPage.Index.fromAddress(entry_range.last())),
+                @backingInt(innigkeit.memory.PhysicalPage.Index.fromAddress(entry_range.last())),
             ),
         ).pageAlign();
 
@@ -143,8 +143,8 @@ pub fn initializePhysicalMemory(pages_range: innigkeit.KernelVirtualRange) void 
         }
 
         if (entry.type.isUsableForAllocation()) {
-            const first_page_index: usize = @intFromEnum(innigkeit.memory.PhysicalPage.Index.fromAddress(entry.range.address));
-            const last_page_index: usize = @intFromEnum(innigkeit.memory.PhysicalPage.Index.fromAddress(entry.range.last()));
+            const first_page_index: usize = @backingInt(innigkeit.memory.PhysicalPage.Index.fromAddress(entry.range.address));
+            const last_page_index: usize = @backingInt(innigkeit.memory.PhysicalPage.Index.fromAddress(entry.range.last()));
 
             const slice = pages[first_page_index..last_page_index];
 
@@ -159,9 +159,9 @@ pub fn initializePhysicalMemory(pages_range: innigkeit.KernelVirtualRange) void 
 
     for (bootstrap_regions.constSlice()) |bootstrap_region| {
         std.debug.assert(
-            (@as(usize, @intFromEnum(bootstrap_region.start_physical_page)) +
+            (@as(usize, @backingInt(bootstrap_region.start_physical_page)) +
                 @as(usize, bootstrap_region.page_count -| 1) <
-                @as(usize, @intFromEnum(innigkeit.memory.PhysicalPage.Index.none))),
+                @as(usize, @backingInt(innigkeit.memory.PhysicalPage.Index.none))),
         );
 
         const in_use_pages = bootstrap_region.first_free_page_index;
@@ -199,8 +199,8 @@ pub fn initializePhysicalMemory(pages_range: innigkeit.KernelVirtualRange) void 
             }
         }
 
-        var current_free_index: u32 = @intCast(@intFromEnum(bootstrap_region.start_physical_page) + @as(usize, bootstrap_region.first_free_page_index));
-        const end_free_index: u32 = @intCast(@intFromEnum(bootstrap_region.start_physical_page) + @as(usize, bootstrap_region.page_count));
+        var current_free_index: u32 = @intCast(@backingInt(bootstrap_region.start_physical_page) + @as(usize, bootstrap_region.first_free_page_index));
+        const end_free_index: u32 = @intCast(@backingInt(bootstrap_region.start_physical_page) + @as(usize, bootstrap_region.page_count));
 
         // Populate the buddy allocator using the largest naturally-aligned
         // blocks that fit within each contiguous free range.
@@ -215,12 +215,12 @@ pub fn initializePhysicalMemory(pages_range: innigkeit.KernelVirtualRange) void 
                 if (current_free_index + pages_in_block > end_free_index) continue;
                 break;
             }
-            globals.buddy.addBlock(@enumFromInt(current_free_index), order);
+            globals.buddy.addBlock(@fromBackingInt(@intCast(current_free_index)), order);
             current_free_index += @as(u32, 1) << order;
         }
     }
 
-    globals.free_memory.store(@intFromEnum(free_memory), .release);
+    globals.free_memory.store(@backingInt(free_memory), .release);
     globals.total_memory = total_memory;
     globals.reserved_memory = reserved_memory;
     globals.reclaimable_memory = reclaimable_memory;

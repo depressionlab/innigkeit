@@ -141,33 +141,33 @@ pub const functions: architecture.Functions = .{
 
         .readPortU8 = struct {
             fn readPortU8(port: decls.io.Port) u8 {
-                return x64.instructions.portReadU8(@intFromEnum(port));
+                return x64.instructions.portReadU8(@backingInt(port));
             }
         }.readPortU8,
         .readPortU16 = struct {
             fn readPortU16(port: decls.io.Port) u16 {
-                return x64.instructions.portReadU16(@intFromEnum(port));
+                return x64.instructions.portReadU16(@backingInt(port));
             }
         }.readPortU16,
         .readPortU32 = struct {
             fn readPortU32(port: decls.io.Port) u32 {
-                return x64.instructions.portReadU32(@intFromEnum(port));
+                return x64.instructions.portReadU32(@backingInt(port));
             }
         }.readPortU32,
 
         .writePortU8 = struct {
             fn writePortU8(port: decls.io.Port, value: u8) void {
-                x64.instructions.portWriteU8(@intFromEnum(port), value);
+                x64.instructions.portWriteU8(@backingInt(port), value);
             }
         }.writePortU8,
         .writePortU16 = struct {
             fn writePortU16(port: decls.io.Port, value: u16) void {
-                x64.instructions.portWriteU16(@intFromEnum(port), value);
+                x64.instructions.portWriteU16(@backingInt(port), value);
             }
         }.writePortU16,
         .writePortU32 = struct {
             fn writePortU32(port: decls.io.Port, value: u32) void {
-                x64.instructions.portWriteU32(@intFromEnum(port), value);
+                x64.instructions.portWriteU32(@backingInt(port), value);
             }
         }.writePortU32,
     },

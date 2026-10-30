@@ -39,23 +39,17 @@ runtime panic rather than silently misbehaving.
   "previously looped forever," proving this exact class was already found
   and fixed here once before `udp.zig`'s instance surfaced.
 
-## `socket.zig`'s `handleIp()` dispatches to UDP/ICMP/TCP handlers without checking the packet's destination IP (Phase 3 Stage 12, not fixed)
+## `socket.zig`'s `handleIp()` drops packets not addressed to this host (FIXED 2026-10-30)
 
-`ip4.parse()`'s returned `pkt.dst` is available but never compared against
-this host's own IP before `handleUdp`/`handleIcmp`/`tcp_sock.handleSegment`
-are called — every inbound IPv4 packet the NIC receives is processed
-regardless of who it was actually addressed to.
-`tcp/Socket.zig`'s `handleSegment()` receives `dst_ip` as a parameter and
-immediately discards it with a comment claiming "we always accept frames
-addressed to us" — describing behavior the code doesn't implement; there
-is no accept/reject decision happening at all. Low-impact under the
-current QEMU user-mode-networking setup (the virtual NIC generally only
-receives traffic actually destined to this VM), but a real gap on any
-bridged/promiscuous/broadcast-domain deployment. Not fixed: deciding where
-the check belongs, and how it should carve out legitimate broadcast/
-multicast UDP traffic (which targets a non-unicast destination by design),
-needs a deliberate answer — flagged for the project owner rather than
-resolved with a reflexive equality check that could break broadcast UDP.
+It used to dispatch every inbound IPv4 packet to the UDP/ICMP/TCP handlers
+without looking at `pkt.dst`, so on any bridged, promiscuous or shared-segment
+setup traffic for other hosts reached sockets and got ICMP echo replies.
+`ipv4.isForUs(dst, our_ip)` now gates the dispatch: own unicast address,
+`255.255.255.255` and multicast (`224.0.0.0/4`) pass; an unconfigured host
+(`0.0.0.0`) matches no unicast. Directed subnet broadcast (`x.y.z.255`) is
+dropped on purpose: the stack stores no netmask to recognise it by. If
+DHCP or subnet broadcast support is ever added, this is the one place to
+teach about the netmask.
 
 ## `resolveArpWithRetry`'s "yield N times" loop was not actually a time bound — FOUND AND FIXED building the fuzz-channel target (docs/test-system-plan.md §5, staging step 4)
 

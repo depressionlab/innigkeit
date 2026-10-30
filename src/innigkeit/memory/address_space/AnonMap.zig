@@ -228,7 +228,7 @@ pub const Reference = struct {
         const anonymous_map = self.anonymous_map.?;
 
         const target_index = targetIndex(entry, self, faulting_address);
-        if (core.is_debug) std.debug.assert(target_index < @intFromEnum(anonymous_map.number_of_pages));
+        if (core.is_debug) std.debug.assert(target_index < @backingInt(anonymous_map.number_of_pages));
 
         return anonymous_map.anonymous_page_chunks.get(target_index);
     }
@@ -262,7 +262,7 @@ pub const Reference = struct {
 
         const anonymous_map = self.anonymous_map.?;
         const target_index = targetIndex(entry, self, faulting_address);
-        if (core.is_debug) std.debug.assert(target_index < @intFromEnum(anonymous_map.number_of_pages));
+        if (core.is_debug) std.debug.assert(target_index < @backingInt(anonymous_map.number_of_pages));
         const chunk = try anonymous_map.anonymous_page_chunks.ensureChunk(target_index);
         const chunk_offset = AnonPageChunkMap.chunkOffset(target_index);
 
@@ -327,7 +327,7 @@ pub const PageCount = enum(u32) {
     _,
 
     pub inline fn increment(self: *PageCount) void {
-        self.* = @enumFromInt(@intFromEnum(self.*) + 1);
+        self.* = @fromBackingInt(@intCast(@backingInt(self.*) + 1));
     }
 
     pub fn increaseBySize(self: *PageCount, size: core.Size) void {
@@ -335,19 +335,19 @@ pub const PageCount = enum(u32) {
         // page to integer division below.
         if (core.is_debug) std.debug.assert(size.alignForward(architecture.paging.standard_page_size_alignment).equal(size));
         const count: u32 = @intCast(size.divide(architecture.paging.standard_page_size));
-        self.* = @enumFromInt(@intFromEnum(self.*) + count);
+        self.* = @fromBackingInt(@intCast(@backingInt(self.*) + count));
     }
 
     pub fn equal(self: PageCount, other: PageCount) bool {
-        return @intFromEnum(self) == @intFromEnum(other);
+        return @backingInt(self) == @backingInt(other);
     }
 
     pub fn fromSize(size: core.Size) PageCount {
-        return @enumFromInt(@as(u32, @intCast(size.divide(architecture.paging.standard_page_size))));
+        return @fromBackingInt(@intCast(@as(u32, @intCast(size.divide(architecture.paging.standard_page_size)))));
     }
 
     pub fn toSize(self: PageCount) core.Size {
-        return architecture.paging.standard_page_size.multiplyScalar(@intFromEnum(self));
+        return architecture.paging.standard_page_size.multiplyScalar(@backingInt(self));
     }
 };
 
@@ -366,10 +366,10 @@ pub fn print(self: *AnonMap, writer: *std.Io.Writer, indent: usize) !void {
     try writer.print("reference_count: {d}\n", .{self.reference_count});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("number_of_pages: {d}\n", .{@intFromEnum(self.number_of_pages)});
+    try writer.print("number_of_pages: {d}\n", .{@backingInt(self.number_of_pages)});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("pages_in_use: {d}\n", .{@intFromEnum(self.pages_in_use)});
+    try writer.print("pages_in_use: {d}\n", .{@backingInt(self.pages_in_use)});
 
     try writer.splatByteAll(' ', indent);
     try writer.writeAll("}");

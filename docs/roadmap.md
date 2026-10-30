@@ -8,6 +8,7 @@ Last updated 2026-09-09.
 ## Companion docs
 
 - `docs/getting-started.md` — first-time walkthrough from a fresh clone to a passing `zig build verify`; bare `zig build`/`zig build help` print a shorter version of the same menu
+- `docs/zig-0.17-upgrade.md` — **(active)** the Zig 0.16 → 0.17 port: what changed, the `compiler_rt` regression workaround (ziglang/zig#37006), build-system redesign (no custom steps, `tools/build_helper`), configuration-cache rules, open follow-ups
 - `docs/DESIGN.md` — coding ideology, formatting rules, `safe.memcpy` analysis
 - `docs/design-goals.md` — long-term pillars and decision records
 - `docs/aarch64-port.md` — ARM port log and M3 plan

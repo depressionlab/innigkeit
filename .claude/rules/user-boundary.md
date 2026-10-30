@@ -24,19 +24,34 @@ All kernel/user memory transfers go through `user/validate.zig`. Never dereferen
 **Security audit findings (docs/security-audit.md):**
 - F1 HIGH: streaming user access — CLOSED on both x64 and arm (arm's routing was already implemented; only its tests were stale-gated, see `docs/DESIGN.md` Part 3)
 - F2 LOW: ELF u16 program-header multiply — FIXED (widened to u32)
-- `net_tcp_close` is intentionally ungated (legacy behavior; known gap)
-- **F4 MEDIUM, FOUND BY FUZZING, NOT FIXED: UDP (and TCP) socket ids are one global table with no owner.**
-  `net_udp_close`/`recv`/`recv_nb`/`send` take a bare `id & 0xFF`
-  (`handlers/network.zig`, `network/socket.zig`) and never check who opened it,
-  so any process holding the `network` entitlement can close, read from or send
-  on another process's socket, or the kernel's own, by guessing a small
-  integer. `net_tcp_close` is additionally ungated. Three of four real fuzz
-  campaigns ended by closing the harness's own channel socket this way. A
-  Debug kernel does not enforce entitlements (`config.zig`), so fuzz findings
-  in gated handlers are reachable only by a process with that entitlement in a
-  release build. A real fix is to make sockets capabilities (a typed handle in
-  the per-process table) rather than a global index; that is an ABI change, so
-  it is flagged for the project owner, not made here.
+- `net_tcp_close` is intentionally ungated (it can only close the caller's own sockets since F4 was fixed)
+- **F4 MEDIUM, FOUND BY FUZZING, FIXED (ownership, 2026-10-30): UDP and TCP
+  socket ids were one global table with no owner.** `net_udp_close`/`recv`/
+  `recv_nb`/`send` and every TCP call took a bare `id & 0xFF` and never checked
+  who opened it, so any process with the `network` entitlement could close, read
+  from or send on another process's (or the kernel's) sockets by guessing a
+  small integer; three of four real fuzz campaigns ended by closing the
+  harness's own channel socket this way. Fix, with **no ABI change**: every
+  socket records an `network/owner.zig` `Owner` (`.kernel`, or a process by
+  address), every `network.socket` function takes the caller's owner, and a
+  mismatch behaves exactly like a closed/invalid id (ids reveal nothing).
+  Inbound TCP children inherit their listener's owner until `accept` hands
+  them to a new `NetSocket` (`tcpReown`).
+  **Final design (same day): sockets are capabilities.** `net_udp_open`,
+  `net_tcp_listen`/`accept`/`connect` return a `net_socket` handle in the
+  process's `CapabilityTable` (`capabilities/types/NetSocket.zig`); the global
+  slot id never leaves the kernel. Each `NetSocket`'s `Owner` is its own
+  address, so the table checks still apply and a stale handle can never reach a
+  reused slot. Handlers resolve handles with `lookup()` in
+  `handlers/network.zig` (`getAndRefLocked` + `NetSocket.fromSlot`: type,
+  protocol and rights checked; reference held across blocking calls);
+  **a new network handler must go through `lookup`/`publish`**. `net_*_close`
+  shuts the socket down for all holders when the handle has `write`, else just
+  drops the handle. Process exit needs no socket-specific cleanup:
+  `cap_table.deinitAll()` unrefs, and the last unref closes the slot and any
+  never-accepted connections. The kernel test harness passes `.kernel`, which no
+  syscall path can produce. `net_tcp_close` stays ungated and is harmless.
+  Tests: `NetSocket.zig`, `network/socket.zig`.
 - **F3 HIGH, FOUND BY FUZZING AND FIXED: `open`'s `path_len` argument was used
   as a slice bound before being validated, panicking the whole kernel.**
   `handlers/file.zig`'s `open()` formed `path_buf[0..path_len]` (`path_buf`
@@ -58,7 +73,7 @@ All kernel/user memory transfers go through `user/validate.zig`. Never dereferen
   chunked copy) — all of them already clamp or validate before slicing
   (`@min` against the buffer size, or an explicit range check first); `open`
   was the one exception. The bug class is now also caught mechanically:
-  `build/lints/unvalidated_arg_slice.zig` (`zig build lint`) flags, in
+  `lint/rules/unvalidated_arg_slice.zig` (`zig build lint`) flags, in
   `user/handlers/` only, a `[..]` slice naming a local taken straight from
   `context.arg*()` with no earlier `if` condition or `@min`/`@max` mentioning
   it. Heuristic, not dataflow: it confirmed both slice sites in the pre-fix

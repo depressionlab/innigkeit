@@ -100,10 +100,10 @@ fn callMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
             var i: usize = 0;
             var at_phdr: usize = 0;
             var at_phnum: usize = 0;
-            while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
+            while (auxv[i].a_type != std.elf.AT.NULL) : (i += 1) {
                 switch (auxv[i].a_type) {
-                    std.elf.AT_PHDR => at_phdr = @intCast(auxv[i].a_un.a_val),
-                    std.elf.AT_PHNUM => at_phnum = @intCast(auxv[i].a_un.a_val),
+                    std.elf.AT.PHDR => at_phdr = @intCast(auxv[i].a_un.a_val),
+                    std.elf.AT.PHNUM => at_phnum = @intCast(auxv[i].a_un.a_val),
                     else => {},
                 }
             }
@@ -153,8 +153,8 @@ var debug_allocator: std.heap.DebugAllocator(.{}) = .{
 
 inline fn callMain(args: std.process.Args.Vector, environ: std.process.Environ.Block) u8 {
     const fn_info = @typeInfo(@TypeOf(root.main)).@"fn";
-    if (fn_info.params.len == 0) return wrapMain(root.main());
-    if (fn_info.params[0].type.? == std.process.Init.Minimal) return wrapMain(root.main(.{
+    if (fn_info.param_types.len == 0) return wrapMain(root.main());
+    if (fn_info.param_types[0].? == std.process.Init.Minimal) return wrapMain(root.main(.{
         .args = .{ .vector = args },
         .environ = .{ .block = environ },
     }));

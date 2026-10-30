@@ -41,7 +41,7 @@ pub fn writeHeader(
     std.mem.writeInt(u16, buf[4..6], id, .big);
     std.mem.writeInt(u16, buf[6..8], 0, .big); // flags / frag offset
     buf[8] = TTL_DEFAULT;
-    buf[9] = @intFromEnum(proto);
+    buf[9] = @backingInt(proto);
     std.mem.writeInt(u16, buf[10..12], 0, .big); // checksum placeholder
     @memcpy(buf[12..16], src);
     @memcpy(buf[16..20], dst);
@@ -51,7 +51,7 @@ pub fn writeHeader(
 }
 
 test "ipv4: checksum of all-zeros is all-ones" {
-    const data = [_]u8{0} ** 20;
+    const data = @as([20]u8, @splat(0));
     try std.testing.expectEqual(@as(u16, 0xFFFF), checksum(&data));
 }
 
@@ -76,7 +76,7 @@ test "ipv4: checksum of RFC 791 example header" {
 }
 
 test "ipv4: parse rejects truncated packet" {
-    const short = [_]u8{0x45} ** 10;
+    const short = @as([10]u8, @splat(0x45));
     try std.testing.expectEqual(@as(?@TypeOf(parse(&short).?), null), parse(&short));
 }
 
@@ -104,7 +104,47 @@ pub fn parse(data: []const u8) ?struct {
     return .{
         .src = src,
         .dst = dst,
-        .proto = @enumFromInt(data[9]),
+        .proto = @fromBackingInt(@intCast(data[9])),
         .payload = data[ihl..total],
     };
+}
+
+/// Whether a packet addressed to `dst` is meant for this host: its own unicast
+/// address, the limited broadcast address, or a multicast group. Anything else
+/// is traffic for someone else that reached the NIC (bridged or promiscuous
+/// setups, a shared segment) and must not reach a socket or get an ICMP
+/// echo reply.
+///
+/// An unconfigured host (`our_ip` is `0.0.0.0`) has no unicast address, so it
+/// matches nothing unicast. Directed subnet broadcast (e.g. `x.y.z.255`) is
+/// deliberately not accepted: the stack keeps no netmask to recognise it by.
+pub fn isForUs(dst: [4]u8, our_ip: [4]u8) bool {
+    const unconfigured: [4]u8 = .{ 0, 0, 0, 0 };
+    if (!std.mem.eql(u8, &our_ip, &unconfigured) and std.mem.eql(u8, &dst, &our_ip)) return true;
+    if (std.mem.eql(u8, &dst, &.{ 255, 255, 255, 255 })) return true;
+    return dst[0] >> 4 == 0b1110; // 224.0.0.0/4
+}
+
+test "isForUs: own unicast, broadcast and multicast are accepted" {
+    const ours: [4]u8 = .{ 10, 0, 2, 15 };
+    try std.testing.expect(isForUs(ours, ours));
+    try std.testing.expect(isForUs(.{ 255, 255, 255, 255 }, ours));
+    try std.testing.expect(isForUs(.{ 224, 0, 0, 251 }, ours));
+    try std.testing.expect(isForUs(.{ 239, 255, 255, 250 }, ours));
+}
+
+test "isForUs: traffic for other hosts is rejected" {
+    const ours: [4]u8 = .{ 10, 0, 2, 15 };
+    try std.testing.expect(!isForUs(.{ 10, 0, 2, 16 }, ours));
+    try std.testing.expect(!isForUs(.{ 192, 168, 1, 1 }, ours));
+    try std.testing.expect(!isForUs(.{ 10, 0, 2, 255 }, ours)); // directed broadcast: no netmask
+    try std.testing.expect(!isForUs(.{ 223, 255, 255, 255 }, ours)); // just below multicast
+    try std.testing.expect(!isForUs(.{ 240, 0, 0, 1 }, ours)); // just above multicast
+}
+
+test "isForUs: an unconfigured host matches no unicast address" {
+    const unconfigured: [4]u8 = .{ 0, 0, 0, 0 };
+    try std.testing.expect(!isForUs(unconfigured, unconfigured));
+    try std.testing.expect(!isForUs(.{ 10, 0, 2, 15 }, unconfigured));
+    try std.testing.expect(isForUs(.{ 255, 255, 255, 255 }, unconfigured));
 }

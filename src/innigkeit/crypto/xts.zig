@@ -105,9 +105,9 @@ fn mulAlpha(t: *[16]u8) void {
 
 test "xts-aes-128: IEEE 1619 vector 1 (zero key, zero data, sector 0)" {
     if (aes_broken_on_target) return error.SkipZigTest; // arm kernel AES miscompiles; see top of file
-    const key = [_]u8{0} ** 32; // 16-byte data key || 16-byte tweak key
+    const key = @as([32]u8, @splat(0)); // 16-byte data key || 16-byte tweak key
     const xts = Xts(aes.Aes128).init(key);
-    var buf = [_]u8{0} ** 32;
+    var buf = @as([32]u8, @splat(0));
     xts.encryptSector(&buf, 0);
 
     const expected = [_]u8{

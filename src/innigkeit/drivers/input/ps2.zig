@@ -23,7 +23,7 @@ pub var keyboard_buffer: innigkeit.init.KeyboardInputBuffer = .{};
 
 /// SPSC ring buffer of raw PS/2 bytes (incl. 0xE0 prefix and break bit) for games.
 pub const RawKeyBuffer = struct {
-    buf: [256]u8 = .{0} ** 256,
+    buf: [256]u8 = @splat(0),
     read_pos: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
     write_pos: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
 
@@ -147,7 +147,7 @@ const sc_normal: [128]u8 = buildNormal();
 const sc_shifted: [128]u8 = buildShifted();
 
 fn buildNormal() [128]u8 {
-    var t = [_]u8{0} ** 128;
+    var t = @as([128]u8, @splat(0));
     t[0x02] = '1';
     t[0x03] = '2';
     t[0x04] = '3';
@@ -204,7 +204,7 @@ fn buildNormal() [128]u8 {
 }
 
 fn buildShifted() [128]u8 {
-    var t = [_]u8{0} ** 128;
+    var t = @as([128]u8, @splat(0));
     t[0x02] = '!';
     t[0x03] = '@';
     t[0x04] = '#';

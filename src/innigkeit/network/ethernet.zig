@@ -31,7 +31,7 @@ pub fn parse(frame: []const u8) ?struct { hdr: *align(1) const Header, payload: 
 pub fn writeHeader(buf: []u8, dst: *const [MAC_LEN]u8, src: *const [MAC_LEN]u8, etype: EtherType) void {
     @memcpy(buf[0..6], dst);
     @memcpy(buf[6..12], src);
-    std.mem.writeInt(u16, buf[12..14], @intFromEnum(etype), .big);
+    std.mem.writeInt(u16, buf[12..14], @backingInt(etype), .big);
 }
 
 /// Broadcast MAC address.
@@ -40,7 +40,7 @@ pub const BROADCAST: [MAC_LEN]u8 = .{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 const testing = @import("std").testing;
 
 test "ethernet: parse rejects short frame" {
-    const frame = [_]u8{0x00} ** 10;
+    const frame = @as([10]u8, @splat(0x00));
     try testing.expectEqual(@as(?@TypeOf(parse(&frame).?), null), parse(&frame));
 }
 

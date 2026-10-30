@@ -325,15 +325,15 @@ pub const Interrupt = enum(u8) {
 
     _,
 
-    pub const first_available_interrupt = @intFromEnum(Interrupt.per_executor_periodic) + 1;
-    pub const last_available_interrupt = @intFromEnum(Interrupt.kill_request) - 1;
+    pub const first_available_interrupt = @backingInt(Interrupt.per_executor_periodic) + 1;
+    pub const last_available_interrupt = @backingInt(Interrupt.kill_request) - 1;
 
     /// Checks if the given interrupt vector pushes an error code.
     ///
     /// Must agree with `asm/interruptHandlers.S`'s `.HasError`/`.NoError`
     /// classification for each `INTERRUPT_HANDLER` invocation.
     pub fn hasErrorCode(vector: Interrupt) bool {
-        return switch (@intFromEnum(vector)) {
+        return switch (@backingInt(vector)) {
             21...29, 31 => unreachable,
             8, 10...14, 17, 30 => true,
             else => false,
@@ -342,7 +342,7 @@ pub const Interrupt = enum(u8) {
 
     /// Checks if the given interrupt vector is an exception.
     pub fn isException(vector: Interrupt) bool {
-        if (@intFromEnum(vector) <= @intFromEnum(Interrupt._reserved8))
+        if (@backingInt(vector) <= @backingInt(Interrupt._reserved8))
             return vector != Interrupt.non_maskable_interrupt;
         return false;
     }
@@ -432,7 +432,7 @@ pub const Interrupt = enum(u8) {
         globals.handlers[interrupt_number] = interrupt_handler;
         x64.instructions.mfence();
 
-        const interrupt: Interrupt = @enumFromInt(interrupt_number);
+        const interrupt: Interrupt = @fromBackingInt(@intCast(interrupt_number));
         log.debug("allocated interrupt {}", .{interrupt});
 
         return interrupt;
@@ -441,7 +441,7 @@ pub const Interrupt = enum(u8) {
     pub fn deallocate(interrupt: Interrupt) void {
         log.debug("deallocating interrupt {}", .{interrupt});
 
-        const interrupt_number = @intFromEnum(interrupt);
+        const interrupt_number = @backingInt(interrupt);
 
         globals.handlers[interrupt_number] = .{
             .eoi = .after,

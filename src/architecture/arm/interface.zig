@@ -159,7 +159,7 @@ pub const functions: architecture.Functions = .{
     .init = .{
         .getStandardWallclockStartTime = struct {
             fn getStandardWallclockStartTime() innigkeit.time.wallclock.Tick {
-                return @enumFromInt(arm.instructions.readPhysicalCount());
+                return @fromBackingInt(@intCast(arm.instructions.readPhysicalCount()));
             }
         }.getStandardWallclockStartTime,
 

@@ -55,7 +55,7 @@ pub fn buildPacket(
 }
 
 test "udp: parse rejects short datagram" {
-    const short = [_]u8{0x00} ** 4;
+    const short = @as([4]u8, @splat(0x00));
     try std.testing.expectEqual(@as(?@TypeOf(parse(&short).?), null), parse(&short));
 }
 
@@ -63,7 +63,7 @@ test "udp: parse rejects a length field below the fixed 8-byte header" {
     // 12 real bytes present (data.len >= HEADER_LEN), but the length field
     // (bytes 4..6) lies and claims 0. This used to slice data[8..0] and
     // panic (start index past end index) instead of returning null.
-    var buf = [_]u8{0x00} ** 12;
+    var buf = @as([12]u8, @splat(0x00));
     std.mem.writeInt(u16, buf[4..6], 0, .big);
     try std.testing.expectEqual(@as(?@TypeOf(parse(&buf).?), null), parse(&buf));
 }

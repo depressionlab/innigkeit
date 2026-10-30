@@ -314,6 +314,9 @@ fn performOperation(operation: Io.Operation) Io.Operation.Result {
         // "negative errno" result convention of this operation.
         .device_io_control => .{ .device_io_control = -38 },
         .net_receive => .{ .net_receive = .{ error.NetworkDown, 0 } },
+        .net_send => .{ .net_send = .{ error.NetworkDown, 0 } },
+        .net_read => .{ .net_read = error.NetworkDown },
+        .net_write => .{ .net_write = error.NetworkDown },
     };
 }
 
@@ -576,9 +579,9 @@ const vtable: Io.VTable = .{
     .processSetCurrentDir = Io.failingProcessSetCurrentDir,
     .processSetCurrentPath = Io.failingProcessSetCurrentPath,
     .processReplace = Io.failingProcessReplace,
-    .processReplacePath = Io.failingProcessReplacePath,
     .processSpawn = Io.failingProcessSpawn,
-    .processSpawnPath = Io.failingProcessSpawnPath,
+    .inheritParentDir = Io.failingInheritParentDir,
+    .inheritParentFile = Io.failingInheritParentFile,
     .childWait = Io.unreachableChildWait,
     .childKill = Io.unreachableChildKill,
 
@@ -598,9 +601,6 @@ const vtable: Io.VTable = .{
     .netListenUnix = Io.failingNetListenUnix,
     .netConnectUnix = Io.failingNetConnectUnix,
     .netSocketCreatePair = Io.failingNetSocketCreatePair,
-    .netSend = Io.failingNetSend,
-    .netRead = Io.failingNetRead,
-    .netWrite = Io.failingNetWrite,
     .netWriteFile = Io.failingNetWriteFile,
     .netClose = Io.unreachableNetClose,
     .netShutdown = Io.failingNetShutdown,

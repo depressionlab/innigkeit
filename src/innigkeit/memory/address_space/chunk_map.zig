@@ -3,7 +3,7 @@ const std = @import("std");
 
 pub fn ChunkMap(comptime T: type) type {
     return struct {
-        chunks: std.AutoHashMapUnmanaged(u32, Chunk) = .{},
+        chunks: std.hash_map.AutoHashMapUnmanaged(u32, Chunk) = .{},
 
         const Chunk = [slots_per_chunk]?*T;
 

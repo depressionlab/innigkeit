@@ -167,11 +167,11 @@ pub const Interrupt = struct {
     }
 
     pub inline fn toUsize(self: Interrupt) usize {
-        return @intFromEnum(self.arch_specific);
+        return @backingInt(self.arch_specific);
     }
 
     pub inline fn fromUsize(interrupt: usize) Interrupt {
-        return .{ .arch_specific = @enumFromInt(interrupt) };
+        return .{ .arch_specific = @fromBackingInt(@intCast(interrupt)) };
     }
 };
 

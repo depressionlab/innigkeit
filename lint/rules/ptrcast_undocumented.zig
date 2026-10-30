@@ -1,19 +1,23 @@
-//! Flags `@ptrFromInt(...)` with no comment on the same line or the line
-//! immediately above. Fabricating a pointer from a raw integer has no
-//! type-system provenance at all. The reason the address is valid
-//! (memory-mapped device register, a manifest-provided physical address,
-//! a value already validated elsewhere) should be written down next to
-//! the call, not left implicit. Inspired by clippy's `undocumented_unsafe_blocks`.
+//! Flags `@ptrCast(...)` with no comment on the same line or the line
+//! immediately above. A pointer-type cast throws away the compiler's own
+//! proof that the pointee is what the original type said it was, so
+//! whatever justifies the reinterpretation (a known on-wire layout, a
+//! type-erased `*anyopaque` recovered via an `ObjectType` tag, an extern
+//! struct whose fields are being viewed through a sibling layout) should
+//! be written down next to the cast, not left implicit. Sibling of
+//! `ptr_from_int_undocumented`, same rationale (clippy's
+//! `undocumented_unsafe_blocks`), scoped to the other half of "conjures a
+//! typed pointer with no type-system provenance."
 //!
 //! **Good:**
 //! ```zig
-//! // APIC base is fixed per the SDM, always page-aligned.
-//! const apic: *volatile u32 = @ptrFromInt(0xFEE00000);
+//! // ObjectType.notify was checked by the caller before this cast.
+//! const notify: *Notify = @ptrCast(@alignCast(erased));
 //! ```
 //!
 //! **Bad:**
 //! ```zig
-//! const apic: *volatile u32 = @ptrFromInt(0xFEE00000);
+//! const notify: *Notify = @ptrCast(@alignCast(erased));
 //! ```
 const std = @import("std");
 const zlinter = @import("zlinter");
@@ -28,29 +32,30 @@ pub fn buildRule(options: zlinter.rules.RuleOptions) zlinter.rules.LintRule {
     _ = options;
 
     return .{
-        .rule_id = "ptr_from_int_undocumented",
+        .rule_id = "ptrcast_undocumented",
         .run = &run,
     };
 }
 
-const MESSAGE = "`@ptrFromInt` fabricates a pointer with no type-system provenance! add a " ++
-    "comment explaining why this address is valid";
+const MESSAGE = "`@ptrCast` discards the compiler's proof of the pointee's type! add a " ++
+    "comment explaining why this reinterpretation is valid";
 
 fn run(
     rule: zlinter.rules.LintRule,
-    _: *zlinter.session.LintContext,
+    session: *zlinter.session.LintSession,
     doc: *const zlinter.session.LintDocument,
-    gpa: std.mem.Allocator,
     options: zlinter.rules.RunOptions,
 ) zlinter.rules.RunError!?zlinter.results.LintResult {
     const config = options.getConfig(Config);
     if (config.severity == .off) return null;
 
-    var lint_problems: std.ArrayList(zlinter.results.LintProblem) = .empty;
-    defer lint_problems.deinit(gpa);
+    const session_arena = session.runtime.sessionArena();
+    const rule_arena = session.runtime.ruleArena();
 
-    const tree = doc.handle.tree;
-    var it = try doc.nodeLineageIterator(.root, gpa);
+    var lint_problems: std.ArrayList(zlinter.results.LintProblem) = .empty;
+
+    const tree = doc.tree(session);
+    var it = try doc.nodeLineageIterator(.root, rule_arena);
     defer it.deinit();
 
     nodes: while (try it.next()) |tuple| {
@@ -66,22 +71,21 @@ fn run(
         }
 
         const main_token = tree.nodeMainToken(node);
-        if (!std.mem.eql(u8, tree.tokenSlice(main_token), "@ptrFromInt")) continue :nodes;
+        if (!std.mem.eql(u8, tree.tokenSlice(main_token), "@ptrCast")) continue :nodes;
         if (hasNearbyComment(tree, main_token)) continue :nodes;
 
-        try lint_problems.append(gpa, .{
+        try lint_problems.append(session_arena, .{
             .rule_id = rule.rule_id,
             .severity = config.severity,
             .start = .startOfNode(tree, node),
             .end = .endOfNode(tree, node),
-            .message = try gpa.dupe(u8, MESSAGE),
+            .message = try session_arena.dupe(u8, MESSAGE),
         });
     }
 
     return if (lint_problems.items.len > 0) try .init(
-        gpa,
-        doc.path,
-        try lint_problems.toOwnedSlice(gpa),
+        doc.file_id,
+        lint_problems.items,
     ) else null;
 }
 
@@ -102,32 +106,32 @@ fn hasNearbyComment(tree: Ast, token: Ast.TokenIndex) bool {
     return std.mem.find(u8, source[prev_line_start..prev_line_end], "//") != null;
 }
 
-test "flags undocumented @ptrFromInt" {
+test "flags undocumented @ptrCast" {
     try zlinter.testing.testRunRule(
         buildRule(.{}),
         \\pub fn main() void {
-        \\  const p: *volatile u32 = @ptrFromInt(0xFEE00000);
+        \\  const p: *Foo = @ptrCast(erased);
         \\}
     ,
         .{},
         Config{},
         &.{
             .{
-                .rule_id = "ptr_from_int_undocumented",
+                .rule_id = "ptrcast_undocumented",
                 .severity = .warning,
-                .slice = "@ptrFromInt(0xFEE00000)",
+                .slice = "@ptrCast(erased)",
                 .message = MESSAGE,
             },
         },
     );
 }
 
-test "allows @ptrFromInt with a preceding comment" {
+test "allows @ptrCast with a preceding comment" {
     try zlinter.testing.testRunRule(
         buildRule(.{}),
         \\pub fn main() void {
-        \\  // APIC base is fixed per the SDM.
-        \\  const p: *volatile u32 = @ptrFromInt(0xFEE00000);
+        \\  // erased was checked to be a Foo by the caller.
+        \\  const p: *Foo = @ptrCast(erased);
         \\}
     ,
         .{},
@@ -136,11 +140,11 @@ test "allows @ptrFromInt with a preceding comment" {
     );
 }
 
-test "allows @ptrFromInt with a trailing comment" {
+test "allows @ptrCast with a trailing comment" {
     try zlinter.testing.testRunRule(
         buildRule(.{}),
         \\pub fn main() void {
-        \\  const p: *volatile u32 = @ptrFromInt(0xFEE00000); // APIC base
+        \\  const p: *Foo = @ptrCast(erased); // checked above
         \\}
     ,
         .{},
@@ -153,7 +157,7 @@ test "off" {
     try zlinter.testing.testRunRule(
         buildRule(.{}),
         \\pub fn main() void {
-        \\  const p: *volatile u32 = @ptrFromInt(0xFEE00000);
+        \\  const p: *Foo = @ptrCast(erased);
         \\}
     ,
         .{},

@@ -17,15 +17,15 @@ const port: u16 = 9999;
 const watchdog_ns: u64 = 60 * std.time.ns_per_s;
 
 test "fuzz channel: a host-sent datagram is echoed back as a byte-sum counter" {
-    const sock = socket.openSocket(port) orelse return error.SocketOpenFailed;
-    defer socket.closeSocket(sock);
+    const sock = socket.openSocket(.kernel, port) orelse return error.SocketOpenFailed;
+    defer socket.closeSocket(.kernel, sock);
 
     var buf: [socket.MAX_PAYLOAD]u8 = undefined;
     var from: socket.RecvFrom = undefined;
     const start = wallclock.read();
     const len = while (true) {
-        if (socket.recvUdp(sock, &buf, &from)) |n| break n;
-        if (@intFromEnum(wallclock.elapsed(start, wallclock.read())) > watchdog_ns) {
+        if (socket.recvUdp(.kernel, sock, &buf, &from)) |n| break n;
+        if (@backingInt(wallclock.elapsed(start, wallclock.read())) > watchdog_ns) {
             log.err("watchdog tripped waiting for the host's corpus datagram", .{});
             return error.WatchdogTimeout;
         }
@@ -43,7 +43,7 @@ test "fuzz channel: a host-sent datagram is echoed back as a byte-sum counter" {
 
     var reply: [8]u8 = undefined;
     std.mem.writeInt(u64, &reply, counter, .little);
-    try std.testing.expect(socket.sendUdp(sock, from.ip, from.port, &reply));
+    try std.testing.expect(socket.sendUdp(.kernel, sock, from.ip, from.port, &reply));
 
     // Step 3: send the real per-syscall coverage snapshot back as a second
     // datagram, one little-endian u32 per `std.meta.tags(Syscall)` entry.
@@ -53,5 +53,5 @@ test "fuzz channel: a host-sent datagram is echoed back as a byte-sum counter" {
     for (raw_counts, 0..) |count, i| {
         std.mem.writeInt(u32, coverage_dump[i * 4 ..][0..4], count, .little);
     }
-    try std.testing.expect(socket.sendUdp(sock, from.ip, from.port, &coverage_dump));
+    try std.testing.expect(socket.sendUdp(.kernel, sock, from.ip, from.port, &coverage_dump));
 }

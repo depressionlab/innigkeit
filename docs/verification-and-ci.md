@@ -37,6 +37,8 @@ image_{arch} -- build a disk image (not part of build_all or verify -- expensive
                 doesn't affect correctness checks)
 ```
 
+Zig 0.17 has no custom `Step.make`: every build-graph action here is a `Step.Run` (or `Fail`/`InstallFile`/…) over a host tool. `tools/build_helper` supplies the QEMU-log verdict, the swtpm / fuzz-client lifecycle wrappers and the compiler_rt shim; `image_builder describe` produces the Limine config and image manifest. See `docs/zig-0.17-upgrade.md`.
+
 Two gaps this hierarchy makes explicit rather than hides:
 
 - **`check` never validates inline assembly** (`-fno-emit-bin`). `build_all` is a real link, so it's the step to run after touching arch `asm` on any architecture `check` alone won't catch.

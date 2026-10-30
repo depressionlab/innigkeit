@@ -17,35 +17,35 @@ pub const Size = enum(u64) {
     };
 
     pub inline fn of(comptime T: type) Size {
-        return @enumFromInt(@sizeOf(T));
+        return @fromBackingInt(@intCast(@sizeOf(T)));
     }
 
     pub fn from(amount: u64, unit: Size.Unit) Size {
-        return @enumFromInt(amount * @intFromEnum(unit));
+        return @fromBackingInt(@intCast(amount * @backingInt(unit)));
     }
 
     pub inline fn toAlignment(self: Size) std.mem.Alignment {
-        return .fromByteUnits(@intFromEnum(self));
+        return .fromByteUnits(@backingInt(self));
     }
 
     pub inline fn aligned(self: Size, alignment: std.mem.Alignment) bool {
-        return alignment.check(@intFromEnum(self));
+        return alignment.check(@backingInt(self));
     }
 
     pub inline fn alignForward(self: Size, alignment: std.mem.Alignment) Size {
-        return @enumFromInt(alignment.forward(@intFromEnum(self)));
+        return @fromBackingInt(@intCast(alignment.forward(@backingInt(self))));
     }
 
     pub inline fn alignForwardInPlace(self: *Size, alignment: std.mem.Alignment) void {
-        self.* = @enumFromInt(alignment.forward(@intFromEnum(self.*)));
+        self.* = @fromBackingInt(@intCast(alignment.forward(@backingInt(self.*))));
     }
 
     pub inline fn alignBackward(self: Size, alignment: std.mem.Alignment) Size {
-        return @enumFromInt(alignment.backward(@intFromEnum(self)));
+        return @fromBackingInt(@intCast(alignment.backward(@backingInt(self))));
     }
 
     pub inline fn alignBackwardInPlace(self: *Size, alignment: std.mem.Alignment) void {
-        self.* = @enumFromInt(alignment.backward(@intFromEnum(self.*)));
+        self.* = @fromBackingInt(@intCast(alignment.backward(@backingInt(self.*))));
     }
 
     /// Returns the amount of `self` sizes needed to cover `target`.
@@ -90,27 +90,27 @@ pub const Size = enum(u64) {
     }
 
     pub inline fn equal(self: Size, other: Size) bool {
-        return @intFromEnum(self) == @intFromEnum(other);
+        return @backingInt(self) == @backingInt(other);
     }
 
     pub inline fn notEqual(self: Size, other: Size) bool {
-        return @intFromEnum(self) != @intFromEnum(other);
+        return @backingInt(self) != @backingInt(other);
     }
 
     pub inline fn lessThan(self: Size, other: Size) bool {
-        return @intFromEnum(self) < @intFromEnum(other);
+        return @backingInt(self) < @backingInt(other);
     }
 
     pub inline fn lessThanOrEqual(self: Size, other: Size) bool {
-        return @intFromEnum(self) <= @intFromEnum(other);
+        return @backingInt(self) <= @backingInt(other);
     }
 
     pub inline fn greaterThan(self: Size, other: Size) bool {
-        return @intFromEnum(self) > @intFromEnum(other);
+        return @backingInt(self) > @backingInt(other);
     }
 
     pub inline fn greaterThanOrEqual(self: Size, other: Size) bool {
-        return @intFromEnum(self) >= @intFromEnum(other);
+        return @backingInt(self) >= @backingInt(other);
     }
 
     pub fn compare(self: Size, other: Size) std.math.Order {
@@ -120,7 +120,7 @@ pub const Size = enum(u64) {
     }
 
     pub fn add(self: Size, other: Size) Size {
-        return @enumFromInt(@intFromEnum(self) + @intFromEnum(other));
+        return @fromBackingInt(@intCast(@backingInt(self) + @backingInt(other)));
     }
 
     pub fn addInPlace(self: *Size, other: Size) void {
@@ -128,7 +128,7 @@ pub const Size = enum(u64) {
     }
 
     pub fn subtract(self: Size, other: Size) Size {
-        return @enumFromInt(@intFromEnum(self) - @intFromEnum(other));
+        return @fromBackingInt(@intCast(@backingInt(self) - @backingInt(other)));
     }
 
     pub fn subtractInPlace(self: *Size, other: Size) void {
@@ -136,7 +136,7 @@ pub const Size = enum(u64) {
     }
 
     pub fn multiplyScalar(self: Size, value: u64) Size {
-        return @enumFromInt(@intFromEnum(self) * value);
+        return @fromBackingInt(@intCast(@backingInt(self) * value));
     }
 
     pub fn multiplyScalarInPlace(self: *Size, value: u64) void {
@@ -144,15 +144,15 @@ pub const Size = enum(u64) {
     }
 
     pub fn divide(self: Size, other: Size) usize {
-        return @intFromEnum(self) / @intFromEnum(other);
+        return @backingInt(self) / @backingInt(other);
     }
 
     pub fn divideInPlace(self: *Size, other: Size) void {
-        self.* = @enumFromInt(@intFromEnum(self.*) / @intFromEnum(other));
+        self.* = @fromBackingInt(@intCast(@backingInt(self.*) / @backingInt(other)));
     }
 
     pub fn divideScalar(self: Size, value: u64) Size {
-        return @enumFromInt(@intFromEnum(self) / value);
+        return @fromBackingInt(@intCast(@backingInt(self) / value));
     }
 
     pub fn divideScalarInPlace(self: *Size, value: u64) void {
@@ -161,15 +161,15 @@ pub const Size = enum(u64) {
 
     // Must be kept in descending size order due to the logic in `print`
     const unit_table = .{
-        .{ .value = @intFromEnum(Unit.tib), .name = "TiB" },
-        .{ .value = @intFromEnum(Unit.gib), .name = "GiB" },
-        .{ .value = @intFromEnum(Unit.mib), .name = "MiB" },
-        .{ .value = @intFromEnum(Unit.kib), .name = "KiB" },
-        .{ .value = @intFromEnum(Unit.byte), .name = "B" },
+        .{ .value = @backingInt(Unit.tib), .name = "TiB" },
+        .{ .value = @backingInt(Unit.gib), .name = "GiB" },
+        .{ .value = @backingInt(Unit.mib), .name = "MiB" },
+        .{ .value = @backingInt(Unit.kib), .name = "KiB" },
+        .{ .value = @backingInt(Unit.byte), .name = "B" },
     };
 
     pub fn print(self: Size, writer: *std.Io.Writer, _: usize) !void {
-        var value = @intFromEnum(self);
+        var value = @backingInt(self);
 
         if (value == 0) {
             try writer.writeAll("0 bytes");

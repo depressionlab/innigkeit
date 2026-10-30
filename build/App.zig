@@ -8,13 +8,14 @@ const App = @This();
 
 const AppDescription = @import("AppDescription.zig");
 const Bundle = @import("Bundle.zig");
+const CompilerRt = @import("CompilerRt.zig");
 const Library = @import("Library.zig");
 const Options = @import("Options.zig");
 const std = @import("std");
 const Wrapper = @import("Wrapper.zig");
 
 /// Map from `Bundle` (architecture + context) to compiled executable.
-const Executables = std.AutoHashMapUnmanaged(Bundle, *std.Build.Step.Compile);
+const Executables = std.hash_map.AutoHashMapUnmanaged(Bundle, *std.Build.Step.Compile);
 /// A collection of `App`s, mapped by their names as Strings.
 pub const Collection = std.array_hash_map.String(App);
 
@@ -103,6 +104,7 @@ fn resolveApp(
                 .root_module = module,
             });
             if (description.use_llvm) exe.use_llvm = true;
+            CompilerRt.apply(b, exe);
             try executables.putNoClobber(b.allocator, bundle, exe);
 
             const install = b.addInstallArtifact(exe, .{
@@ -170,6 +172,7 @@ fn resolveApp(
                 .root_module = module,
             });
             if (description.use_llvm) exe.use_llvm = true;
+            CompilerRt.apply(b, exe);
             try executables.putNoClobber(b.allocator, bundle, exe);
 
             const install = b.addInstallArtifact(exe, .{ .dest_dir = .{
@@ -184,10 +187,12 @@ fn resolveApp(
             build_step.dependOn(&install.step);
             wrapper.registerInternalApp(architecture, build_step);
 
-            wrapper.registerCheck(b.addExecutable(.{
+            const check_exe = b.addExecutable(.{
                 .name = b.fmt("{s}_innigkeit_check", .{description.name}),
                 .root_module = module,
-            }));
+            });
+            CompilerRt.apply(b, check_exe);
+            wrapper.registerCheck(check_exe);
 
             all_tests_step.dependOn(&exe.step);
         }

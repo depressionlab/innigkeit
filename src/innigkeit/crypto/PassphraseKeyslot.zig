@@ -138,9 +138,9 @@ const test_params: Params = .{ .t_cost = 1, .m_cost_kib = 8, .lanes = 1 };
 test "passphrase keyslot: wrap/unwrap round-trips" {
     const io = std.testing.io;
     const alloc = std.testing.allocator;
-    const key = [_]u8{0xA7} ** key_length;
-    const salt = [_]u8{0x11} ** salt_length;
-    const nonce = [_]u8{0x22} ** Aead.nonce_length;
+    const key = @as([key_length]u8, @splat(0xA7));
+    const salt = @as([salt_length]u8, @splat(0x11));
+    const nonce = @as([Aead.nonce_length]u8, @splat(0x22));
 
     const slot = try wrap(alloc, io, key, "correct horse battery staple", salt, nonce, test_params);
     const got = try unwrap(alloc, io, slot, "correct horse battery staple");
@@ -150,9 +150,9 @@ test "passphrase keyslot: wrap/unwrap round-trips" {
 test "passphrase keyslot: wrong passphrase is rejected" {
     const io = std.testing.io;
     const alloc = std.testing.allocator;
-    const key = [_]u8{0x5C} ** key_length;
-    const salt = [_]u8{0x33} ** salt_length;
-    const nonce = [_]u8{0x44} ** Aead.nonce_length;
+    const key = @as([key_length]u8, @splat(0x5C));
+    const salt = @as([salt_length]u8, @splat(0x33));
+    const nonce = @as([Aead.nonce_length]u8, @splat(0x44));
 
     const slot = try wrap(alloc, io, key, "the-right-one", salt, nonce, test_params);
     try std.testing.expectError(error.WrongPassphrase, unwrap(alloc, io, slot, "the-wrong-one"));
@@ -161,9 +161,9 @@ test "passphrase keyslot: wrong passphrase is rejected" {
 test "passphrase keyslot: tampering the params/salt (AD) fails auth" {
     const io = std.testing.io;
     const alloc = std.testing.allocator;
-    const key = [_]u8{0x1F} ** key_length;
-    const salt = [_]u8{0x55} ** salt_length;
-    const nonce = [_]u8{0x66} ** Aead.nonce_length;
+    const key = @as([key_length]u8, @splat(0x1F));
+    const salt = @as([salt_length]u8, @splat(0x55));
+    const nonce = @as([Aead.nonce_length]u8, @splat(0x66));
 
     var slot = try wrap(alloc, io, key, "passphrase", salt, nonce, test_params);
     slot[0] ^= 0xFF; // flip a salt byte (part of the AEAD associated data)

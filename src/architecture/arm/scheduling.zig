@@ -56,7 +56,7 @@ pub fn prepareTaskForScheduling(
     arch.x19_x28[9] = 0;
     arch.fp = 0;
     arch.lr = @intFromPtr(&impl.taskEntryTrampoline);
-    arch.sp = @intFromEnum(task.stack.stack_pointer);
+    arch.sp = @backingInt(task.stack.stack_pointer);
 }
 
 /// Stub; extend to save/restore NEON/FP state for user threads.
@@ -174,7 +174,7 @@ pub inline fn call(
         \\ 1:
         :
         : [old] "{x8}" (old_arch),
-          [new_sp] "{x9}" (@intFromEnum(new_stack.stack_pointer)),
+          [new_sp] "{x9}" (@backingInt(new_stack.stack_pointer)),
           [func] "{x10}" (type_erased_call.typeErased),
           [a0] "{x0}" (type_erased_call.args[0]),
           [a1] "{x1}" (type_erased_call.args[1]),
@@ -215,7 +215,7 @@ pub inline fn callNoSave(
         \\ mov x29, xzr
         \\ br  %[func]
         :
-        : [new_sp] "{x8}" (@intFromEnum(new_stack.stack_pointer)),
+        : [new_sp] "{x8}" (@backingInt(new_stack.stack_pointer)),
           [func] "{x9}" (type_erased_call.typeErased),
           [a0] "{x0}" (type_erased_call.args[0]),
           [a1] "{x1}" (type_erased_call.args[1]),

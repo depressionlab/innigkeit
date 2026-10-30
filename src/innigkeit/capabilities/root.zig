@@ -7,6 +7,7 @@ pub const Message = @import("Message.zig").Message;
 pub const Endpoint = @import("types/Endpoint.zig");
 pub const Frame = @import("types/Frame.zig");
 pub const GpuBuffer = @import("types/GpuBuffer.zig");
+pub const NetSocket = @import("types/NetSocket.zig");
 pub const Notify = @import("types/Notify.zig");
 pub const Reply = @import("types/Reply.zig");
 pub const SecureVault = @import("types/SecureVault.zig");

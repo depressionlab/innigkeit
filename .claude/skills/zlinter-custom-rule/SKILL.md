@@ -1,5 +1,5 @@
 ---
-description: Scaffold a zlinter custom rule as either a permanent addition to build/lints/, or a throwaway rule for a one-off AST-based mechanical refactor across the whole tree. Use when asked to write a custom lint rule, or when a refactor is "change every X to Y" / "find every place that does X" across many files. A zlinter rule with --fix is faster and more reliable than grep+sed for anything that needs real AST context (not just text matching).
+description: Scaffold a zlinter custom rule as either a permanent addition to lint/rules/, or a throwaway rule for a one-off AST-based mechanical refactor across the whole tree. Use when asked to write a custom lint rule, or when a refactor is "change every X to Y" / "find every place that does X" across many files. A zlinter rule with --fix is faster and more reliable than grep+sed for anything that needs real AST context (not just text matching).
 ---
 
 # zlinter custom rules
@@ -8,8 +8,8 @@ zlinter (`zig-pkg/zlinter-0.0.1-*`, vendored via `build.zig.zon`) exposes a
 small, stable API for writing a rule that walks the AST of every `.zig`
 file in the project and reports (or fixes) problems. Two permanent rules
 already exist as reference implementations:
-`build/lints/truncate_unchecked_arithmetic.zig` and
-`build/lints/ptr_from_int_undocumented.zig` — read one before writing
+`lint/rules/truncate_unchecked_arithmetic.zig` and
+`lint/rules/ptr_from_int_undocumented.zig` — read one before writing
 a new rule; this skill is the condensed version of what writing those
 taught.
 
@@ -42,20 +42,22 @@ pub fn buildRule(options: zlinter.rules.RuleOptions) zlinter.rules.LintRule {
 
 fn run(
     rule: zlinter.rules.LintRule,
-    _: *zlinter.session.LintContext,
+    session: *zlinter.session.LintSession,
     doc: *const zlinter.session.LintDocument,
-    gpa: std.mem.Allocator,
     options: zlinter.rules.RunOptions,
 ) zlinter.rules.RunError!?zlinter.results.LintResult {
     const config = options.getConfig(Config);
     if (config.severity == .off) return null;
 
-    var lint_problems = std.ArrayList(zlinter.results.LintProblem).empty;
-    defer lint_problems.deinit(gpa);
+    // Arenas owned by the session: nothing here needs freeing.
+    const session_arena = session.runtime.sessionArena();
+    const rule_arena = session.runtime.ruleArena();
 
-    const tree = doc.handle.tree;
+    var lint_problems = std.ArrayList(zlinter.results.LintProblem).empty;
+
+    const tree = doc.tree(session);
     const root: Ast.Node.Index = .root;
-    var it = try doc.nodeLineageIterator(root, gpa);
+    var it = try doc.nodeLineageIterator(root, rule_arena);
     defer it.deinit();
 
     nodes: while (try it.next()) |tuple| {
@@ -66,7 +68,7 @@ fn run(
     }
 
     return if (lint_problems.items.len > 0)
-        try zlinter.results.LintResult.init(gpa, doc.path, try lint_problems.toOwnedSlice(gpa))
+        try zlinter.results.LintResult.init(doc.file_id, lint_problems.items)
     else
         null;
 }
@@ -78,7 +80,7 @@ const Ast = std.zig.Ast;
 
 ## AST navigation cheat sheet (learned from the two real rules)
 
-- **Walk every node**: `doc.nodeLineageIterator(root, gpa)` — yields
+- **Walk every node**: `doc.nodeLineageIterator(root, rule_arena)` — yields
   `(node, connections)` tuples; `connections.parent` gives the parent
   node when you need context (e.g. "is this identifier inside a test
   block" — see `doc.isEnclosedInTestBlock(node)`, already provided).
@@ -93,7 +95,7 @@ const Ast = std.zig.Ast;
   gives `.mul`/`.add`/`.sub`/`.shl` for plain arithmetic vs.
   `.mul_wrap`/`.add_wrap`/`.sub_wrap` for the explicitly-wrapping forms,
   `.mul_sat`/`.add_sat`/`.sub_sat` for saturating — see
-  `.tools/zig-0.16.0/lib/std/zig/Ast.zig`'s `Node.Tag` doc comments for
+  `.tools/zig-0.17.0/lib/std/zig/Ast.zig`'s `Node.Tag` doc comments for
   the full list with the exact source shape each one matches (`Grep -n
   "^\s*[a-z_]+,\s*$"` near the enum for a quick scan). **Warning:**
   structural pattern matching only sees one level — a parenthesized or
@@ -122,7 +124,7 @@ Set `.fix` on a `LintProblem` to make `--fix` apply it:
 .fix = .{
     .start = start_byte_offset, // inclusive
     .end = end_byte_offset,     // exclusive
-    .text = try gpa.dupe(u8, "replacement source text"), // "" to delete
+    .text = try session_arena.dupe(u8, "replacement source text"), // "" to delete
 },
 ```
 
@@ -147,20 +149,27 @@ transform that's genuinely just text substitution with no ambiguity
 (rename a single well-known symbol, no shadowing possible), plain
 find/replace is still simpler — don't reach for this by default.
 
+**API note (zlinter 0.17.x):** a rule gets a `LintSession` (use
+`session.runtime.sessionArena()` for anything stored in a problem and
+`ruleArena()` for scratch), reads the AST with `doc.tree(session)` /
+`doc.source(session)`, and results take `doc.file_id`. The linter is its own
+build project in `lint/` so it stays out of the main build's configuration
+cache; `zig build lint -- --rule <name> --fix` forwards everything after `--`.
+
 ## Workflow for a one-off refactor (not a permanent rule)
 
-1. Write the rule under `build/lints/_scratch_<name>.zig` (prefix
+1. Write the rule under `lint/rules/_scratch_<name>.zig` (prefix
    makes it obviously temporary and easy to find/delete later).
-2. Register it in `build/Lint.zig` temporarily:
+2. Register it in `lint/build.zig` temporarily:
    `builder.addRule(.{ .custom = .{ .name = "_scratch_<name>", .path =
-   "build/lints/_scratch_<name>.zig" } }, .{});`
+   "lint/rules/_scratch_<name>.zig" } }, .{});`
 3. Run `zig build lint -- --rule _scratch_<name>` first with **no**
    `--fix` to sanity-check the problem count and a few reported
    locations look right before touching any files.
 4. Run with `--fix` (repeat until 0 fixes applied).
 5. `zig build check` (or the full `zig build verify` gate) to confirm
    nothing broke.
-6. **Remove both the rule file and its `build/Lint.zig` registration** —
+6. **Remove both the rule file and its `lint/build.zig` registration** —
    it was scaffolding for one refactor, not a standing lint. Only keep a
    rule permanently if it's meant to catch *future* instances of the same
    pattern (in which case, drop the `_scratch_` prefix, give it a real
@@ -197,11 +206,11 @@ block for the full pattern, including the `.off` severity test.
 
 ## Registering a permanent rule
 
-In `build/Lint.zig`, alongside the builtins:
+In `lint/build.zig`, alongside the builtins:
 
 ```zig
 builder.addRule(.{ .custom = .{
     .name = "my_rule_name",
-    .path = "build/lints/my_rule_name.zig",
+    .path = "lint/rules/my_rule_name.zig",
 } }, .{});
 ```

@@ -185,7 +185,7 @@ fn printPanicBacktrace(
 }
 
 pub fn setPanicMode(mode: PanicMode) void {
-    if (@intFromEnum(globals.panic_mode) + 1 != @intFromEnum(mode)) {
+    if (@backingInt(globals.panic_mode) + 1 != @backingInt(mode)) {
         std.debug.panic(
             "invalid panic mode transition '{t}' -> '{t}'!",
             .{ globals.panic_mode, mode },

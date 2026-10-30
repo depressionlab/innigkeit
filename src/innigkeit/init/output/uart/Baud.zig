@@ -33,8 +33,8 @@ pub const DivisorError = error{
 };
 
 pub fn integerDivisor(baud: Baud) DivisorError!u16 {
-    const baud_rate = @intFromEnum(baud.baud_rate);
-    const clock_frequency = @intFromEnum(baud.clock_frequency);
+    const baud_rate = @backingInt(baud.baud_rate);
+    const clock_frequency = @backingInt(baud.clock_frequency);
 
     if (core.is_debug) {
         std.debug.assert(baud_rate != 0);
@@ -51,8 +51,8 @@ pub const Fractional = packed struct(u22) {
 };
 
 pub fn fractionalDivisor(baud: Baud) DivisorError!Fractional {
-    const baud_rate = @intFromEnum(baud.baud_rate);
-    const clock_frequency = @intFromEnum(baud.clock_frequency);
+    const baud_rate = @backingInt(baud.baud_rate);
+    const clock_frequency = @backingInt(baud.clock_frequency);
 
     if (core.is_debug) {
         std.debug.assert(baud_rate != 0);

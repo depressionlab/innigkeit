@@ -42,7 +42,7 @@ cp -r "$REPO/.claude/skills/zig-lsp" "$HOME/.claude/skills/zig-lsp"
 #    the hook creates, so the LSP server works regardless of this.)
 log "adding toolchain to PATH via /etc/profile.d"
 cat > /etc/profile.d/innigkeit-zig.sh <<EOF
-export PATH="$REPO/.tools/zig-0.16.0:$REPO/.tools/zls:\$PATH"
+export PATH="$REPO/.tools/zig-0.17.0:$REPO/.tools/zls:\$PATH"
 EOF
 
 log "ready: zig/zls on PATH, zig-lsp loaded at user scope, gate tools provisioned"

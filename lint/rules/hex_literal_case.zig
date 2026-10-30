@@ -29,19 +29,20 @@ const MESSAGE = "hex literal digits should be uppercase";
 
 fn run(
     rule: zlinter.rules.LintRule,
-    _: *zlinter.session.LintContext,
+    session: *zlinter.session.LintSession,
     doc: *const zlinter.session.LintDocument,
-    gpa: std.mem.Allocator,
     options: zlinter.rules.RunOptions,
 ) zlinter.rules.RunError!?zlinter.results.LintResult {
     const config = options.getConfig(Config);
     if (config.severity == .off) return null;
 
-    var lint_problems: std.ArrayList(zlinter.results.LintProblem) = .empty;
-    defer lint_problems.deinit(gpa);
+    const session_arena = session.runtime.sessionArena();
+    const rule_arena = session.runtime.ruleArena();
 
-    const tree = doc.handle.tree;
-    var it = try doc.nodeLineageIterator(.root, gpa);
+    var lint_problems: std.ArrayList(zlinter.results.LintProblem) = .empty;
+
+    const tree = doc.tree(session);
+    var it = try doc.nodeLineageIterator(.root, rule_arena);
     defer it.deinit();
 
     nodes: while (try it.next()) |tuple| {
@@ -55,20 +56,19 @@ fn run(
         const digits = slice[2..];
         if (std.mem.findAny(u8, digits, "abcdef") == null) continue :nodes;
 
-        const upper_digits = try gpa.alloc(u8, digits.len);
-        defer gpa.free(upper_digits);
+        const upper_digits = try session_arena.alloc(u8, digits.len);
         _ = std.ascii.upperString(upper_digits, digits);
 
-        const fixed = try gpa.print("0x{s}", .{upper_digits});
+        const fixed = try session_arena.print("0x{s}", .{upper_digits});
         const loc_start: zlinter.results.LintProblemLocation = .startOfToken(tree, token);
         const loc_end: zlinter.results.LintProblemLocation = .endOfToken(tree, token);
 
-        try lint_problems.append(gpa, .{
+        try lint_problems.append(session_arena, .{
             .rule_id = rule.rule_id,
             .severity = config.severity,
             .start = loc_start,
             .end = loc_end,
-            .message = try gpa.dupe(u8, MESSAGE),
+            .message = try session_arena.dupe(u8, MESSAGE),
             .fix = .{
                 .start = loc_start.byte_offset,
                 .end = loc_end.byte_offset + 1,
@@ -78,9 +78,8 @@ fn run(
     }
 
     return if (lint_problems.items.len > 0) try .init(
-        gpa,
-        doc.path,
-        try lint_problems.toOwnedSlice(gpa),
+        doc.file_id,
+        lint_problems.items,
     ) else null;
 }
 

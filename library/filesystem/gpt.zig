@@ -1,5 +1,5 @@
 const std = @import("std");
-pub const Crc32 = std.hash.crc.Crc32IsoHdlc;
+pub const Crc32 = std.hash.Crc32;
 
 const core = @import("core");
 const filesystem = @import("filesystem");

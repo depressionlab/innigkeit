@@ -30,8 +30,8 @@ pub fn threadSetHint(context: Context) Error.Syscall!usize {
 /// weight + slice). qos: 0=interactive, 1=default, 2=background.
 pub fn threadSetQos(context: Context) Error.Syscall!usize {
     const raw: u8 = @truncate(context.arg(.one));
-    if (raw >= @typeInfo(innigkeit.Task.Qos).@"enum".fields.len) return error.InvalidArgument;
-    const qos: innigkeit.Task.Qos = @enumFromInt(raw);
+    if (raw >= @typeInfo(innigkeit.Task.Qos).@"enum".field_names.len) return error.InvalidArgument;
+    const qos: innigkeit.Task.Qos = @fromBackingInt(@intCast(raw));
     // Targets the calling (running) task. Hold the local scheduler lock so the
     // weight/deadline change cannot race the timer tick's updateCurr.
     const sched = innigkeit.Task.Scheduler.Handle.get(); // locks

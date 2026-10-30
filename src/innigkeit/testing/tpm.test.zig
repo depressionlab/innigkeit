@@ -302,7 +302,7 @@ test "tpm/crb: sealed volume key drives AES-XTS disk encryption" {
     // the backing holds ciphertext, and read back the plaintext.
     var disk = RamDisk{};
     var dev = EncryptedBlockDevice(*RamDisk).init(&disk, recovered);
-    const plain = [_]u8{0xC3} ** 512;
+    const plain = @as([512]u8, @splat(0xC3));
     try dev.writeSectors(1, &plain, 1);
     try std.testing.expect(!std.mem.eql(u8, &plain, &disk.sectors[1]));
     var out: [512]u8 = undefined;
@@ -319,7 +319,7 @@ test "encrypted volume: provision persists header, open recovers the key off dis
 
     var disk = RamDisk{};
     var v1 = try ev.provision(tpm, primary, &disk);
-    const plain = [_]u8{0x5A} ** 512;
+    const plain = @as([512]u8, @splat(0x5A));
     try v1.writeSectors(ev.data_start_lba, &plain, 1);
 
     // A fresh mount: re-read the header off disk, unseal the key, decrypt.
@@ -364,7 +364,7 @@ test "encrypted volume: provisioned data disk mounts via the boot scan" {
     const primary = try tpm.createPrimary();
     defer tpm.flushContext(primary);
     var vol = try ev.provision(tpm, primary, ev.VirtioBacking{ .dev_idx = 1 });
-    const plain = [_]u8{0xEE} ** 512;
+    const plain = @as([512]u8, @splat(0xEE));
     try vol.writeSectors(ev.data_start_lba, &plain, 1);
 
     // Re-run the boot scan: it must find the header, unseal, and mount.
@@ -375,7 +375,7 @@ test "encrypted volume: provisioned data disk mounts via the boot scan" {
     try std.testing.expect(std.mem.eql(u8, &plain, &out));
 
     // The above only proves that the `Volume` object works.
-    const plain2 = [_]u8{0x3C} ** 512;
+    const plain2 = @as([512]u8, @splat(0x3C));
     try blk.writeSectors(1, 0, &plain2, 1);
     var out2: [512]u8 = undefined;
     try blk.readSectors(1, 0, &out2, 1);

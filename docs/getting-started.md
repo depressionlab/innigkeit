@@ -11,7 +11,7 @@ the build itself.
 
 You need, on `PATH`:
 
-- **Zig 0.16.0** exactly — the version is enforced at build time (`build.zig`
+- **Zig 0.17.0** exactly — the version is enforced at build time (`build.zig`
   checks `build.zig.zon`'s `minimum_zig_version` and fails with a clear
   message rather than miscompiling against a mismatched compiler).
 - **QEMU 8.2+** for both architectures: `qemu-system-x86_64` and

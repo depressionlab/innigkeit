@@ -5,11 +5,12 @@
 const Options = @This();
 
 const Bundle = @import("Bundle.zig");
+const configure_deps = @import("configure_deps.zig");
 const EmulatorOptions = @import("options/EmulatorOptions.zig");
 const FilesystemOptions = @import("options/FilesystemOptions.zig");
 const std = @import("std");
 
-const ArchModules = std.AutoHashMapUnmanaged(Bundle.Architecture, *std.Build.Module);
+const ArchModules = std.hash_map.AutoHashMapUnmanaged(Bundle.Architecture, *std.Build.Module);
 
 /// Absolute path to the build root with a trailing separator.
 root_path: []const u8,
@@ -111,7 +112,7 @@ pub fn get(b: *std.Build, version: std.SemanticVersion, architectures: []const B
     };
 }
 
-/// Returns a copy of `self` with `emulator.tpm_socket`/`expect_secure_boot`
+/// Returns a copy of `self` with `emulator.tpm`/`expect_secure_boot`
 /// overridden AND `kernel_options` rebuilt to match used by the Secure
 /// Boot suite (`build/Verify.zig`), which needs its own dedicated test
 /// kernel built with these compiled in regardless of the top-level
@@ -119,9 +120,9 @@ pub fn get(b: *std.Build, version: std.SemanticVersion, architectures: []const B
 /// `emulator` mutated would silently keep the *old* `kernel_options`
 /// pointer (built once in `get()`), compiling a kernel that never actually
 /// exercises the TPM/secure-boot code paths its own QEMU args wire up.
-pub fn withTestFlags(self: Options, b: *std.Build, tpm_socket: []const u8, expect_secure_boot: bool) Options {
+pub fn withTestFlags(self: Options, b: *std.Build, expect_secure_boot: bool) Options {
     var copy = self;
-    copy.emulator.tpm_socket = tpm_socket;
+    copy.emulator.tpm = true;
     copy.emulator.expect_secure_boot = expect_secure_boot;
     copy.kernel_options = buildKernelOptionsModule(
         b,
@@ -198,13 +199,39 @@ fn buildKernelOptionsModule(
     return opts.createModule();
 }
 
+/// Declares the configure-time dependencies of `git describe`: the commit
+/// `HEAD` resolves to and the tags it can name. Without this a cached
+/// configuration would keep the version string of an older commit. Falls back
+/// to poisoning the cache when the layout is not a plain `.git` directory
+/// (worktrees, submodules).
+fn trackGitState(b: *std.Build) void {
+    const io = b.graph.io;
+    const head = b.root.root_dir.handle.readFileAlloc(io, ".git/HEAD", b.allocator, .limited(1024)) catch {
+        b.graph.poisonCache();
+        return;
+    };
+    _ = configure_deps.track(b, ".git/HEAD", .file_contents);
+
+    const ref_prefix = "ref: ";
+    const trimmed = std.mem.trim(u8, head, " \n\r");
+    if (std.mem.startsWith(u8, trimmed, ref_prefix)) {
+        // A branch tip lives in its own ref file, or in `packed-refs` once packed.
+        _ = configure_deps.track(b, b.pathJoin(&.{ ".git", trimmed[ref_prefix.len..] }), .file_contents);
+    }
+    _ = configure_deps.track(b, ".git/packed-refs", .file_contents);
+    _ = configure_deps.track(b, ".git/refs/tags", .directory_contents);
+}
+
 fn buildVersionString(b: *std.Build, version: std.SemanticVersion, root_path: []const u8) []const u8 {
+    trackGitState(b);
     const base = b.fmt("{d}.{d}.{d}", .{ version.major, version.minor, version.patch });
-    var exit_code: u8 = undefined;
-    const raw = b.runAllowFail(&.{
+    const raw = switch (b.runFallible(&.{
         "git",      "-C",      root_path, "--git-dir", ".git",
         "describe", "--match", "*.*.*",   "--tags",    "--abbrev=9",
-    }, &exit_code, .ignore) catch return b.fmt("{s}-unknown", .{base});
+    }, .{ .stderr_behavior = .ignore })) {
+        .success => |stdout| stdout,
+        .spawn_failed, .bad_exit_code, .crashed => return b.fmt("{s}-unknown", .{base}),
+    };
     const desc = std.mem.trim(u8, raw, " \n\r");
     return switch (std.mem.count(u8, desc, "-")) {
         0 => blk: {

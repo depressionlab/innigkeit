@@ -1,7 +1,7 @@
 const x64 = @import("../x64.zig");
 const MSR = @import("root.zig").MSR;
 
-pub const IA32_STAR = extern struct {
+pub const IA32_STAR = packed struct(u64) {
     /// The target EIP of syscall in 32-bit compatibility or legacy mode.
     syscall_target_eip_32bit: u32,
 

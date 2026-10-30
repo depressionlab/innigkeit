@@ -114,3 +114,15 @@ overflow→OOB path found.
   the last instance of the `safe.memcpy` bug class.
 - It also **validates the boundary is otherwise solid** (caps, copies, overflow
   guards), which is the reassurance the audit was for.
+
+## Later findings
+
+- **F4 (socket ownership), found by fuzzing, FIXED 2026-10-30.** UDP/TCP socket
+  ids were global with no owner, so any process holding the `network`
+  entitlement could close, read or send on another process's sockets. Sockets
+  are now typed `net_socket` capabilities (`capabilities/types/NetSocket.zig`):
+  the syscalls take a per-process handle, the slot id never reaches userspace,
+  rights apply (`write` to send/shut down, `read` to receive/accept), and the
+  table's `Owner` record is the object's address. Process teardown releases the
+  handles, and the last reference closes the socket. Details:
+  `.claude/rules/user-boundary.md`.

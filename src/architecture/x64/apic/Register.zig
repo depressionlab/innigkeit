@@ -254,7 +254,7 @@ pub const Register = enum(u32) {
     pub fn xapicOffset(register: Register) usize {
         if (core.is_debug) std.debug.assert(register != .lapic_ipi); // not supported in xAPIC mode
 
-        return @intFromEnum(register) * 0x10;
+        return @backingInt(register) * 0x10;
     }
 
     /// Acquire the MSR number of this register.
@@ -272,7 +272,7 @@ pub const Register = enum(u32) {
             std.debug.assert(register != .interrupt_command_32_63); // not supported in x2APIC mode
         }
 
-        return 0x800 + @intFromEnum(register);
+        return 0x800 + @backingInt(register);
     }
 
     pub const register_space_size: core.Size = .from(4, .kib);

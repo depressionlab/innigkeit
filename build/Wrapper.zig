@@ -35,7 +35,7 @@ const std = @import("std");
 const Step = std.Build.Step;
 const Bundle = @import("Bundle.zig");
 
-const ArchSteps = std.AutoHashMapUnmanaged(Bundle.Architecture, *Step);
+const ArchSteps = std.hash_map.AutoHashMapUnmanaged(Bundle.Architecture, *Step);
 
 /// Steps that build the kernel for each architecture.
 kernel_steps: ArchSteps,

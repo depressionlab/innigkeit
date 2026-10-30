@@ -29,8 +29,8 @@ pub fn loadAndJump(thread: *innigkeit.user.Thread, elf_data: []const u8, proc_in
 
     const program_header_table: []const u8 = phdr: {
         const loc = header.programHeaderTableLocation();
-        const offset = @intFromEnum(loc.offset);
-        const size = @intFromEnum(loc.size);
+        const offset = @backingInt(loc.offset);
+        const size = @backingInt(loc.size);
         if (offset > elf_data.len or size > elf_data.len - offset) {
             log.err("ELF program header table [{x}, +{x}) out of file bounds ({x})", .{
                 offset, size, elf_data.len,
@@ -123,11 +123,11 @@ pub fn loadAndJump(thread: *innigkeit.user.Thread, elf_data: []const u8, proc_in
         var iter = try header.iterateProgramHeaders(program_header_table);
         while (iter.next()) |phdr| {
             if (phdr.type != .load) continue;
-            if (@intFromEnum(phdr.offset) <= @intFromEnum(header.program_header_offset) and
-                @intFromEnum(header.program_header_offset) < @intFromEnum(phdr.offset) + @intFromEnum(phdr.file_size))
+            if (@backingInt(phdr.offset) <= @backingInt(header.program_header_offset) and
+                @backingInt(header.program_header_offset) < @backingInt(phdr.offset) + @backingInt(phdr.file_size))
             {
                 break :blk @intCast(phdr.virtual_address.value +
-                    (@intFromEnum(header.program_header_offset) - @intFromEnum(phdr.offset)));
+                    (@backingInt(header.program_header_offset) - @backingInt(phdr.offset)));
             }
         }
         break :blk 0; // phdrs not covered by any PT_LOAD; PIE relocation unavailable

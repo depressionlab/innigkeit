@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const Bundle = @import("../../build/Bundle.zig");
+const configure_deps = @import("../../build/configure_deps.zig");
 const Options = @import("../../build/Options.zig");
 
 pub fn custom(
@@ -23,6 +24,8 @@ pub fn custom(
     {
         const io = b.graph.io;
         const codesign_opts = b.addOptions();
+        // The key is baked into the kernel, so a changed (or newly generated) key must re-run configure.
+        _ = configure_deps.track(b, "keys/codesign_public.key", .file_contents);
         const key_bytes = b.root.root_dir.handle.readFileAlloc(
             io,
             "keys/codesign_public.key",
@@ -34,7 +37,7 @@ pub fn custom(
             break :blk try b.allocator.alloc(u8, 32);
         };
         defer b.allocator.free(key_bytes);
-        const default_key: [32]u8 = if (key_bytes.len >= 32) key_bytes[0..32] else @splat(0);
+        const default_key: [32]u8 = if (key_bytes.len >= 32) key_bytes[0..32].* else @splat(0);
         codesign_opts.addOption([32]u8, "default_public_key", default_key);
         module.addImport("codesign_key_options", codesign_opts.createModule());
     }

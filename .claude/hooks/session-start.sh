@@ -76,6 +76,20 @@ if ! command -v swtpm >/dev/null 2>&1; then
         || log "WARN: could not install swtpm; the TPM/Secure Boot test path will be unavailable"
 fi
 
+# 2c. Secure Boot suite (-Dsecboot=true) tools: the build skips the suite with a
+#     note, rather than failing, when any of these is missing.
+if ! command -v sbsign >/dev/null 2>&1 || ! command -v mcopy >/dev/null 2>&1 || [ ! -f /usr/share/OVMF/OVMF_CODE_4M.secboot.fd ]; then
+    log "installing Secure Boot suite tools (sbsigntool, mtools, ovmf)"
+    apt-get install -y sbsigntool mtools ovmf >/dev/null 2>&1 \
+        || { apt-get update -qq && apt-get install -y sbsigntool mtools ovmf >/dev/null 2>&1; } \
+        || log "WARN: could not install sbsigntool/mtools/ovmf; -Dsecboot=true will skip"
+fi
+if ! command -v virt-fw-vars >/dev/null 2>&1; then
+    log "installing virt-firmware (virt-fw-vars)"
+    pip install --quiet virt-firmware >/dev/null 2>&1 \
+        || log "WARN: could not install virt-firmware; -Dsecboot=true will skip"
+fi
+
 # helpers
 # Download one dependency and store it in the Zig global cache. `zig fetch`
 # infers the format from the extension, so the temp file must keep it.
@@ -98,7 +112,18 @@ fetch_one() {
         *)         return 0 ;;
     esac
     tmp="$(mktemp --suffix="$sfx")"
-    curl -fsSL "${CURL_CA_OPTS[@]}" -o "$tmp" "$target"
+    curl -fsSL --retry 3 --retry-delay 2 "${CURL_CA_OPTS[@]}" -o "$tmp" "$target"
+    # Zig 0.17's `zig fetch <file>` hashes the stripped tree correctly but
+    # caches the tarball with its wrapper directory still nested, so a later
+    # `zig build` unpacks a different tree and reports a hash mismatch. Hand
+    # it a pre-flattened tarball instead: identical content, identical hash.
+    if [ "$sfx" != .zip ] && [ "$(tar -tf "$tmp" | cut -d/ -f1 | sort -u | wc -l)" -eq 1 ]; then
+        local flat; flat="$(mktemp -d)"
+        tar -xf "$tmp" -C "$flat" --strip-components=1
+        rm -f "$tmp"; tmp="$(mktemp --suffix=.tar.gz)"
+        tar -czf "$tmp" -C "$flat" .
+        rm -rf "$flat"
+    fi
     zig fetch "$tmp" >/dev/null
     rm -f "$tmp"
 }
@@ -121,6 +146,7 @@ prefetch_zon() {
 if [ ! -f "$SENTINEL" ]; then
     log "pre-populating Zig package cache from build.zig.zon"
     prefetch_zon build.zig.zon
+    prefetch_zon lint/build.zig.zon # zlinter lives in its own project
 fi
 
 # 4. ZLS matched to Zig

@@ -153,7 +153,7 @@ fn getSerialOutputFromNS16550a(dt: DeviceTree, node: DeviceTree.Node, memory_sys
     const device = try uart.Memory16550.create(
         register_range.address.toPtr([*]volatile u8),
         .{
-            .clock_frequency = @enumFromInt(clock_frequency),
+            .clock_frequency = @fromBackingInt(@intCast(clock_frequency)),
             .baud_rate = .@"115200",
         },
     );
@@ -235,7 +235,7 @@ fn getSerialOutputFromPL011(dt: DeviceTree, node: DeviceTree.Node, memory_system
     const device = try uart.PL011.create(
         register_range.address.toPtr([*]volatile u32),
         .{
-            .clock_frequency = @enumFromInt(clock_frequency),
+            .clock_frequency = @fromBackingInt(@intCast(clock_frequency)),
             .baud_rate = .@"115200",
         },
     );

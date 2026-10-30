@@ -9,7 +9,7 @@ pub const PhysicalAddress = enum(usize) {
     _,
 
     pub inline fn from(value: usize) PhysicalAddress {
-        return @enumFromInt(value);
+        return @fromBackingInt(@intCast(value));
     }
 
     /// Returns the physical address of this direct map virtual address.
@@ -18,7 +18,7 @@ pub const PhysicalAddress = enum(usize) {
     /// - The provided `address` is in the direct map.
     pub inline fn fromDirectMap(direct_map_address: root.KernelVirtualAddress) PhysicalAddress {
         if (core.is_debug) std.debug.assert(innigkeit.memory.globals.direct_map.containsAddress(direct_map_address));
-        return @enumFromInt(@intFromEnum(direct_map_address) - @intFromEnum(innigkeit.memory.globals.direct_map.address));
+        return @fromBackingInt(@intCast(@backingInt(direct_map_address) - @backingInt(innigkeit.memory.globals.direct_map.address)));
     }
 
     /// Returns the direct map virtual address corresponding to this physical address.
@@ -26,7 +26,7 @@ pub const PhysicalAddress = enum(usize) {
     /// **REQUIREMENTS**:
     /// - The provided `address` is covered by the direct map.
     pub inline fn toDirectMap(physical_address: PhysicalAddress) root.KernelVirtualAddress {
-        const direct_map_address: root.KernelVirtualAddress = @enumFromInt(@intFromEnum(physical_address) + @intFromEnum(innigkeit.memory.globals.direct_map.address));
+        const direct_map_address: root.KernelVirtualAddress = @fromBackingInt(@intCast(@backingInt(physical_address) + @backingInt(innigkeit.memory.globals.direct_map.address)));
         if (core.is_debug) std.debug.assert(innigkeit.memory.globals.direct_map.containsAddress(direct_map_address));
         return direct_map_address;
     }

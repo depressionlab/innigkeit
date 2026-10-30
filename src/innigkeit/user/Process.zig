@@ -68,7 +68,7 @@ entitlements: innigkeit.user.codesign.Manifest.Entitlements = .{
 /// FD 3..14 map to indices 0..11 respectively.
 ///
 /// TODO: refactor file system to the userspace?
-open_files: [12]?innigkeit.filesystem.simple_fs.OpenFile = .{null} ** 12,
+open_files: [12]?innigkeit.filesystem.simple_fs.OpenFile = @splat(null),
 open_files_lock: innigkeit.sync.TicketSpinLock = .{},
 
 /// Per-process file-descriptor table for the read/write/open/close/lseek/
@@ -106,7 +106,7 @@ pub fn create(options: CreateOptions) !*Process {
         process.fd_table.reset();
 
         // Same slab-reuse invariant.
-        process.open_files = .{null} ** 12;
+        process.open_files = @splat(null);
 
         // Same slab-reuse invariant: a previous occupant's `terminating`
         // (set true the moment it calls `terminateCallingThread`) must not

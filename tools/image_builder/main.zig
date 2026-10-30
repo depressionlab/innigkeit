@@ -1,6 +1,7 @@
 const core = @import("core");
 const std = @import("std");
 
+const describe = @import("describe.zig");
 const FAT = @import("fat/root.zig");
 const Gpt = @import("gpt/root.zig");
 const ImageDescription = @import("image/ImageDescription.zig");
@@ -8,6 +9,10 @@ const ImageDescription = @import("image/ImageDescription.zig");
 pub const disk_block_size: core.Size = .from(512, .byte);
 
 pub fn main(init: std.process.Init) !void {
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
+    if (args.len >= 2 and std.mem.eql(u8, args[1], "describe"))
+        return describe.run(init.arena.allocator(), init.io, args[2..]);
+
     const arguments = try getArguments(init.arena.allocator(), init.io, init.minimal.args);
 
     var rand = std.Random.DefaultPrng.init(blk: {
@@ -73,7 +78,7 @@ fn createDiskImage(allocator: std.mem.Allocator, io: std.Io, arguments: Argument
     const image_description = arguments.image_description.image_description;
 
     const disk_size = blk: {
-        if (!std.mem.isAligned(image_description.size, @intFromEnum(disk_block_size))) {
+        if (!std.mem.isAligned(image_description.size, @backingInt(disk_block_size))) {
             @panic("image size is not a multiple of 512 bytes!");
         }
         break :blk core.Size.from(image_description.size, .byte);
@@ -88,7 +93,7 @@ fn createDiskImage(allocator: std.mem.Allocator, io: std.Io, arguments: Argument
     try Gpt.create(allocator, image_description, disk_image, random, gpt_partitions);
 
     for (image_description.partitions, gpt_partitions) |partition, gpt_partition| {
-        const partition_slice = disk_image[gpt_partition.start_block * @intFromEnum(disk_block_size) ..][0 .. gpt_partition.block_count * @intFromEnum(disk_block_size)];
+        const partition_slice = disk_image[gpt_partition.start_block * @backingInt(disk_block_size) ..][0 .. gpt_partition.block_count * @backingInt(disk_block_size)];
 
         switch (partition.filesystem) {
             .none => {},
@@ -114,11 +119,11 @@ fn createAndMapDiskImage(io: std.Io, disk_image_path: []const u8, disk_size: cor
     } else try std.Io.Dir.cwd().createFile(io, disk_image_path, .{ .truncate = true, .read = true });
     defer file.close(io);
 
-    try file.setLength(io, @intFromEnum(disk_size));
+    try file.setLength(io, @backingInt(disk_size));
 
     return std.posix.mmap(
         null,
-        @intFromEnum(disk_size),
+        @backingInt(disk_size),
         .{
             .READ = true,
             .WRITE = true,
@@ -130,7 +135,7 @@ fn createAndMapDiskImage(io: std.Io, disk_image_path: []const u8, disk_size: cor
 }
 
 pub inline fn asPtr(comptime T: type, file_contents: []u8, index: usize, item_size: core.Size) T {
-    return @ptrCast(@alignCast(file_contents.ptr + (index * @intFromEnum(item_size))));
+    return @ptrCast(@alignCast(file_contents.ptr + (index * @backingInt(item_size))));
 }
 
 comptime {

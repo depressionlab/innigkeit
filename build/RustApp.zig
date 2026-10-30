@@ -4,57 +4,49 @@
 const std = @import("std");
 
 name: []const u8,
-binary_path: []const u8,
+binary: std.Build.LazyPath,
 step: *std.Build.Step,
 
 /// Build a workspace member by package name.
-pub fn build(b: *std.Build, name: []const u8) !@This() {
-    checkTargetInstallation(b); // TODO: cache this result
-
+///
+/// Cargo writes into a fixed directory in the local cache (not a `Run` output
+/// directory, which would be fresh every time) so its incremental state
+/// survives between builds. The step has side effects, so it always runs;
+/// cargo itself no-ops when nothing changed.
+pub fn build(b: *std.Build, build_helper: *std.Build.Step.Compile, name: []const u8) !@This() {
     const cargo = b.addSystemCommand(&.{ "cargo", "build" });
     cargo.addArg("--release");
 
-    const manifest_path_raw = try b.path("Cargo.toml").getPath4(b, b.default_step);
-    const manifest_path = b.pathResolve(&.{ manifest_path_raw.root_dir.path orelse ".", manifest_path_raw.sub_path });
+    const manifest_path = b.pathResolve(&.{try b.root.joinString(b.allocator, "Cargo.toml")});
     cargo.addArgs(&.{ "--manifest-path", manifest_path });
     cargo.addArgs(&.{ "--package", name });
-    cargo.addArgs(&.{ "--target", "x86_64-unknown-none" });
+    cargo.addArgs(&.{ "--target", target });
     cargo.has_side_effects = true;
+    cargo.step.dependOn(&targetCheck(b, build_helper).step);
 
-    cargo.setEnvironmentVariable(
-        "CARGO_TARGET_DIR",
-        b.fmt("{s}/cargo-target", .{b.install_path}),
-    );
-
-    const binary_path = b.fmt(
-        "{s}/cargo-target/x86_64-unknown-none/release/{s}",
-        .{ b.install_path, name },
-    );
+    const target_dir = std.Build.LazyPath.cache_root.path(b, "cargo-target");
+    cargo.addDirectoryArg2(target_dir, .{ .prefix = "--target-dir=" });
 
     return .{
         .name = name,
-        .binary_path = binary_path,
+        .binary = target_dir.path(b, b.fmt("{s}/release/{s}", .{ target, name })),
         .step = &cargo.step,
     };
 }
 
-/// Checked once per build invocation.
-var checked_target_installation = false;
+const target = "x86_64-unknown-none";
 
-fn checkTargetInstallation(b: *std.Build) void {
-    if (checked_target_installation) return;
-    checked_target_installation = true;
-
-    var exit_code: u8 = undefined;
-    const sysroot_raw = b.runAllowFail(
-        &.{ "rustc", "--print", "sysroot" },
-        &exit_code,
-        .ignore,
-    ) catch return;
-    const sysroot = std.mem.trim(u8, sysroot_raw, " \n\r");
-    const rustlib_dir = b.pathJoin(&.{ sysroot, "lib", "rustlib", "x86_64-unknown-none", "lib" });
-    std.Io.Dir.accessAbsolute(b.graph.io, rustlib_dir, .{}) catch std.debug.panic(
-        "the 'x86_64-unknown-none' Rust target is not installed (checked '{s}'). run `rustup target add x86_64-unknown-none` before building Rust apps",
-        .{rustlib_dir},
-    );
+/// One check per build invocation, shared by every cargo step. Runs at make
+/// time so the configuration stays pure and the answer is never stale.
+fn targetCheck(b: *std.Build, build_helper: *std.Build.Step.Compile) *std.Build.Step.Run {
+    const Cache = struct {
+        var run: ?*std.Build.Step.Run = null;
+    };
+    if (Cache.run) |run| return run;
+    const run = b.addRunArtifact(build_helper);
+    run.setName("check rust target");
+    run.addArgs(&.{ "require-rust-target", target });
+    run.has_side_effects = true;
+    Cache.run = run;
+    return run;
 }

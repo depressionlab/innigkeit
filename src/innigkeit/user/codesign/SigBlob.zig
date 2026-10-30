@@ -75,7 +75,7 @@ test "sig_blob: size and layout" {
 
 test "sig_blob: signed_message covers expected fields" {
     var blob: SigBlob = std.mem.zeroes(SigBlob);
-    blob.elf_hash = [_]u8{0xAB} ** 32;
+    blob.elf_hash = @as([32]u8, @splat(0xAB));
     blob.entitlements_raw = 0x0102030405060708;
     blob.key_id = 0xDEADBEEF;
 
@@ -86,11 +86,11 @@ test "sig_blob: signed_message covers expected fields" {
 }
 
 test "sig_blob: parse rejects wrong size" {
-    const buf = [_]u8{0} ** 10;
+    const buf = @as([10]u8, @splat(0));
     try std.testing.expectError(error.BadSize, SigBlob.parse(&buf));
 }
 
 test "sig_blob: parse rejects wrong magic" {
-    var buf = [_]u8{0} ** SigBlob.size;
+    var buf = @as([SigBlob.size]u8, @splat(0));
     try std.testing.expectError(error.BadMagic, SigBlob.parse(&buf));
 }

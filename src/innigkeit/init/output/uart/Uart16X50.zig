@@ -25,15 +25,15 @@ pub fn Uart16X50(comptime mode: root.Mode, comptime fifo_mode: enum { disabled, 
 
         pub fn create(base: AddressT, baud: ?root.Baud) root.CreateError!UartT {
             // write to scratch register to check if the UART is connected
-            writeRegister(base + @intFromEnum(RegisterOffset.scratch), 0xBA);
+            writeRegister(base + @backingInt(RegisterOffset.scratch), 0xBA);
 
             // if the scratch register is not `0xBA` then the UART is not connected
-            if (readRegister(base + @intFromEnum(RegisterOffset.scratch)) != 0xBA) return error.NotConnected;
+            if (readRegister(base + @backingInt(RegisterOffset.scratch)) != 0xBA) return error.NotConnected;
 
             // disable UART
             {
                 var modem_control: ModemControlRegister = @bitCast(readRegister(
-                    base + @intFromEnum(RegisterOffset.modem_control),
+                    base + @backingInt(RegisterOffset.modem_control),
                 ));
 
                 modem_control.dtr = false;
@@ -42,13 +42,13 @@ pub fn Uart16X50(comptime mode: root.Mode, comptime fifo_mode: enum { disabled, 
                 modem_control.out2 = false;
                 modem_control.loopback = false;
 
-                writeRegister(base + @intFromEnum(RegisterOffset.modem_control), @bitCast(modem_control));
+                writeRegister(base + @backingInt(RegisterOffset.modem_control), @bitCast(modem_control));
             }
 
             // disable interrupts
             {
                 var interrupt_enable: InterruptEnableRegister = @bitCast(readRegister(
-                    base + @intFromEnum(RegisterOffset.interrupt_enable),
+                    base + @backingInt(RegisterOffset.interrupt_enable),
                 ));
 
                 interrupt_enable.received_data_available = false;
@@ -56,13 +56,13 @@ pub fn Uart16X50(comptime mode: root.Mode, comptime fifo_mode: enum { disabled, 
                 interrupt_enable.receive_line_status = false;
                 interrupt_enable.modem_status = false;
 
-                writeRegister(base + @intFromEnum(RegisterOffset.interrupt_enable), @bitCast(interrupt_enable));
+                writeRegister(base + @backingInt(RegisterOffset.interrupt_enable), @bitCast(interrupt_enable));
             }
 
             // set baudrate
             if (baud) |b| {
                 writeRegister(
-                    base + @intFromEnum(RegisterOffset.line_control),
+                    base + @backingInt(RegisterOffset.line_control),
                     @bitCast(LineControlRegister{
                         .word_length = .@"8",
                         .stop_bits = .@"1",
@@ -77,18 +77,18 @@ pub fn Uart16X50(comptime mode: root.Mode, comptime fifo_mode: enum { disabled, 
                 const divisor = try b.integerDivisor();
 
                 writeRegister(
-                    base + @intFromEnum(RegisterOffset.divisor_latch_lsb),
+                    base + @backingInt(RegisterOffset.divisor_latch_lsb),
                     @truncate(divisor),
                 );
                 writeRegister(
-                    base + @intFromEnum(RegisterOffset.divisor_latch_msb),
+                    base + @backingInt(RegisterOffset.divisor_latch_msb),
                     @truncate(divisor >> 8),
                 );
             }
 
             // 8 bits, no parity, one stop bit
             writeRegister(
-                base + @intFromEnum(RegisterOffset.line_control),
+                base + @backingInt(RegisterOffset.line_control),
                 @bitCast(LineControlRegister{
                     .word_length = .@"8",
                     .stop_bits = .@"1",
@@ -104,7 +104,7 @@ pub fn Uart16X50(comptime mode: root.Mode, comptime fifo_mode: enum { disabled, 
                 // enable FIFO
                 {
                     var fifo_control: FIFOControlRegister = @bitCast(readRegister(
-                        base + @intFromEnum(RegisterOffset.fifo_control),
+                        base + @backingInt(RegisterOffset.fifo_control),
                     ));
 
                     fifo_control.enable_fifo = true;
@@ -113,14 +113,14 @@ pub fn Uart16X50(comptime mode: root.Mode, comptime fifo_mode: enum { disabled, 
                     fifo_control.rxrdy_txrdy = false;
                     fifo_control.trigger_level = .@"1";
 
-                    writeRegister(base + @intFromEnum(RegisterOffset.fifo_control), @bitCast(fifo_control));
+                    writeRegister(base + @backingInt(RegisterOffset.fifo_control), @bitCast(fifo_control));
                 }
             }
 
             // enable UART with loopback
             {
                 var modem_control: ModemControlRegister = @bitCast(readRegister(
-                    base + @intFromEnum(RegisterOffset.modem_control),
+                    base + @backingInt(RegisterOffset.modem_control),
                 ));
 
                 modem_control.dtr = true;
@@ -129,7 +129,7 @@ pub fn Uart16X50(comptime mode: root.Mode, comptime fifo_mode: enum { disabled, 
                 modem_control.out2 = true;
                 modem_control.loopback = true;
 
-                writeRegister(base + @intFromEnum(RegisterOffset.modem_control), @bitCast(modem_control));
+                writeRegister(base + @backingInt(RegisterOffset.modem_control), @bitCast(modem_control));
             }
 
             // send `0xAE` to the UART
@@ -141,17 +141,17 @@ pub fn Uart16X50(comptime mode: root.Mode, comptime fifo_mode: enum { disabled, 
             // disable loopback
             {
                 var modem_control: ModemControlRegister = @bitCast(readRegister(
-                    base + @intFromEnum(RegisterOffset.modem_control),
+                    base + @backingInt(RegisterOffset.modem_control),
                 ));
 
                 modem_control.loopback = false;
 
-                writeRegister(base + @intFromEnum(RegisterOffset.modem_control), @bitCast(modem_control));
+                writeRegister(base + @backingInt(RegisterOffset.modem_control), @bitCast(modem_control));
             }
 
             return .{
-                .write_register = base + @intFromEnum(RegisterOffset.write),
-                .line_status_register = base + @intFromEnum(RegisterOffset.line_status),
+                .write_register = base + @backingInt(RegisterOffset.write),
+                .line_status_register = base + @backingInt(RegisterOffset.line_status),
             };
         }
 
@@ -230,7 +230,7 @@ pub fn Uart16X50(comptime mode: root.Mode, comptime fifo_mode: enum { disabled, 
             }
         }
 
-        pub const register_region_size: core.Size = .from(@as(usize, @intFromEnum(RegisterOffset.scratch)) + 1, .byte);
+        pub const register_region_size: core.Size = .from(@as(usize, @backingInt(RegisterOffset.scratch)) + 1, .byte);
 
         const RegisterOffset = enum(u3) {
             read_write_divisor_latch_lsb = 0,

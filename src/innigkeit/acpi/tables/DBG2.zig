@@ -67,10 +67,10 @@ pub const DBG2 = extern struct {
 
         pub fn portType(debug_device: *align(1) const DebugDevice) PortType {
             return switch (debug_device.port_type) {
-                .serial => .{ .serial = @enumFromInt(debug_device.port_subtype) },
-                .@"1394" => .{ .@"1394" = @enumFromInt(debug_device.port_subtype) },
-                .usb => .{ .usb = @enumFromInt(debug_device.port_subtype) },
-                .net => .{ .net = @enumFromInt(debug_device.port_subtype) },
+                .serial => .{ .serial = @fromBackingInt(@intCast(debug_device.port_subtype)) },
+                .@"1394" => .{ .@"1394" = @fromBackingInt(@intCast(debug_device.port_subtype)) },
+                .usb => .{ .usb = @fromBackingInt(@intCast(debug_device.port_subtype)) },
+                .net => .{ .net = @fromBackingInt(@intCast(debug_device.port_subtype)) },
             };
         }
 

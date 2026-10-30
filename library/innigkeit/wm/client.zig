@@ -184,16 +184,16 @@ const FakeTransport = struct {
 const TestConn = Connection(FakeTransport);
 
 fn sid(n: u32) SurfaceId {
-    return @enumFromInt(n);
+    return @fromBackingInt(@intCast(n));
 }
 
 test "createSurface issues create_surface and binds the server's reply" {
     var conn: TestConn = .{ .transport = .{} };
-    conn.transport.reply = (Event{ .surface_created = .{ .surface = sid(5), .frame = @enumFromInt(99) } }).encode();
+    conn.transport.reply = (Event{ .surface_created = .{ .surface = sid(5), .frame = @fromBackingInt(@intCast(99)) } }).encode();
 
     const surface = try conn.createSurface();
     try std.testing.expectEqual(sid(5), surface.id);
-    try std.testing.expectEqual(@as(Handle, @enumFromInt(99)), surface.frame);
+    try std.testing.expectEqual(@as(Handle, @fromBackingInt(@intCast(99))), surface.frame);
     // It sent exactly one request, and it was create_surface.
     try std.testing.expectEqual(@as(usize, 1), conn.transport.sent_len);
     try std.testing.expectEqual(Request{ .create_surface = {} }, try Request.decode(conn.transport.sent[0]));
@@ -207,7 +207,7 @@ test "createSurface rejects a mismatched reply as a protocol violation" {
 
 test "surface ops emit the matching requests" {
     var conn: TestConn = .{ .transport = .{} };
-    const surface: Surface(FakeTransport) = .{ .conn = &conn, .id = sid(3), .frame = @enumFromInt(1) };
+    const surface: Surface(FakeTransport) = .{ .conn = &conn, .id = sid(3), .frame = @fromBackingInt(@intCast(1)) };
 
     try surface.commit(.{ .x = 1, .y = 2, .w = 10, .h = 20 });
     try std.testing.expectEqual(

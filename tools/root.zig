@@ -30,5 +30,6 @@ pub const tools: []const ToolDescription = &.{
         },
     },
     .{ .name = "initfs_builder" },
+    .{ .name = "build_helper" },
     .{ .name = "kernel_fuzz" },
 };

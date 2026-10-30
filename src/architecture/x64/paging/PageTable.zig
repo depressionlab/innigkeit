@@ -12,7 +12,7 @@ const x64 = @import("../x64.zig");
 
 /// A page table for x64.
 pub const PageTable = extern struct {
-    _entries: [number_of_entries]Entry.Raw align(@intFromEnum(small_page_size)),
+    _entries: [number_of_entries]Entry.Raw align(@backingInt(small_page_size)),
 
     pub const number_of_entries = 512;
 
@@ -696,30 +696,30 @@ pub const PageTable = extern struct {
         }
 
         fn getAddress4kib(entry: Entry) innigkeit.PhysicalAddress {
-            return @enumFromInt(entry._address_4kib_aligned.readNoShiftFullSize());
+            return @fromBackingInt(@intCast(entry._address_4kib_aligned.readNoShiftFullSize()));
         }
 
         fn setAddress4kib(entry: *Entry, address: innigkeit.PhysicalAddress) void {
             if (core.is_debug) std.debug.assert(address.pageAligned());
-            entry._address_4kib_aligned.writeNoShiftFullSize(@intFromEnum(address));
+            entry._address_4kib_aligned.writeNoShiftFullSize(@backingInt(address));
         }
 
         fn getAddress2mib(entry: Entry) innigkeit.PhysicalAddress {
-            return @enumFromInt(entry._address_2mib_aligned.readNoShiftFullSize());
+            return @fromBackingInt(@intCast(entry._address_2mib_aligned.readNoShiftFullSize()));
         }
 
         fn setAddress2mib(entry: *Entry, address: innigkeit.PhysicalAddress) void {
             if (core.is_debug) std.debug.assert(address.aligned(medium_page_size_alignment));
-            entry._address_2mib_aligned.writeNoShiftFullSize(@intFromEnum(address));
+            entry._address_2mib_aligned.writeNoShiftFullSize(@backingInt(address));
         }
 
         fn getAddress1gib(entry: Entry) innigkeit.PhysicalAddress {
-            return @enumFromInt(entry._address_1gib_aligned.readNoShiftFullSize());
+            return @fromBackingInt(@intCast(entry._address_1gib_aligned.readNoShiftFullSize()));
         }
 
         fn setAddress1gib(entry: *Entry, address: innigkeit.PhysicalAddress) void {
             if (core.is_debug) std.debug.assert(address.aligned(large_page_size_alignment));
-            entry._address_1gib_aligned.writeNoShiftFullSize(@intFromEnum(address));
+            entry._address_1gib_aligned.writeNoShiftFullSize(@backingInt(address));
         }
 
         /// Gets the next page table level.
@@ -931,7 +931,7 @@ pub const PageTable = extern struct {
                 flags_only.setAddress4kib(.zero);
                 try writer.print(
                     "[{d:0>3}] 512GiB 0x{x:0>16} {f}\n",
-                    .{ level4_index, level4_range.address.value, BinaryWithUnderscores{ .value = @intFromEnum(flags_only._raw) } },
+                    .{ level4_index, level4_range.address.value, BinaryWithUnderscores{ .value = @backingInt(flags_only._raw) } },
                 );
             } else {
                 try writer.print("[{d:0>3}] 512GiB 0x{x:0>16} ", .{ level4_index, level4_range.address.value });
@@ -962,7 +962,7 @@ pub const PageTable = extern struct {
                         flags_only.setAddress1gib(.zero);
                         try writer.print(
                             "  [{d:0>3}] 1GIB 0x{x:0>16} -> 0x{x:0>16} {f}\n",
-                            .{ level3_index, level3_range.address.value, physical.value, BinaryWithUnderscores{ .value = @intFromEnum(flags_only._raw) } },
+                            .{ level3_index, level3_range.address.value, physical.value, BinaryWithUnderscores{ .value = @backingInt(flags_only._raw) } },
                         );
                     } else {
                         try writer.print(
@@ -980,7 +980,7 @@ pub const PageTable = extern struct {
                     flags_only.setAddress4kib(.zero);
                     try writer.print(
                         "  [{d:0>3}] 1GIB 0x{x:0>16} {f}\n",
-                        .{ level3_index, level3_range.address.value, BinaryWithUnderscores{ .value = @intFromEnum(flags_only._raw) } },
+                        .{ level3_index, level3_range.address.value, BinaryWithUnderscores{ .value = @backingInt(flags_only._raw) } },
                     );
                 } else {
                     try writer.print(
@@ -1014,7 +1014,7 @@ pub const PageTable = extern struct {
                             flags_only.setAddress2mib(.zero);
                             try writer.print(
                                 "    [{d:0>3}] 2MiB 0x{x:0>16} -> 0x{x:0>16} {f}\n",
-                                .{ level2_index, level2_range.address.value, physical.value, BinaryWithUnderscores{ .value = @intFromEnum(flags_only._raw) } },
+                                .{ level2_index, level2_range.address.value, physical.value, BinaryWithUnderscores{ .value = @backingInt(flags_only._raw) } },
                             );
                         } else {
                             try writer.print(
@@ -1032,7 +1032,7 @@ pub const PageTable = extern struct {
                         flags_only.setAddress4kib(.zero);
                         try writer.print(
                             "    [{d:0>3}] 2MiB 0x{x:0>16} {f}\n",
-                            .{ level2_index, level2_range.address.value, BinaryWithUnderscores{ .value = @intFromEnum(flags_only._raw) } },
+                            .{ level2_index, level2_range.address.value, BinaryWithUnderscores{ .value = @backingInt(flags_only._raw) } },
                         );
                     } else {
                         try writer.print(
@@ -1073,7 +1073,7 @@ pub const PageTable = extern struct {
                             flags_only.setAddress4kib(.zero);
                             try writer.print(
                                 "      [{d:0>3}] 4KiB 0x{x:0>16} -> 0x{x:0>16} {f}\n",
-                                .{ level1_index, level1_range.address.value, physical.value, BinaryWithUnderscores{ .value = @intFromEnum(flags_only._raw) } },
+                                .{ level1_index, level1_range.address.value, physical.value, BinaryWithUnderscores{ .value = @backingInt(flags_only._raw) } },
                             );
                         } else {
                             try writer.print(

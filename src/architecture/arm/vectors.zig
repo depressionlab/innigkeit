@@ -214,7 +214,7 @@ fn handleUserFault(esr: arm.EsrEl1) noreturn {
     log.warn("{f}: unhandled user-mode exception ec={s} (0x{x:0>2}), killing process (exit status {})", .{
         process,
         std.enums.tagName(arm.EsrEl1.ExceptionClass, esr.ec) orelse "unnamed",
-        @intFromEnum(esr.ec),
+        @backingInt(esr.ec),
         exit_status,
     });
     process.terminateCallingThread(exit_status);

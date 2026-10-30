@@ -1,42 +1,34 @@
-//! Custom build steps that assemble a bootable disk image for each architecture.
+//! Assembles a bootable disk image for each architecture.
 //!
-//! `ImageStep` wraps an install step and exposes the output path as a
-//! `std.Build.LazyPath` so downstream steps (e.g. QEMU) can depend on it
-//! without hard-coding output directory layout.
-//!
-//! The image pipeline is:
+//! The image pipeline is a chain of `Step.Run`s:
 //! ```
-//! ImageDescriptionStep` (JSON manifest)
+//! `image_builder describe` (limine.conf + JSON manifest)
 //!     -> `image_builder` tool
 //!     -> raw image
 //!     -> (x64 only) `limine_install` tool
 //!     -> final image
-//!     -> `ImageStep`
+//!     -> install step
 //! ```
 // zlinter-disable require_errdefer_dealloc - every allocation here goes through b.allocator, an arena for the whole build graph's lifetime; there is no per-allocation free to add.
 const ImageStep = @This();
 
-const std = @import("std");
-const Step = std.Build.Step;
 const Bundle = @import("Bundle.zig");
 const Kernel = @import("Kernel.zig");
 const Options = @import("Options.zig");
+const std = @import("std");
 const Tool = @import("Tool.zig");
 const Wrapper = @import("Wrapper.zig");
 
-pub const Collection = std.AutoHashMapUnmanaged(Bundle.Architecture, *ImageStep);
-const ImageManifestStep = @import("ImageManifestStep.zig");
+pub const Collection = std.hash_map.AutoHashMapUnmanaged(Bundle.Architecture, *ImageStep);
 
-/// The internal `.custom` `Step` underlying `ImageStep`.
-step: Step,
-
-/// The install step that copies the `image_file` to the output path.
+/// Installs `built_file` into the install prefix. A VM boots the installed
+/// copy (it may write to its boot disk), never the immutable build-cache one.
 install_image: *std.Build.Step.InstallFile,
 
-/// The internal `GeneratedFile` underlying `image_file`.
-generated_image_file: std.Build.GeneratedFile,
+/// The finished image in the build cache. Read-only: copy it before mutating.
+built_file: std.Build.LazyPath,
 
-/// Stable `LazyPath` pointing to the installed image file.
+/// The installed image. Anything that boots it must depend on `install_image`.
 image_file: std.Build.LazyPath,
 
 pub fn registerImageSteps(
@@ -47,60 +39,12 @@ pub fn registerImageSteps(
     options: Options,
     architectures: []const Bundle.Architecture,
 ) !ImageStep.Collection {
-    const image_builder = tools.get("image_builder").?.debug_exe;
-    const limine_dep = b.dependency("limine_bin", .{});
-
     var image_steps: ImageStep.Collection = .empty;
     try image_steps.ensureTotalCapacity(b.allocator, @intCast(architectures.len));
 
     for (architectures) |arch| {
-        const image_file_name = b.fmt("innigkeit_{s}.hdd", .{@tagName(arch)});
-        const kernel = kernels.get(arch).?;
-
-        const desc_step = try ImageManifestStep.create(
-            b,
-            kernel,
-            arch,
-            limine_dep,
-            options.emulator.kaslr,
-        );
-
-        const assemble = b.addRunArtifact(image_builder);
-        assemble.addFileArg(desc_step.manifest_file);
-        const raw_image = assemble.addOutputFileArg(image_file_name);
-
-        // x64 additionally needs the Limine BIOS bootstrap written into the MBR.
-        const final_image = if (arch == .x64) blk: {
-            const bios_install = b.addRunArtifact(tools.get("limine_install").?.release_safe_exe);
-            bios_install.addArgs(&.{ "-p", "1" }); // 1-based partition index of the bios-boot partition
-            bios_install.addArg("-i");
-            bios_install.addFileArg(raw_image);
-            bios_install.addArg("-o");
-            break :blk bios_install.addOutputFileArg(image_file_name);
-        } else raw_image;
-
-        const install = b.addInstallFile(
-            final_image,
-            b.pathJoin(&.{ @tagName(arch), image_file_name }),
-        );
-
-        const image_step = try b.allocator.create(ImageStep);
-        image_step.* = .{
-            .install_image = install,
-            .step = .init(.{
-                .id = .custom,
-                .name = b.fmt("build {s} image", .{@tagName(arch)}),
-                .owner = b,
-                .makeFn = resolveImagePath,
-            }),
-            .generated_image_file = .{ .step = &image_step.step },
-            .image_file = .{ .generated = .{
-                .file = &image_step.generated_image_file,
-            } },
-        };
-        image_step.step.dependOn(&install.step);
-
-        wrapper.registerImage(arch, &install.step);
+        const image_step = try create(b, kernels.get(arch).?, tools, arch, options.emulator.kaslr, "innigkeit");
+        wrapper.registerImage(arch, &image_step.install_image.step);
         image_steps.putAssumeCapacityNoClobber(arch, image_step);
     }
 
@@ -120,59 +64,48 @@ pub fn buildTestImageStep(
     options: Options, // reserved for future use (e.g. UEFI vs BIOS selection)
 ) !*ImageStep {
     _ = options;
+    return create(b, kernel, tools, arch, false, "innigkeit_test");
+}
+
+fn create(
+    b: *std.Build,
+    kernel: Kernel,
+    tools: Tool.Collection,
+    arch: Bundle.Architecture,
+    kaslr: bool,
+    name_prefix: []const u8,
+) !*ImageStep {
     const image_builder = tools.get("image_builder").?.debug_exe;
     const limine_dep = b.dependency("limine_bin", .{});
-    const image_file_name = b.fmt("innigkeit_test_{s}.hdd", .{@tagName(arch)});
+    const image_file_name = b.fmt("{s}_{s}.hdd", .{ name_prefix, @tagName(arch) });
 
-    const desc_step = try ImageManifestStep.create(
-        b,
-        kernel,
-        arch,
-        limine_dep,
-        false,
-    );
+    const describe = b.addRunArtifact(image_builder);
+    describe.addArgs(&.{ "describe", @tagName(arch), if (kaslr) "1" else "0" });
+    describe.addFileArg(kernel.kernel_binary);
+    describe.addDirectoryArg2(limine_dep.path(""), .{});
+    const manifest = describe.addOutputFileArg("image_description.json");
+    _ = describe.addOutputFileArg("limine.conf");
 
     const assemble = b.addRunArtifact(image_builder);
-    assemble.addFileArg(desc_step.manifest_file);
+    assemble.addFileArg(manifest);
     const raw_image = assemble.addOutputFileArg(image_file_name);
 
+    // x64 additionally needs the Limine BIOS bootstrap written into the MBR.
     const final_image = if (arch == .x64) blk: {
         const bios_install = b.addRunArtifact(tools.get("limine_install").?.release_safe_exe);
-        bios_install.addArgs(&.{ "-p", "1" });
+        bios_install.addArgs(&.{ "-p", "1" }); // 1-based partition index of the bios-boot partition
         bios_install.addArg("-i");
         bios_install.addFileArg(raw_image);
         bios_install.addArg("-o");
         break :blk bios_install.addOutputFileArg(image_file_name);
     } else raw_image;
 
-    const install = b.addInstallFile(
-        final_image,
-        b.pathJoin(&.{ @tagName(arch), image_file_name }),
-    );
-
+    const install_path = b.pathJoin(&.{ @tagName(arch), image_file_name });
     const image_step = try b.allocator.create(ImageStep);
     image_step.* = .{
-        .install_image = install,
-        .step = .init(.{
-            .id = .custom,
-            .name = b.fmt("build {s} test image", .{@tagName(arch)}),
-            .owner = b,
-            .makeFn = resolveImagePath,
-        }),
-        .generated_image_file = .{ .step = &image_step.step },
-        .image_file = .{ .generated = .{
-            .file = &image_step.generated_image_file,
-        } },
+        .install_image = b.addInstallFile(final_image, install_path),
+        .built_file = final_image,
+        .image_file = .{ .relative = .{ .base = .install_prefix, .sub_path = install_path } },
     };
-    image_step.step.dependOn(&install.step);
     return image_step;
-}
-
-/// Resolves the installed image path into `generated_image_file` at make time.
-fn resolveImagePath(step: *Step, _: Step.MakeOptions) !void {
-    const self: *ImageStep = @fieldParentPtr("step", step);
-    self.generated_image_file.path = step.owner.getInstallPath(
-        self.install_image.dir,
-        self.install_image.dest_rel_path,
-    );
 }

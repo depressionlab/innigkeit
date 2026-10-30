@@ -1,3 +1,5 @@
+// TODO: make this less of a mess... this is mission-critical code lol
+
 const RedBlackTree = @This();
 const std = @import("std");
 
@@ -1083,7 +1085,7 @@ fn expectKvEq(expected: anytype, actual: anytype) !void {
     try std.testing.expectEqual(expected.?.value, actual.?.value);
 }
 
-fn dumpContents(hashmap: std.AutoHashMapUnmanaged(u8, u8), treemap: RedBlackTree) void {
+fn dumpContents(hashmap: std.hash_map.AutoHashMapUnmanaged(u8, u8), treemap: RedBlackTree) void {
     var it1 = hashmap.iterator();
     std.debug.print("hashmap: [", .{});
     if (it1.next()) |next| std.debug.print("{}", .{next.key_ptr.*});
@@ -1110,7 +1112,7 @@ test "fuzz" {
             var input = smith.in;
 
             const TreeMap = RedBlackTree;
-            const HashMap = std.AutoHashMapUnmanaged(u8, u8);
+            const HashMap = std.hash_map.AutoHashMapUnmanaged(u8, u8);
 
             var gpa: std.heap.SafeAllocator = .init(std.testing.allocator, .{});
             const alloc = gpa.allocator();

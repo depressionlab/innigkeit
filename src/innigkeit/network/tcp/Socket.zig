@@ -10,6 +10,7 @@
 const eth = @import("../ethernet.zig");
 const innigkeit = @import("innigkeit");
 const ip4 = @import("../ipv4.zig");
+const Owner = @import("../owner.zig").Owner;
 const seg_mod = @import("Segment.zig");
 const std = @import("std");
 const Segment = seg_mod.Segment;
@@ -38,12 +39,15 @@ const RX_BUF_SIZE: usize = 8192;
 pub const Socket = struct {
     state: State = .closed,
     in_use: bool = false,
+    /// Who may operate on this socket; inbound connections inherit their
+    /// listener's owner.
+    owner: Owner = .kernel,
     is_listener: bool = false,
 
     /// Local port.
     local_port: u16 = 0,
     /// Remote IP and port (zero for listeners waiting for a connection).
-    remote_ip: [4]u8 = .{0} ** 4,
+    remote_ip: [4]u8 = @splat(0),
     remote_port: u16 = 0,
 
     /// Send sequence numbers.
@@ -91,7 +95,7 @@ pub const Socket = struct {
     }
 };
 
-var sockets: [TCP_MAX]Socket = [_]Socket{.{}} ** TCP_MAX;
+var sockets: [TCP_MAX]Socket = @splat(.{});
 var lock: innigkeit.sync.TicketSpinLock = .{};
 
 fn send(
@@ -159,12 +163,13 @@ fn allocSlot() ?usize {
 }
 
 /// Open a TCP listening socket on `port`. Returns slot id or null.
-pub fn openListener(port: u16) ?u8 {
+pub fn openListener(owner: Owner, port: u16) ?u8 {
     lock.lock();
     defer lock.unlock();
     const i = allocSlot() orelse return null;
     sockets[i] = .{
         .in_use = true,
+        .owner = owner,
         .is_listener = true,
         .state = .listen,
         .local_port = port,
@@ -175,7 +180,7 @@ pub fn openListener(port: u16) ?u8 {
 /// Initiate an outbound connection to `dst_ip:dst_port` from `src_port`.
 /// Returns the socket id. The connection completes asynchronously; poll
 /// with `isConnected` before sending.
-pub fn openConnect(src_port: u16, dst_ip: [4]u8, dst_port: u16) ?u8 {
+pub fn openConnect(owner: Owner, src_port: u16, dst_ip: [4]u8, dst_port: u16) ?u8 {
     const our_mac = innigkeit.drivers.virtio.net.getMac() orelse return null;
     const our_ip_ptr = innigkeit.drivers.virtio.net.getIp() orelse return null;
     const our_ip = our_ip_ptr.*;
@@ -188,6 +193,7 @@ pub fn openConnect(src_port: u16, dst_ip: [4]u8, dst_port: u16) ?u8 {
     const isn: u32 = @truncate(innigkeit.time.init.getUptimeMs() *% 0x9E3779B1);
     sockets[i] = .{
         .in_use = true,
+        .owner = owner,
         .state = .syn_sent,
         .local_port = src_port,
         .remote_ip = dst_ip,
@@ -201,11 +207,11 @@ pub fn openConnect(src_port: u16, dst_ip: [4]u8, dst_port: u16) ?u8 {
 
 /// Block until the socket reaches ESTABLISHED (or CLOSED on error).
 /// Yields the CPU in a loop.
-pub fn waitConnected(id: u8) bool {
+pub fn waitConnected(owner: Owner, id: u8) bool {
     var tries: usize = 0;
     while (tries < 2000) : (tries += 1) {
         lock.lock();
-        const st = if (id < TCP_MAX and sockets[id].in_use) sockets[id].state else .closed;
+        const st = if (ownedLocked(owner, id)) sockets[id].state else .closed;
         lock.unlock();
         switch (st) {
             .established => return true,
@@ -224,15 +230,15 @@ pub fn waitConnected(id: u8) bool {
 /// net-poll task) instead of polling. Returns the new socket id, or null if
 /// `id` is invalid, not a listener, or the listener is closed while waiting.
 /// No timeout: blocks until a connection arrives or the listener is closed.
-pub fn accept(id: u8) ?u8 {
-    if (id >= TCP_MAX) return null;
+pub fn accept(owner: Owner, id: u8) ?u8 {
     lock.lock();
     while (true) {
-        const ls = &sockets[id];
-        if (!ls.in_use or !ls.is_listener) {
+        // Re-checked after every wakeup (the slot may have been reused).
+        if (!ownedLocked(owner, id) or !sockets[id].is_listener) {
             lock.unlock();
             return null;
         }
+        const ls = &sockets[id];
         if (ls.accept_slot >= 0) {
             const slot: u8 = @intCast(ls.accept_slot);
             ls.accept_slot = -1;
@@ -248,10 +254,10 @@ pub fn accept(id: u8) ?u8 {
 
 /// Send data on an established socket. Returns bytes sent (may be less than
 /// `data.len` if data exceeds MSS; caller should loop).
-pub fn sendData(id: u8, data: []const u8) usize {
+pub fn sendData(owner: Owner, id: u8, data: []const u8) usize {
     lock.lock();
     defer lock.unlock();
-    if (id >= TCP_MAX or !sockets[id].in_use) return 0;
+    if (!ownedLocked(owner, id)) return 0;
     if (sockets[id].state != .established) return 0;
     const chunk_len = @min(data.len, MSS);
     send(&sockets[id], .{ .ack = true, .psh = true }, data[0..chunk_len]);
@@ -264,20 +270,55 @@ pub fn sendData(id: u8, data: []const u8) usize {
 /// `handlers/network.zig`), so nothing here requires non-blocking behavior
 /// for user-memory-safety reasons anymore; kept non-blocking because no
 /// caller needs a blocking variant yet, not because one would be unsafe.
-pub fn recvData(id: u8, buf: []u8) u16 {
+pub fn recvData(owner: Owner, id: u8, buf: []u8) u16 {
     lock.lock();
     defer lock.unlock();
-    if (id >= TCP_MAX or !sockets[id].in_use) return 0;
+    if (!ownedLocked(owner, id)) return 0;
     return sockets[id].rxPop(buf);
 }
 
 /// Initiate graceful close. Wakes any task blocked in `accept` on this slot
 /// (it observes `in_use == false` and returns null).
-pub fn closeSocket(id: u8) void {
+pub fn closeSocket(owner: Owner, id: u8) void {
     lock.lock();
     defer lock.unlock();
-    if (id >= TCP_MAX or !sockets[id].in_use) return;
-    const s = &sockets[id];
+    if (!ownedLocked(owner, id)) return;
+    closeLocked(&sockets[id]);
+}
+
+/// Hand connection `id` from `from` to `to`: `accept` moves an inbound
+/// connection from its listener to the capability object that will hold it.
+/// False if `from` does not own it (closed in the meantime).
+pub fn reown(from: Owner, to: Owner, id: u8) bool {
+    lock.lock();
+    defer lock.unlock();
+    if (!ownedLocked(from, id)) return false;
+    sockets[id].owner = to;
+    return true;
+}
+
+/// Close every TCP socket `owner` still has open.
+pub fn closeAllOwnedBy(owner: Owner) void {
+    lock.lock();
+    defer lock.unlock();
+    for (&sockets) |*s| {
+        if (s.in_use and s.owner == owner) closeLocked(s);
+    }
+}
+
+/// Whether `id` is an open socket owned by `owner` (for tests).
+pub fn ownedBy(owner: Owner, id: u8) bool {
+    lock.lock();
+    defer lock.unlock();
+    return ownedLocked(owner, id);
+}
+
+/// True if `id` is an open socket owned by `owner`. Caller holds `lock`.
+fn ownedLocked(owner: Owner, id: u8) bool {
+    return id < TCP_MAX and sockets[id].in_use and sockets[id].owner == owner;
+}
+
+fn closeLocked(s: *Socket) void {
     switch (s.state) {
         .established, .close_wait => {
             const new_state: State = if (s.state == .established) .fin_wait_1 else .last_ack;
@@ -295,7 +336,7 @@ pub fn closeSocket(id: u8) void {
 /// Called from the network poller with a TCP payload (no IP header).
 /// `src_ip` / `dst_ip` are needed for checksum and to identify the connection.
 pub fn handleSegment(src_ip: [4]u8, dst_ip: [4]u8, data: []const u8) void {
-    _ = dst_ip; // we always accept frames addressed to us
+    _ = dst_ip; // `socket.handleIp` already dropped packets not addressed to this host
 
     const incoming = seg_mod.parse(data) orelse return;
 
@@ -324,6 +365,7 @@ fn handleListen(listener: *Socket, listener_slot: usize, src_ip: [4]u8, incoming
     sockets[child_slot] = .{
         .in_use = true,
         .state = .syn_received,
+        .owner = listener.owner,
         .local_port = listener.local_port,
         .remote_ip = src_ip,
         .remote_port = incoming.src_port,

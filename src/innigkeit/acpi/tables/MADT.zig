@@ -1249,7 +1249,7 @@ test "MADTIterator: rejects an entry whose length claims more than remains in th
     var buf: [madt_fixed_prefix_size + 3]u8 = undefined;
     @memset(&buf, 0);
     std.mem.writeInt(u32, buf[4..8], buf.len, .little); // header.length
-    buf[madt_fixed_prefix_size + 0] = @intFromEnum(MADT.InterruptControllerEntry.Type.io_apic);
+    buf[madt_fixed_prefix_size + 0] = @backingInt(MADT.InterruptControllerEntry.Type.io_apic);
     buf[madt_fixed_prefix_size + 1] = 12; // claims 12 bytes; only 3 remain
 
     const madt: *const MADT = @ptrCast(&buf);
@@ -1261,7 +1261,7 @@ test "MADTIterator: accepts a well-formed entry that exactly fills the remaining
     var buf: [madt_fixed_prefix_size + 12]u8 = undefined;
     @memset(&buf, 0);
     std.mem.writeInt(u32, buf[4..8], buf.len, .little); // header.length
-    buf[madt_fixed_prefix_size + 0] = @intFromEnum(MADT.InterruptControllerEntry.Type.io_apic);
+    buf[madt_fixed_prefix_size + 0] = @backingInt(MADT.InterruptControllerEntry.Type.io_apic);
     buf[madt_fixed_prefix_size + 1] = 12; // exactly matches the 12 bytes remaining
 
     const madt: *const MADT = @ptrCast(&buf);

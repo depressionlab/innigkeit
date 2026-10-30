@@ -301,7 +301,7 @@ pub const Ext4 = struct {
             log.warn("ext4: filesystem was not cleanly unmounted; some data may be stale (read-only access)", .{});
         }
 
-        var vol: [17]u8 = .{0} ** 17;
+        var vol: [17]u8 = @splat(0);
         @memcpy(vol[0..16], raw[0x78..0x88]);
 
         const vol_name_len = std.mem.findScalar(u8, vol[0..16], 0) orelse 16;
@@ -1194,7 +1194,11 @@ pub const Ext4 = struct {
         var lb = first_free_lb;
         while (lb < old_last_lb) : (lb += 1) {
             const phys = self.mapBlock(&inode, lb) catch continue;
-            if (phys != 0) self.freeBlock(phys) catch {};
+            // Keep truncating on failure: stopping here would leave blocks that were
+            // already freed still referenced by the extent tree, which is worse than
+            // leaking this one until fsck.
+            if (phys != 0) self.freeBlock(phys) catch |err|
+                log.warn("truncate: leaked block {d} of inode {d}: {t}", .{ phys, inode_num, err });
         }
 
         // Truncate the inline extent tree (remove entries with block >= first_free_lb).
@@ -1358,7 +1362,7 @@ fn writeTestDirRec(buf: []u8, off: usize, ino: u32, rec_len: u16, name_len: u8, 
 }
 
 test "ext4: dir block iterator yields valid entries" {
-    var block = [_]u8{0} ** 1024;
+    var block = @as([1024]u8, @splat(0));
     // "." (inode 11, dir) followed by "hello" (inode 42, regular file) whose
     // rec_len covers the rest of the block, as ext4 lays out directory blocks.
     writeTestDirRec(&block, 0, 11, 12, 1, 2, ".");
@@ -1383,7 +1387,7 @@ test "ext4: dir block iterator yields valid entries" {
 }
 
 test "ext4: dir block iterator terminates on malformed records" {
-    var block = [_]u8{0} ** 1024;
+    var block = @as([1024]u8, @splat(0));
 
     // (a) rec_len == 0 must not loop forever: rejected immediately.
     writeTestDirRec(&block, 0, 7, 0, 1, 1, "x");

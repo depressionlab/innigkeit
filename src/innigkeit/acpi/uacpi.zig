@@ -32,10 +32,10 @@ const core = @import("core");
 /// static buffer for tables, "UACPI_STATIC_TABLE_ARRAY_LEN", which is configured
 /// as 16 descriptors in length by default.
 pub fn setupEarlyTableAccess(temporary_buffer: []align(@sizeOf(usize)) u8) !void {
-    const ret: Status = @enumFromInt(c.uacpi_setup_early_table_access(
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_setup_early_table_access(
         temporary_buffer.ptr,
         temporary_buffer.len,
-    ));
+    )));
     try ret.toError();
 }
 
@@ -51,7 +51,7 @@ pub fn tableSubsystemAvailable() bool {
 /// This getter becomes available along with the table subsystem, use `tableSubsystemAvailable` to check.
 pub fn isPlatformReducedHardware() !bool {
     var value: bool = undefined;
-    const ret: Status = @enumFromInt(c.uacpi_is_platform_reduced_hardware(&value));
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_is_platform_reduced_hardware(&value)));
     try ret.toError();
     return value;
 }
@@ -88,9 +88,9 @@ pub const InitalizeOptions = packed struct(u64) {
 ///
 /// Enters ACPI mode.
 pub fn initialize(options: InitalizeOptions) !void {
-    const ret: Status = @enumFromInt(c.uacpi_initialize(
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_initialize(
         @bitCast(options),
-    ));
+    )));
     try ret.toError();
 }
 
@@ -98,13 +98,13 @@ pub fn initialize(options: InitalizeOptions) !void {
 ///
 /// Initializes the event subsystem.
 pub fn namespaceLoad() !void {
-    const ret: Status = @enumFromInt(c.uacpi_namespace_load());
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_namespace_load()));
     try ret.toError();
 }
 
 /// Initializes all the necessary objects in the namespaces by calling _STA/_INI etc.
 pub fn namespaceInitialize() !void {
-    const ret: Status = @enumFromInt(c.uacpi_namespace_initialize());
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_namespace_initialize()));
     try ret.toError();
 }
 
@@ -130,7 +130,7 @@ pub const InitLevel = enum(c.uacpi_init_level) {
 
 /// Returns the current subsystem initialization level
 pub fn currentInitLevel() InitLevel {
-    return @enumFromInt(c.uacpi_get_current_init_level());
+    return @fromBackingInt(@intCast(c.uacpi_get_current_init_level()));
 }
 
 pub const Bitness = enum(u8) {
@@ -141,9 +141,9 @@ pub const Bitness = enum(u8) {
 /// Get the bitness of the currently loaded AML code according to the DSDT.
 pub fn getAmlBitness() !Bitness {
     var value: Bitness = undefined;
-    const ret: Status = @enumFromInt(c.uacpi_get_aml_bitness(
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_get_aml_bitness(
         @ptrCast(&value),
-    ));
+    )));
     try ret.toError();
     return value;
 }
@@ -152,13 +152,13 @@ pub fn getAmlBitness() !Bitness {
 ///
 /// Note that ACPI mode is entered automatically during the call to `initialize`.
 pub fn enterAcpiMode() !void {
-    const ret: Status = @enumFromInt(c.uacpi_enter_acpi_mode());
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_enter_acpi_mode()));
     try ret.toError();
 }
 
 /// Helper for leaving ACPI mode.
 pub fn leaveAcpiMode() !void {
-    const ret: Status = @enumFromInt(c.uacpi_leave_acpi_mode());
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_leave_acpi_mode()));
     try ret.toError();
 }
 
@@ -169,16 +169,16 @@ pub fn leaveAcpiMode() !void {
 /// This number is used for validation during release.
 pub fn acquireGlobalLock(timeout: Timeout) !u32 {
     var seq: u32 = undefined;
-    const ret: Status = @enumFromInt(c.uacpi_acquire_global_lock(
-        @intFromEnum(timeout),
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_acquire_global_lock(
+        @backingInt(timeout),
         &seq,
-    ));
+    )));
     try ret.toError();
     return seq;
 }
 
 pub fn releaseGlobalLock(seq: u32) !void {
-    const ret: Status = @enumFromInt(c.uacpi_release_global_lock(seq));
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_release_global_lock(seq)));
     try ret.toError();
 }
 
@@ -203,7 +203,7 @@ pub const InterruptModel = enum(c.uacpi_interrupt_model) {
 };
 
 pub fn setInterruptModel(model: InterruptModel) !void {
-    const ret: Status = @enumFromInt(c.uacpi_set_interrupt_model(@intFromEnum(model)));
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_set_interrupt_model(@backingInt(model))));
     try ret.toError();
 }
 
@@ -213,13 +213,13 @@ pub fn setInterruptModel(model: InterruptModel) !void {
 /// _PRW methods etc., and marking those it wishes to use for wake by calling `Node.setupGPEForWake` and
 /// `Node.enableGPEForWake`
 pub fn finializeGpeInitialization() !void {
-    const ret: Status = @enumFromInt(c.uacpi_finalize_gpe_initialization());
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_finalize_gpe_initialization()));
     try ret.toError();
 }
 
 /// Disable all GPEs currently set up on the system.
 pub fn disableAllGPEs() !void {
-    const ret: Status = @enumFromInt(c.uacpi_disable_all_gpes());
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_disable_all_gpes()));
     try ret.toError();
 }
 
@@ -227,7 +227,7 @@ pub fn disableAllGPEs() !void {
 ///
 /// This is only needed after the system wakes from a shallow sleep state and is called automatically by wake code.
 pub fn enableAllRuntimeGPEs() !void {
-    const ret: Status = @enumFromInt(c.uacpi_enable_all_runtime_gpes());
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_enable_all_runtime_gpes()));
     try ret.toError();
 }
 
@@ -235,7 +235,7 @@ pub fn enableAllRuntimeGPEs() !void {
 ///
 /// This is only needed before the system goes to sleep is called automatically by sleep code.
 pub fn enableAllWakeGPEs() !void {
-    const ret: Status = @enumFromInt(c.uacpi_enable_all_wake_gpes());
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_enable_all_wake_gpes()));
     try ret.toError();
 }
 
@@ -251,17 +251,17 @@ pub const InterfaceKind = enum(c.uacpi_interface_kind) {
 ///
 /// After installing an interface, all _OSI queries report it as supported.
 pub fn installInterface(name: [:0]const u8, kind: InterfaceKind) !void {
-    const ret: Status = @enumFromInt(c.uacpi_install_interface(
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_install_interface(
         name.ptr,
-        @intFromEnum(kind),
-    ));
+        @backingInt(kind),
+    )));
     try ret.toError();
 }
 
 pub fn uninstallInterface(name: [:0]const u8) !void {
-    const ret: Status = @enumFromInt(c.uacpi_uninstall_interface(
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_uninstall_interface(
         name.ptr,
-    ));
+    )));
     try ret.toError();
 }
 
@@ -273,9 +273,9 @@ pub fn uninstallInterface(name: [:0]const u8) !void {
 /// The callback is able to override the return value dynamically or leave it untouched if desired (e.g. if it
 /// simply wants to log something or do internal bookkeeping of some kind).
 pub fn setInterfaceQueryHandler(handler: InterfaceHandler) !void {
-    const ret: Status = @enumFromInt(c.uacpi_set_interface_query_handler(
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_set_interface_query_handler(
         makeInterfaceHandlerWrapper(handler),
-    ));
+    )));
     try ret.toError();
 }
 
@@ -284,10 +284,10 @@ pub fn setInterfaceQueryHandler(handler: InterfaceHandler) !void {
 /// - 'addr32' is the real mode entry-point address
 /// - 'addr64' is the protected mode entry-point address
 pub fn setWakingVector(addr32: innigkeit.PhysicalAddress, addr64: innigkeit.PhysicalAddress) !void {
-    const ret: Status = @enumFromInt(c.uacpi_set_waking_vector(
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_set_waking_vector(
         @bitCast(addr32),
         @bitCast(addr64),
-    ));
+    )));
     try ret.toError();
 }
 
@@ -302,39 +302,39 @@ pub const SleepState = enum(c.uacpi_sleep_state) {
 
 /// Prepare for a given sleep state.
 pub fn prepareForSleep(state: SleepState) !void {
-    const ret: Status = @enumFromInt(c.uacpi_prepare_for_sleep_state(
-        @intFromEnum(state),
-    ));
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_prepare_for_sleep_state(
+        @backingInt(state),
+    )));
     try ret.toError();
 }
 
 /// Enter the given sleep state after preparation.
 pub fn sleep(state: SleepState) !void {
-    const ret: Status = @enumFromInt(c.uacpi_enter_sleep_state(
-        @intFromEnum(state),
-    ));
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_enter_sleep_state(
+        @backingInt(state),
+    )));
     try ret.toError();
 }
 
 /// Prepare to leave the given sleep state.
 pub fn prepareForWake(state: SleepState) !void {
-    const ret: Status = @enumFromInt(c.uacpi_prepare_for_wake_from_sleep_state(
-        @intFromEnum(state),
-    ));
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_prepare_for_wake_from_sleep_state(
+        @backingInt(state),
+    )));
     try ret.toError();
 }
 
 /// Wake from the given sleep state.
 pub fn wake(state: SleepState) !void {
-    const ret: Status = @enumFromInt(c.uacpi_wake_from_sleep_state(
-        @intFromEnum(state),
-    ));
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_wake_from_sleep_state(
+        @backingInt(state),
+    )));
     try ret.toError();
 }
 
 /// Attempt reset via the FADT reset register.
 pub fn reboot() !void {
-    const ret: Status = @enumFromInt(c.uacpi_reboot());
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_reboot()));
     try ret.toError();
 }
 
@@ -344,10 +344,10 @@ pub fn reboot() !void {
 pub fn readGas(gas: *const acpi.Address) !u64 {
     var value: u64 = undefined;
 
-    const ret: Status = @enumFromInt(c.uacpi_gas_read(
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_gas_read(
         @ptrCast(gas),
         @ptrCast(&value),
-    ));
+    )));
     try ret.toError();
 
     return value;
@@ -357,10 +357,10 @@ pub fn readGas(gas: *const acpi.Address) !u64 {
 ///
 /// Prefer `mapGas` + `MappedGas.write`.
 pub fn writeGas(gas: *const acpi.Address, value: u64) !void {
-    const ret: Status = @enumFromInt(c.uacpi_gas_write(
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_gas_write(
         @ptrCast(gas),
         value,
-    ));
+    )));
     try ret.toError();
 }
 
@@ -370,10 +370,10 @@ pub const MappedGas = opaque {
     pub fn read(mapped_gas: *const MappedGas) !u64 {
         var value: u64 = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_gas_read(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_gas_read(
             @ptrCast(mapped_gas),
             @ptrCast(&value),
-        ));
+        )));
         try ret.toError();
 
         return value;
@@ -382,10 +382,10 @@ pub const MappedGas = opaque {
     /// Same as `writeGas` but operates on a pre-mapped handle for faster access and/or ability to use in critical
     /// sections/irq contexts.
     pub fn write(mapped_gas: *const MappedGas, value: u64) !void {
-        const ret: Status = @enumFromInt(c.uacpi_gas_write(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_gas_write(
             @ptrCast(mapped_gas),
             value,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -400,10 +400,10 @@ pub const MappedGas = opaque {
 pub fn mapGas(gas: *const acpi.Address) !*MappedGas {
     var mapped_gas: *MappedGas = undefined;
 
-    const ret: Status = @enumFromInt(c.uacpi_map_gas(
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_map_gas(
         @ptrCast(gas),
         @ptrCast(&mapped_gas),
-    ));
+    )));
     try ret.toError();
 
     return mapped_gas;
@@ -422,10 +422,10 @@ pub const InterfaceAction = enum(c.uacpi_interface_action) {
 /// By default, all vendor strings (like "Windows 2000") are enabled, and all host features
 /// (like "3.0 Thermal Model") are disabled.
 pub fn bulkConfigureInterfaces(kind: InterfaceKind, action: InterfaceAction) !void {
-    const ret: Status = @enumFromInt(c.uacpi_bulk_configure_interfaces(
-        @intFromEnum(action),
-        @intFromEnum(kind),
-    ));
+    const ret: Status = @fromBackingInt(@intCast(c.uacpi_bulk_configure_interfaces(
+        @backingInt(action),
+        @backingInt(kind),
+    )));
     try ret.toError();
 }
 
@@ -467,7 +467,7 @@ pub const VendorInterface = enum(c.uacpi_vendor_interface) {
 /// This function will return `VendorInterface.windows_11`, since this is the latest version of the interface the
 /// code queried, even though the "Windows 2000" query came after "Windows 2021".
 pub fn latestQueriedVendorInterface() VendorInterface {
-    return @enumFromInt(c.uacpi_latest_queried_vendor_interface());
+    return @fromBackingInt(@intCast(c.uacpi_latest_queried_vendor_interface()));
 }
 
 pub const Register = enum(c.uacpi_register) {
@@ -486,10 +486,10 @@ pub const Register = enum(c.uacpi_register) {
     /// NOTE: write-only bits (if any) are cleared automatically
     pub fn read(register: Register) !u64 {
         var value: u64 = undefined;
-        const ret: Status = @enumFromInt(c.uacpi_read_register(
-            @intFromEnum(register),
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_read_register(
+            @backingInt(register),
             @ptrCast(&value),
-        ));
+        )));
         try ret.toError();
         return value;
     }
@@ -500,10 +500,10 @@ pub const Register = enum(c.uacpi_register) {
     /// - Preserved bits (if any) are preserved automatically
     /// - If a register is made up of two (e.g. PM1a and PM1b) parts, the input is written to both at the same time
     pub fn write(register: Register, value: u64) !void {
-        const ret: Status = @enumFromInt(c.uacpi_write_register(
-            @intFromEnum(register),
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_write_register(
+            @backingInt(register),
             value,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -513,11 +513,11 @@ pub const Register = enum(c.uacpi_register) {
     /// - Preserved bits (if any) are preserved automatically
     /// - If a register is made up of two (e.g. PM1a and PM1b) parts, the input is written to both at the same time
     pub fn writeRegisters(register: Register, value1: u64, value2: u64) !void {
-        const ret: Status = @enumFromInt(c.uacpi_write_registers(
-            @intFromEnum(register),
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_write_registers(
+            @backingInt(register),
             value1,
             value2,
-        ));
+        )));
         try ret.toError();
     }
 };
@@ -553,10 +553,10 @@ pub const RegisterField = enum(c.uacpi_register_field) {
     /// bit manipulation. E.g. for a field at 0b???XX??? the returned value will contain just the 0bXX
     pub fn read(register_field: RegisterField) !u64 {
         var value: u64 = undefined;
-        const ret: Status = @enumFromInt(c.uacpi_read_register_field(
-            @intFromEnum(register_field),
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_read_register_field(
+            @backingInt(register_field),
             @ptrCast(&value),
-        ));
+        )));
         try ret.toError();
         return value;
     }
@@ -566,10 +566,10 @@ pub const RegisterField = enum(c.uacpi_register_field) {
     /// NOTE: The value is automatically masked and shifted up as appropriate, the client code doesn't have to do any
     /// bit manipulation. E.g. for a field at 0b???XX??? the passed value should be just 0bXX
     pub fn write(register_field: RegisterField, value: u64) !void {
-        const ret: Status = @enumFromInt(c.uacpi_write_register_field(
-            @intFromEnum(register_field),
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_write_register_field(
+            @backingInt(register_field),
             value,
-        ));
+        )));
         try ret.toError();
     }
 };
@@ -586,16 +586,16 @@ pub const HostInterface = enum(c.uacpi_host_interface) {
     ///
     /// These are disabled by default as they depend on the host kernel support.
     pub fn enable(interface: HostInterface) !void {
-        const ret: Status = @enumFromInt(c.uacpi_enable_host_interface(
-            @intFromEnum(interface),
-        ));
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_enable_host_interface(
+            @backingInt(interface),
+        )));
         try ret.toError();
     }
 
     pub fn disable(interface: HostInterface) !void {
-        const ret: Status = @enumFromInt(c.uacpi_disable_host_interface(
-            @intFromEnum(interface),
-        ));
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_disable_host_interface(
+            @backingInt(interface),
+        )));
         try ret.toError();
     }
 };
@@ -612,48 +612,48 @@ pub const FixedEvent = enum(c.uacpi_fixed_event) {
         handler: InterruptHandler(UserContextT),
         user_context: ?*UserContextT,
     ) !void {
-        const ret: Status = @enumFromInt(c.uacpi_install_fixed_event_handler(
-            @intFromEnum(event),
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_install_fixed_event_handler(
+            @backingInt(event),
             makeInterruptHandlerWrapper(UserContextT, handler),
             @ptrCast(user_context),
-        ));
+        )));
         try ret.toError();
     }
 
     pub fn uninstallHandler(event: FixedEvent) !void {
-        const ret: Status = @enumFromInt(c.uacpi_uninstall_fixed_event_handler(
-            @intFromEnum(event),
-        ));
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_uninstall_fixed_event_handler(
+            @backingInt(event),
+        )));
         try ret.toError();
     }
 
     pub fn enable(event: FixedEvent) !void {
-        const ret: Status = @enumFromInt(c.uacpi_enable_fixed_event(
-            @intFromEnum(event),
-        ));
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_enable_fixed_event(
+            @backingInt(event),
+        )));
         try ret.toError();
     }
 
     pub fn disable(event: FixedEvent) !void {
-        const ret: Status = @enumFromInt(c.uacpi_disable_fixed_event(
-            @intFromEnum(event),
-        ));
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_disable_fixed_event(
+            @backingInt(event),
+        )));
         try ret.toError();
     }
 
     pub fn clear(event: FixedEvent) !void {
-        const ret: Status = @enumFromInt(c.uacpi_clear_fixed_event(
-            @intFromEnum(event),
-        ));
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_clear_fixed_event(
+            @backingInt(event),
+        )));
         try ret.toError();
     }
 
     pub fn info(event: FixedEvent) !EventInfo {
         var info_data: EventInfo = undefined;
-        const ret: Status = @enumFromInt(c.uacpi_fixed_event_info(
-            @intFromEnum(event),
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_fixed_event_info(
+            @backingInt(event),
             @ptrCast(&info_data),
-        ));
+        )));
         try ret.toError();
         return info_data;
     }
@@ -679,7 +679,7 @@ pub const Node = opaque {
 
     pub fn getPredefined(predefined_namespace: PredefinedNamespace) *Node {
         return @ptrCast(c.uacpi_namespace_get_predefined(
-            @intFromEnum(predefined_namespace),
+            @backingInt(predefined_namespace),
         ));
     }
 
@@ -699,10 +699,10 @@ pub const Node = opaque {
     pub fn objectType(node: *const Node) !Object.Type {
         var object_type: Object.Type = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_namespace_node_type(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_namespace_node_type(
             @ptrCast(node),
             @ptrCast(&object_type),
-        ));
+        )));
         try ret.toError();
 
         return object_type;
@@ -715,11 +715,11 @@ pub const Node = opaque {
     pub fn is(node: *const Node, object_type: Object.Type) !bool {
         var out: bool = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_namespace_node_is(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_namespace_node_is(
             @ptrCast(node),
-            @intFromEnum(object_type),
+            @backingInt(object_type),
             @ptrCast(&out),
-        ));
+        )));
         try ret.toError();
 
         return out;
@@ -733,11 +733,11 @@ pub const Node = opaque {
     pub fn isOneOf(node: *const Node, object_type_bits: Object.TypeBits) !bool {
         var out: bool = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_namespace_node_is_one_of(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_namespace_node_is_one_of(
             @ptrCast(node),
             @bitCast(object_type_bits),
             @ptrCast(&out),
-        ));
+        )));
         try ret.toError();
 
         return out;
@@ -754,11 +754,11 @@ pub const Node = opaque {
     pub fn find(parent_node: *const Node, path: [:0]const u8) !?*Node {
         var node: ?*Node = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_namespace_node_find(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_namespace_node_find(
             @ptrCast(@constCast(parent_node)),
             path.ptr,
             @ptrCast(&node),
-        ));
+        )));
         if (ret == .not_found) return null;
         try ret.toError();
 
@@ -772,11 +772,11 @@ pub const Node = opaque {
     pub fn resolveFromAmlNamepath(scope_node: *const Node, path: [:0]const u8) !?*Node {
         var node: ?*Node = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_namespace_node_resolve_from_aml_namepath(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_namespace_node_resolve_from_aml_namepath(
             @ptrCast(@constCast(scope_node)),
             path.ptr,
             @ptrCast(&node),
-        ));
+        )));
         if (ret == .not_found) return null;
         try ret.toError();
 
@@ -790,11 +790,11 @@ pub const Node = opaque {
         callback: IterationCallback(UserContextT),
         user_context: ?*UserContextT,
     ) !void {
-        const ret: Status = @enumFromInt(c.uacpi_namespace_for_each_child_simple(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_namespace_for_each_child_simple(
             @ptrCast(@constCast(parent_node)),
             makeIterationCallbackWrapper(UserContextT, callback),
             user_context,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -826,7 +826,7 @@ pub const Node = opaque {
         max_depth: Depth,
         user_context: ?*UserContextT,
     ) !void {
-        const ret: Status = @enumFromInt(c.uacpi_namespace_for_each_child(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_namespace_for_each_child(
             @ptrCast(@constCast(parent_node)),
             if (opt_descending_callback) |descending_callback|
                 makeIterationCallbackWrapper(UserContextT, descending_callback)
@@ -837,9 +837,9 @@ pub const Node = opaque {
             else
                 null,
             @bitCast(type_mask),
-            @intFromEnum(max_depth),
+            @backingInt(max_depth),
             user_context,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -847,10 +847,10 @@ pub const Node = opaque {
     pub fn childIterator(parent_node: *const Node) !ChildIterator {
         var child: ?*Node = null;
 
-        const ret: Status = @enumFromInt(c.uacpi_namespace_node_next(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_namespace_node_next(
             @ptrCast(@constCast(parent_node)),
             @ptrCast(&child),
-        ));
+        )));
         if (ret == .not_found) return .{
             .parent = parent_node,
             .current_child = null,
@@ -871,11 +871,11 @@ pub const Node = opaque {
     pub fn childIteratorTyped(parent_node: *const Node, type_mask: Object.TypeBits) !ChildIterator {
         var child: ?*Node = null;
 
-        const ret: Status = @enumFromInt(c.uacpi_namespace_node_next_typed(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_namespace_node_next_typed(
             @ptrCast(@constCast(parent_node)),
             @ptrCast(&child),
             @bitCast(type_mask),
-        ));
+        )));
         if (ret == .not_found) return .{
             .parent = parent_node,
             .current_child = null,
@@ -899,16 +899,16 @@ pub const Node = opaque {
             const child = child_iterator.current_child orelse return null;
 
             const ret: Status = if (child_iterator.type_mask) |type_mask|
-                @enumFromInt(c.uacpi_namespace_node_next_typed(
+                @fromBackingInt(@intCast(c.uacpi_namespace_node_next_typed(
                     @ptrCast(@constCast(child_iterator.parent)),
                     @ptrCast(&child_iterator.current_child),
                     @bitCast(type_mask),
-                ))
+                )))
             else
-                @enumFromInt(c.uacpi_namespace_node_next(
+                @fromBackingInt(@intCast(c.uacpi_namespace_node_next(
                     @ptrCast(@constCast(child_iterator.parent)),
                     @ptrCast(&child_iterator.current_child),
-                ));
+                )));
 
             if (ret == .not_found) {
                 child_iterator.current_child = null;
@@ -943,11 +943,11 @@ pub const Node = opaque {
         handler: NotifyHandler(UserContextT),
         user_context: ?*UserContextT,
     ) !void {
-        const ret: Status = @enumFromInt(c.uacpi_install_notify_handler(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_install_notify_handler(
             @ptrCast(node),
             makeNotifyHandlerWrapper(UserContextT, handler),
             user_context,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -956,10 +956,10 @@ pub const Node = opaque {
         comptime UserContextT: type,
         handler: NotifyHandler(UserContextT),
     ) !void {
-        const ret: Status = @enumFromInt(c.uacpi_uninstall_notify_handler(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_uninstall_notify_handler(
             @ptrCast(node),
             makeNotifyHandlerWrapper(UserContextT, handler),
-        ));
+        )));
         try ret.toError();
     }
 
@@ -995,12 +995,12 @@ pub const Node = opaque {
         handler: RegionHandler(UserContextT),
         user_context: ?*UserContextT,
     ) !void {
-        const ret: Status = @enumFromInt(c.uacpi_install_address_space_handler(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_install_address_space_handler(
             @ptrCast(device_node),
-            @intFromEnum(space),
+            @backingInt(space),
             makeRegionHandlerWrapper(UserContextT, handler),
             user_context,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -1009,10 +1009,10 @@ pub const Node = opaque {
         device_node: *Node,
         space: AddressSpace,
     ) !void {
-        const ret: Status = @enumFromInt(c.uacpi_uninstall_address_space_handler(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_uninstall_address_space_handler(
             @ptrCast(device_node),
-            @intFromEnum(space),
-        ));
+            @backingInt(space),
+        )));
         try ret.toError();
     }
 
@@ -1024,10 +1024,10 @@ pub const Node = opaque {
         device_node: *Node,
         space: AddressSpace,
     ) !void {
-        const ret: Status = @enumFromInt(c.uacpi_reg_all_opregions(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_reg_all_opregions(
             @ptrCast(device_node),
-            @intFromEnum(space),
-        ));
+            @backingInt(space),
+        )));
         try ret.toError();
     }
 
@@ -1056,12 +1056,12 @@ pub const Node = opaque {
         callback: IterationCallback(UserContextT),
         user_context: ?*UserContextT,
     ) !void {
-        const ret: Status = @enumFromInt(c.uacpi_find_devices_at(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_find_devices_at(
             @ptrCast(@constCast(parent_node)),
             hids.ptr,
             makeIterationCallbackWrapper(UserContextT, callback),
             user_context,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -1072,11 +1072,11 @@ pub const Node = opaque {
         callback: IterationCallback(UserContextT),
         user_context: ?*UserContextT,
     ) !void {
-        const ret: Status = @enumFromInt(c.uacpi_find_devices(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_find_devices(
             hid.ptr,
             makeIterationCallbackWrapper(UserContextT, callback),
             user_context,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -1110,10 +1110,10 @@ pub const Node = opaque {
     ) !*const PciRoutingTable {
         var table: *const PciRoutingTable = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_get_pci_routing_table(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_get_pci_routing_table(
             @ptrCast(@constCast(device_node)),
             @ptrCast(&table),
-        ));
+        )));
         try ret.toError();
 
         return table;
@@ -1142,10 +1142,10 @@ pub const Node = opaque {
     pub fn evalHid(node: *const Node) !?*const IdString {
         var id_string: *const IdString = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_eval_hid(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_eval_hid(
             @ptrCast(@constCast(node)),
             @ptrCast(&id_string),
-        ));
+        )));
         if (ret == .not_found) return null;
         try ret.toError();
 
@@ -1171,10 +1171,10 @@ pub const Node = opaque {
     pub fn evalCid(node: *const Node) !?*const PnpIdList {
         var list: *const PnpIdList = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_eval_cid(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_eval_cid(
             @ptrCast(@constCast(node)),
             @ptrCast(&list),
-        ));
+        )));
         if (ret == .not_found) return null;
         try ret.toError();
 
@@ -1185,10 +1185,10 @@ pub const Node = opaque {
     pub fn evalSta(node: *const Node) !?u32 {
         var value: u32 = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_eval_sta(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_eval_sta(
             @ptrCast(@constCast(node)),
             @ptrCast(&value),
-        ));
+        )));
         if (value == std.math.maxInt(u32)) return null;
         try ret.toError();
 
@@ -1199,10 +1199,10 @@ pub const Node = opaque {
     pub fn evalAdr(node: *const Node) !?u64 {
         var value: u64 = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_eval_adr(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_eval_adr(
             @ptrCast(@constCast(node)),
             @ptrCast(&value),
-        ));
+        )));
         if (ret == .not_found) return null;
         try ret.toError();
 
@@ -1218,10 +1218,10 @@ pub const Node = opaque {
     pub fn evalCls(node: *const Node) !?*const IdString {
         var id_string: *const IdString = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_eval_cls(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_eval_cls(
             @ptrCast(@constCast(node)),
             @ptrCast(&id_string),
-        ));
+        )));
         if (ret == .not_found) return null;
         try ret.toError();
 
@@ -1232,10 +1232,10 @@ pub const Node = opaque {
     pub fn evalUid(node: *const Node) !?*const IdString {
         var id_string: *const IdString = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_eval_uid(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_eval_uid(
             @ptrCast(@constCast(node)),
             @ptrCast(&id_string),
-        ));
+        )));
         if (ret == .not_found) return null;
         try ret.toError();
 
@@ -1252,7 +1252,7 @@ pub const Node = opaque {
     ) !*Object {
         var value: *Object = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_eval(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_eval(
             @ptrCast(parent_node),
             if (path) |p| p.ptr else null,
             &.{
@@ -1260,7 +1260,7 @@ pub const Node = opaque {
                 .count = objects.len,
             },
             @ptrCast(&value),
-        ));
+        )));
         try ret.toError();
 
         return value;
@@ -1275,11 +1275,11 @@ pub const Node = opaque {
     ) !*Object {
         var value: *Object = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_eval_simple(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_eval_simple(
             @ptrCast(parent_node),
             if (path) |p| p.ptr else null,
             @ptrCast(&value),
-        ));
+        )));
         try ret.toError();
 
         return value;
@@ -1296,7 +1296,7 @@ pub const Node = opaque {
     ) !*Object {
         var value: *Object = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_eval_typed(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_eval_typed(
             @ptrCast(parent_node),
             if (path) |p| p.ptr else null,
             &.{
@@ -1305,7 +1305,7 @@ pub const Node = opaque {
             },
             @bitCast(ret_mask),
             @ptrCast(&value),
-        ));
+        )));
         try ret.toError();
 
         return value;
@@ -1321,12 +1321,12 @@ pub const Node = opaque {
     ) !*Object {
         var value: *Object = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_eval_simple_typed(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_eval_simple_typed(
             @ptrCast(parent_node),
             if (path) |p| p.ptr else null,
             @bitCast(ret_mask),
             @ptrCast(&value),
-        ));
+        )));
         try ret.toError();
 
         return value;
@@ -1338,14 +1338,14 @@ pub const Node = opaque {
         path: ?[:0]const u8,
         objects: []const *const Object,
     ) !void {
-        const ret: Status = @enumFromInt(c.uacpi_execute(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_execute(
             @ptrCast(parent_node),
             if (path) |p| p.ptr else null,
             &.{
                 .objects = @ptrCast(@constCast(objects.ptr)),
                 .count = objects.len,
             },
-        ));
+        )));
         try ret.toError();
     }
 
@@ -1354,10 +1354,10 @@ pub const Node = opaque {
         parent_node: *Node,
         path: ?[:0]const u8,
     ) !void {
-        const ret: Status = @enumFromInt(c.uacpi_execute_simple(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_execute_simple(
             @ptrCast(parent_node),
             if (path) |p| p.ptr else null,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -1369,7 +1369,7 @@ pub const Node = opaque {
     ) !u64 {
         var value: u64 = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_eval_integer(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_eval_integer(
             @ptrCast(parent_node),
             if (path) |p| p.ptr else null,
             &.{
@@ -1377,7 +1377,7 @@ pub const Node = opaque {
                 .count = objects.len,
             },
             &value,
-        ));
+        )));
         try ret.toError();
 
         return value;
@@ -1390,11 +1390,11 @@ pub const Node = opaque {
     ) !u64 {
         var value: u64 = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_eval_simple_integer(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_eval_simple_integer(
             @ptrCast(parent_node),
             if (path) |p| p.ptr else null,
             &value,
-        ));
+        )));
         try ret.toError();
 
         return value;
@@ -1410,7 +1410,7 @@ pub const Node = opaque {
     ) !*Object {
         var value: *Object = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_eval_buffer_or_string(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_eval_buffer_or_string(
             @ptrCast(parent_node),
             if (path) |p| p.ptr else null,
             &.{
@@ -1418,7 +1418,7 @@ pub const Node = opaque {
                 .count = objects.len,
             },
             @ptrCast(&value),
-        ));
+        )));
         try ret.toError();
 
         return value;
@@ -1433,11 +1433,11 @@ pub const Node = opaque {
     ) !*Object {
         var value: *Object = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_eval_simple_buffer_or_string(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_eval_simple_buffer_or_string(
             @ptrCast(parent_node),
             if (path) |p| p.ptr else null,
             @ptrCast(&value),
-        ));
+        )));
         try ret.toError();
 
         return value;
@@ -1453,7 +1453,7 @@ pub const Node = opaque {
     ) !*Object {
         var value: *Object = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_eval_string(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_eval_string(
             @ptrCast(parent_node),
             if (path) |p| p.ptr else null,
             &.{
@@ -1461,7 +1461,7 @@ pub const Node = opaque {
                 .count = objects.len,
             },
             @ptrCast(&value),
-        ));
+        )));
         try ret.toError();
 
         return value;
@@ -1476,11 +1476,11 @@ pub const Node = opaque {
     ) !*Object {
         var value: *Object = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_eval_simple_string(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_eval_simple_string(
             @ptrCast(parent_node),
             if (path) |p| p.ptr else null,
             @ptrCast(&value),
-        ));
+        )));
         try ret.toError();
 
         return value;
@@ -1496,7 +1496,7 @@ pub const Node = opaque {
     ) !*Object {
         var value: *Object = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_eval_buffer(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_eval_buffer(
             @ptrCast(parent_node),
             if (path) |p| p.ptr else null,
             &.{
@@ -1504,7 +1504,7 @@ pub const Node = opaque {
                 .count = objects.len,
             },
             @ptrCast(&value),
-        ));
+        )));
         try ret.toError();
 
         return value;
@@ -1519,11 +1519,11 @@ pub const Node = opaque {
     ) !*Object {
         var value: *Object = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_eval_simple_buffer(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_eval_simple_buffer(
             @ptrCast(parent_node),
             if (path) |p| p.ptr else null,
             @ptrCast(&value),
-        ));
+        )));
         try ret.toError();
 
         return value;
@@ -1539,7 +1539,7 @@ pub const Node = opaque {
     ) !*Object {
         var value: *Object = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_eval_package(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_eval_package(
             @ptrCast(parent_node),
             if (path) |p| p.ptr else null,
             &.{
@@ -1547,7 +1547,7 @@ pub const Node = opaque {
                 .count = objects.len,
             },
             @ptrCast(&value),
-        ));
+        )));
         try ret.toError();
 
         return value;
@@ -1562,11 +1562,11 @@ pub const Node = opaque {
     ) !*Object {
         var value: *Object = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_eval_simple_package(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_eval_simple_package(
             @ptrCast(parent_node),
             if (path) |p| p.ptr else null,
             @ptrCast(&value),
-        ));
+        )));
         try ret.toError();
 
         return value;
@@ -1618,10 +1618,10 @@ pub const Node = opaque {
     pub fn info(node: *const Node) !*const Info {
         var info_ptr: *const Info = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_get_namespace_node_info(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_get_namespace_node_info(
             @ptrCast(@constCast(node)),
             @ptrCast(&info_ptr),
-        ));
+        )));
         try ret.toError();
 
         return info_ptr;
@@ -1632,11 +1632,11 @@ pub const Node = opaque {
     /// NOTE: 'gpe_device' may be null for GPEs managed by \_GPE
     pub fn gpeInfo(gpe_device: ?*const Node, index: u16) !EventInfo {
         var event_info: EventInfo = undefined;
-        const ret: Status = @enumFromInt(c.uacpi_gpe_info(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_gpe_info(
             @ptrCast(@constCast(gpe_device)),
             index,
             @ptrCast(&event_info),
-        ));
+        )));
         try ret.toError();
         return event_info;
     }
@@ -1656,13 +1656,13 @@ pub const Node = opaque {
         handler: GPEHandler(UserContextT),
         user_context: ?*UserContextT,
     ) !void {
-        const ret: Status = @enumFromInt(c.uacpi_install_gpe_handler(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_install_gpe_handler(
             @ptrCast(gpe_device),
             index,
-            @intFromEnum(triggering),
+            @backingInt(triggering),
             makeGPEHandlerWrapper(UserContextT, handler),
             user_context,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -1678,12 +1678,12 @@ pub const Node = opaque {
         handler: GPEHandler(UserContextT),
         user_context: ?*UserContextT,
     ) !void {
-        const ret: Status = @enumFromInt(c.uacpi_install_gpe_handler_raw(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_install_gpe_handler_raw(
             @ptrCast(gpe_device),
             index,
             makeGPEHandlerWrapper(UserContextT, handler),
             user_context,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -1693,11 +1693,11 @@ pub const Node = opaque {
         comptime UserContextT: type,
         handler: GPEHandler(UserContextT),
     ) !void {
-        const ret: Status = @enumFromInt(c.uacpi_uninstall_gpe_handler(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_uninstall_gpe_handler(
             @ptrCast(gpe_device),
             index,
             makeGPEHandlerWrapper(UserContextT, handler),
-        ));
+        )));
         try ret.toError();
     }
 
@@ -1711,11 +1711,11 @@ pub const Node = opaque {
         index: u16,
         wake_device: ?*Node,
     ) !void {
-        const ret: Status = @enumFromInt(c.uacpi_setup_gpe_for_wake(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_setup_gpe_for_wake(
             @ptrCast(gpe_device),
             index,
             @ptrCast(wake_device),
-        ));
+        )));
         try ret.toError();
     }
 
@@ -1730,10 +1730,10 @@ pub const Node = opaque {
         gpe_device: ?*Node,
         index: u16,
     ) !void {
-        const ret: Status = @enumFromInt(c.uacpi_enable_gpe_for_wake(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_enable_gpe_for_wake(
             @ptrCast(gpe_device),
             index,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -1748,10 +1748,10 @@ pub const Node = opaque {
         gpe_device: ?*Node,
         index: u16,
     ) !void {
-        const ret: Status = @enumFromInt(c.uacpi_disable_gpe_for_wake(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_disable_gpe_for_wake(
             @ptrCast(gpe_device),
             index,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -1764,10 +1764,10 @@ pub const Node = opaque {
     ///
     /// NOTE: 'gpe_device' may be null for GPEs managed by \_GPE
     pub fn enableGPE(gpe_device: ?*Node, index: u16) !void {
-        const ret: Status = @enumFromInt(c.uacpi_enable_gpe(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_enable_gpe(
             @ptrCast(gpe_device),
             index,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -1780,10 +1780,10 @@ pub const Node = opaque {
     ///
     /// NOTE: 'gpe_device' may be null for GPEs managed by \_GPE
     pub fn disableGPE(gpe_device: ?*Node, index: u16) !void {
-        const ret: Status = @enumFromInt(c.uacpi_disable_gpe(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_disable_gpe(
             @ptrCast(gpe_device),
             index,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -1791,10 +1791,10 @@ pub const Node = opaque {
     ///
     /// NOTE: 'gpe_device' may be null for GPEs managed by \_GPE
     pub fn clearGPE(gpe_device: ?*Node, index: u16) !void {
-        const ret: Status = @enumFromInt(c.uacpi_clear_gpe(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_clear_gpe(
             @ptrCast(gpe_device),
             index,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -1807,10 +1807,10 @@ pub const Node = opaque {
     ///
     /// NOTE: 'gpe_device' may be null for GPEs managed by \_GPE
     pub fn suspendGPE(gpe_device: ?*Node, index: u16) !void {
-        const ret: Status = @enumFromInt(c.uacpi_suspend_gpe(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_suspend_gpe(
             @ptrCast(gpe_device),
             index,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -1823,10 +1823,10 @@ pub const Node = opaque {
     ///
     /// NOTE: 'gpe_device' may be null for GPEs managed by \_GPE
     pub fn resumeGPE(gpe_device: ?*Node, index: u16) !void {
-        const ret: Status = @enumFromInt(c.uacpi_resume_gpe(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_resume_gpe(
             @ptrCast(gpe_device),
             index,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -1836,10 +1836,10 @@ pub const Node = opaque {
     ///
     /// NOTE: 'gpe_device' may be null for GPEs managed by \_GPE
     pub fn finishHandlingGPE(gpe_device: ?*Node, index: u16) !void {
-        const ret: Status = @enumFromInt(c.uacpi_finish_handling_gpe(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_finish_handling_gpe(
             @ptrCast(gpe_device),
             index,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -1854,10 +1854,10 @@ pub const Node = opaque {
     ///
     /// NOTE: 'gpe_device' may be null for GPEs managed by \_GPE
     pub fn maskGPE(gpe_device: ?*Node, index: u16) !void {
-        const ret: Status = @enumFromInt(c.uacpi_mask_gpe(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_mask_gpe(
             @ptrCast(gpe_device),
             index,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -1865,10 +1865,10 @@ pub const Node = opaque {
     ///
     /// NOTE: 'gpe_device' may be null for GPEs managed by \_GPE
     pub fn unmaskGPE(gpe_device: ?*Node, index: u16) !void {
-        const ret: Status = @enumFromInt(c.uacpi_unmask_gpe(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_unmask_gpe(
             @ptrCast(gpe_device),
             index,
-        ));
+        )));
         try ret.toError();
     }
 
@@ -1880,20 +1880,20 @@ pub const Node = opaque {
         num_registers: u16,
         irq: u32,
     ) !void {
-        const ret: Status = @enumFromInt(c.uacpi_install_gpe_block(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_install_gpe_block(
             @ptrCast(gpe_device),
             address,
-            @intFromEnum(address_space),
+            @backingInt(address_space),
             num_registers,
             irq,
-        ));
+        )));
         try ret.toError();
     }
 
     pub fn uninstallGPEBlock(gpe_device: *Node) !void {
-        const ret: Status = @enumFromInt(c.uacpi_uninstall_gpe_block(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_uninstall_gpe_block(
             @ptrCast(gpe_device),
-        ));
+        )));
         try ret.toError();
     }
 
@@ -1906,10 +1906,10 @@ pub const Node = opaque {
     pub fn getCurrentResources(device: *const Node) !?*Resources {
         var resources: *Resources = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_get_current_resources(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_get_current_resources(
             @ptrCast(@constCast(device)),
             @ptrCast(&resources),
-        ));
+        )));
         if (ret == .not_found) return null;
         try ret.toError();
 
@@ -1925,10 +1925,10 @@ pub const Node = opaque {
     pub fn getPossibleResources(device: *const Node) !?*Resources {
         var resources: *Resources = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_get_possible_resources(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_get_possible_resources(
             @ptrCast(@constCast(device)),
             @ptrCast(&resources),
-        ));
+        )));
         if (ret == .not_found) return null;
         try ret.toError();
 
@@ -1945,11 +1945,11 @@ pub const Node = opaque {
     pub fn getResources(device: *const Node, method: [:0]const u8) !?*Resources {
         var resources: *Resources = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_get_device_resources(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_get_device_resources(
             @ptrCast(@constCast(device)),
             method.ptr,
             @ptrCast(&resources),
-        ));
+        )));
         if (ret == .not_found) return null;
         try ret.toError();
 
@@ -1963,10 +1963,10 @@ pub const Node = opaque {
     ///
     /// If you want to _SRS a raw AML resources bytestream, use 'Node.execute' or similar API directly.
     pub fn setResources(device: *Node, resources: *const Resources) !void {
-        const ret: Status = @enumFromInt(c.uacpi_set_resources(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_set_resources(
             @ptrCast(device),
             @ptrCast(@constCast(resources)),
-        ));
+        )));
 
         try ret.toError();
     }
@@ -1978,12 +1978,12 @@ pub const Node = opaque {
         callback: ResourceIterationCallback(UserContextT),
         user_context: ?*UserContextT,
     ) !void {
-        const ret: Status = @enumFromInt(c.uacpi_for_each_device_resource(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_for_each_device_resource(
             @ptrCast(@constCast(device)),
             method.ptr,
             makeResourceIterationCallbackWrapper(UserContextT, callback),
             user_context,
-        ));
+        )));
         try ret.toError();
     }
 };
@@ -1998,7 +1998,7 @@ pub const Object = opaque {
     }
 
     pub fn getType(object: *const Object) Type {
-        return @enumFromInt(c.uacpi_object_get_type(@ptrCast(@constCast(object))));
+        return @fromBackingInt(@intCast(c.uacpi_object_get_type(@ptrCast(@constCast(object)))));
     }
 
     pub fn getTypeBit(object: *const Object) TypeBits {
@@ -2006,7 +2006,7 @@ pub const Object = opaque {
     }
 
     pub fn is(object: *const Object, object_type: Type) bool {
-        return c.uacpi_object_is(@ptrCast(@constCast(object)), @intFromEnum(object_type));
+        return c.uacpi_object_is(@ptrCast(@constCast(object)), @backingInt(object_type));
     }
 
     pub fn isOneOf(object: *const Object, type_mask: TypeBits) bool {
@@ -2035,29 +2035,29 @@ pub const Object = opaque {
 
     pub fn createIntegerSafe(value: u64, overflow_behavior: OverflowBehavior) !*Object {
         var object: *Object = undefined;
-        const ret: Status = @enumFromInt(c.uacpi_object_create_integer_safe(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_object_create_integer_safe(
             value,
-            @intFromEnum(overflow_behavior),
+            @backingInt(overflow_behavior),
             @ptrCast(&object),
-        ));
+        )));
         try ret.toError();
         return object;
     }
 
     pub fn assignInteger(object: *Object, value: u64) !void {
-        const ret: Status = @enumFromInt(c.uacpi_object_assign_integer(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_object_assign_integer(
             @ptrCast(object),
             value,
-        ));
+        )));
         try ret.toError();
     }
 
     pub fn getInteger(object: *const Object) !u64 {
         var value: u64 = undefined;
-        const ret: Status = @enumFromInt(c.uacpi_object_get_integer(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_object_get_integer(
             @ptrCast(@constCast(object)),
             &value,
-        ));
+        )));
         try ret.toError();
         return value;
     }
@@ -2092,13 +2092,13 @@ pub const Object = opaque {
     ///
     /// NOTE: The data is copied to a separately allocated buffer and is not taken ownership of.
     pub fn assignString(object: *Object, str: []const u8) !void {
-        const ret: Status = @enumFromInt(c.uacpi_object_assign_string(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_object_assign_string(
             @ptrCast(object),
             .{
                 .unnamed_0 = .{ .const_bytes = str.ptr },
                 .length = str.len,
             },
-        ));
+        )));
         try ret.toError();
     }
 
@@ -2108,23 +2108,23 @@ pub const Object = opaque {
     ///
     /// NOTE: The data is copied to a separately allocated buffer and is not taken ownership of.
     pub fn assignBuffer(object: *Object, str: []const u8) !void {
-        const ret: Status = @enumFromInt(c.uacpi_object_assign_buffer(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_object_assign_buffer(
             @ptrCast(object),
             .{
                 .unnamed_0 = .{ .const_bytes = str.ptr },
                 .length = str.len,
             },
-        ));
+        )));
         try ret.toError();
     }
 
     /// Returns a writable view of the data stored in the string or buffer object.
     pub fn getStringOrBuffer(object: *Object) ![]u8 {
         var data_view: c.uacpi_data_view = undefined;
-        const ret: Status = @enumFromInt(c.uacpi_object_get_string_or_buffer(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_object_get_string_or_buffer(
             @ptrCast(object),
             &data_view,
-        ));
+        )));
         try ret.toError();
         return data_view.unnamed_0.bytes[0..data_view.length];
     }
@@ -2132,10 +2132,10 @@ pub const Object = opaque {
     /// Returns a writable view of the data stored in the string object.
     pub fn getString(object: *Object) ![]u8 {
         var data_view: c.uacpi_data_view = undefined;
-        const ret: Status = @enumFromInt(c.uacpi_object_get_string(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_object_get_string(
             @ptrCast(object),
             &data_view,
-        ));
+        )));
         try ret.toError();
         return data_view.unnamed_0.bytes[0..data_view.length];
     }
@@ -2143,10 +2143,10 @@ pub const Object = opaque {
     /// Returns a writable view of the data stored in the buffer object.
     pub fn getBuffer(object: *Object) ![]u8 {
         var data_view: c.uacpi_data_view = undefined;
-        const ret: Status = @enumFromInt(c.uacpi_object_get_buffer(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_object_get_buffer(
             @ptrCast(object),
             &data_view,
-        ));
+        )));
         try ret.toError();
         return data_view.unnamed_0.bytes[0..data_view.length];
     }
@@ -2182,11 +2182,11 @@ pub const Object = opaque {
     /// See an explanation of how this works in the comment above the declaration of `isAmlNamepath`.
     pub fn resolveAsAmlNamepath(object: *const Object, scope: *const Node) !*Node {
         var target_node: *Node = undefined;
-        const ret: Status = @enumFromInt(c.uacpi_object_resolve_as_aml_namepath(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_object_resolve_as_aml_namepath(
             @ptrCast(@constCast(object)),
             @ptrCast(@constCast(scope)),
             @ptrCast(&target_node),
-        ));
+        )));
         try ret.toError();
         return target_node;
     }
@@ -2214,10 +2214,10 @@ pub const Object = opaque {
     pub fn getPackage(object: *const Object) ![]const *Object {
         var object_array: c.uacpi_object_array = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_object_get_package(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_object_get_package(
             @ptrCast(@constCast(object)),
             &object_array,
-        ));
+        )));
         try ret.toError();
 
         const ptr: [*]const *Object = @ptrCast(object_array.objects);
@@ -2231,13 +2231,13 @@ pub const Object = opaque {
     /// NOTE: the reference count of each object is incremented before being stored in the object.
     ///       Client code must remove all of the locally created references at its own discretion.
     pub fn assignPackage(object: *Object, objects: []const *Object) !void {
-        const ret: Status = @enumFromInt(c.uacpi_object_assign_package(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_object_assign_package(
             @ptrCast(object),
             .{
                 .count = objects.len,
                 .objects = @ptrCast(@constCast(objects.ptr)),
             },
-        ));
+        )));
         try ret.toError();
     }
 
@@ -2253,10 +2253,10 @@ pub const Object = opaque {
     /// NOTE: child's reference count is incremented by one.
     ///       Client code must remove all of the locally created references at its own discretion.
     pub fn assignReference(object: *Object, child: *Object) !void {
-        const ret: Status = @enumFromInt(c.uacpi_object_assign_reference(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_object_assign_reference(
             @ptrCast(object),
             @ptrCast(child),
-        ));
+        )));
         try ret.toError();
     }
 
@@ -2266,10 +2266,10 @@ pub const Object = opaque {
     ///       client when no longer needed.
     pub fn getReference(object: *const Object) !*Object {
         var child: *Object = undefined;
-        const ret: Status = @enumFromInt(c.uacpi_object_get_dereferenced(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_object_get_dereferenced(
             @ptrCast(@constCast(object)),
             @ptrCast(&child),
-        ));
+        )));
         try ret.toError();
         return child;
     }
@@ -2287,10 +2287,10 @@ pub const Object = opaque {
     /// Returns the information about the provided processor object.
     pub fn getProcessorInfo(object: *const Object) !ProcessorInfo {
         var info: ProcessorInfo = undefined;
-        const ret: Status = @enumFromInt(c.uacpi_object_get_processor_info(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_object_get_processor_info(
             @ptrCast(@constCast(object)),
             @ptrCast(&info),
-        ));
+        )));
         try ret.toError();
         return info;
     }
@@ -2307,10 +2307,10 @@ pub const Object = opaque {
     /// Returns the information about the provided power resource object.
     pub fn getPowerResourceInfo(object: *const Object) !PowerResourceInfo {
         var info: PowerResourceInfo = undefined;
-        const ret: Status = @enumFromInt(c.uacpi_object_get_power_resource_info(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_object_get_power_resource_info(
             @ptrCast(@constCast(object)),
             @ptrCast(&info),
-        ));
+        )));
         try ret.toError();
         return info;
     }
@@ -2388,35 +2388,35 @@ pub const Table = extern struct {
     ///
     /// Returns `true` if the table was found.
     pub fn nextWithSameSignature(table: *Table) !bool {
-        const ret: Status = @enumFromInt(c.uacpi_table_find_next_with_same_signature(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_table_find_next_with_same_signature(
             @ptrCast(table),
-        ));
+        )));
         if (ret == .not_found) return false;
         try ret.toError();
         return true;
     }
 
     pub fn ref(table: Table) !void {
-        const ret: Status = @enumFromInt(c.uacpi_table_ref(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_table_ref(
             @ptrCast(@constCast(&table)),
-        ));
+        )));
         try ret.toError();
     }
 
     pub fn unref(table: Table) !void {
-        const ret: Status = @enumFromInt(c.uacpi_table_unref(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_table_unref(
             @ptrCast(@constCast(&table)),
-        ));
+        )));
         try ret.toError();
     }
 
     pub fn findBySignature(signature: *const [4]u8) !?Table {
         var table: Table = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_table_find_by_signature(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_table_find_by_signature(
             signature,
             @ptrCast(&table),
-        ));
+        )));
         if (ret == .not_found) return null;
         try ret.toError();
 
@@ -2426,10 +2426,10 @@ pub const Table = extern struct {
     pub fn find(table_identifiers: *const TableIdentifiers) !?Table {
         var table: Table = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_table_find(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_table_find(
             @ptrCast(table_identifiers),
             @ptrCast(&table),
-        ));
+        )));
         if (ret == .not_found) return null;
         try ret.toError();
 
@@ -2444,10 +2444,10 @@ pub const Table = extern struct {
     ///
     /// Manual calls to `install` are not subject to filtering via the table installation callback (if any).
     pub fn installVirtual(address: innigkeit.KernelVirtualAddress, out_table: ?*Table) !void {
-        const ret: Status = @enumFromInt(c.uacpi_table_install(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_table_install(
             address.toPtr(?*anyopaque),
             @ptrCast(out_table),
-        ));
+        )));
         try ret.toError();
     }
 
@@ -2459,18 +2459,18 @@ pub const Table = extern struct {
     ///
     /// Manual calls to `install` are not subject to filtering via the table installation callback (if any).
     pub fn installPhysical(address: innigkeit.PhysicalAddress, out_table: ?*Table) !void {
-        const ret: Status = @enumFromInt(c.uacpi_table_install_physical(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_table_install_physical(
             @bitCast(address),
             @ptrCast(out_table),
-        ));
+        )));
         try ret.toError();
     }
 
     /// Load a previously installed table by feeding it to the interpreter.
     pub fn load(index: usize) !void {
-        const ret: Status = @enumFromInt(c.uacpi_table_load(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_table_load(
             @intCast(index),
-        ));
+        )));
         try ret.toError();
     }
 
@@ -2482,9 +2482,9 @@ pub const Table = extern struct {
     pub fn fadt() !*acpi.FADT {
         var fadt_ptr: *acpi.FADT = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_table_fadt(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_table_fadt(
             @ptrCast(&fadt_ptr),
-        ));
+        )));
         try ret.toError();
 
         return fadt_ptr;
@@ -2504,9 +2504,9 @@ pub const Table = extern struct {
             }
         }.handlerWrapper;
 
-        const ret: Status = @enumFromInt(c.uacpi_set_table_installation_handler(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_set_table_installation_handler(
             @ptrCast(handler_wrapper),
-        ));
+        )));
         try ret.toError();
     }
 
@@ -2609,13 +2609,13 @@ pub const Resource = extern struct {
     pub fn fromBuffer(buffer: []const u8) !*Resource {
         var resource: *Resource = undefined;
 
-        const ret: Status = @enumFromInt(c.uacpi_get_resource_from_buffer(
+        const ret: Status = @fromBackingInt(@intCast(c.uacpi_get_resource_from_buffer(
             .{
                 .unnamed_0 = .{ .const_bytes = buffer.ptr },
                 .length = buffer.len,
             },
             @ptrCast(&resource),
-        ));
+        )));
         try ret.toError();
 
         return resource;

@@ -30,7 +30,7 @@ pub const Tss = extern struct {
         stack_selector: x64.interrupts.InterruptStackSelector,
         stack_pointer: innigkeit.KernelVirtualAddress,
     ) void {
-        tss.interrupt_stack_table[@intFromEnum(stack_selector)] = stack_pointer;
+        tss.interrupt_stack_table[@backingInt(stack_selector)] = stack_pointer;
     }
 
     /// Sets the stack for the given privilege level.
@@ -40,7 +40,7 @@ pub const Tss = extern struct {
         stack_pointer: innigkeit.KernelVirtualAddress,
     ) void {
         if (core.is_debug) std.debug.assert(privilege_level != .ring3);
-        tss.privilege_stack_table[@intFromEnum(privilege_level)] = stack_pointer;
+        tss.privilege_stack_table[@backingInt(privilege_level)] = stack_pointer;
     }
 
     comptime {

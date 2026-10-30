@@ -129,7 +129,7 @@ pub fn spawnFull(
     };
     const ret = innigkeit.Syscall.invoke(.spawn, .{@intFromPtr(&spec)});
     const handle = try innigkeit.Syscall.decode(ret);
-    return @enumFromInt(@as(u32, @truncate(handle)));
+    return @fromBackingInt(@intCast(@as(u32, @truncate(handle))));
 }
 
 /// Convenience wrapper: spawn with a slice of string slices (no CapGrants or envp).
@@ -147,7 +147,7 @@ pub fn spawnArgs(path: [:0]const u8, argv: []const []const u8) innigkeit.Error.S
 /// `notify_handle` must be the value returned by `spawn`. Returns as soon as
 /// the child process's exit Notify is signalled.
 pub fn waitProcess(notify_handle: innigkeit.capabilities.Handle) innigkeit.Error.Syscall!u8 {
-    const ret = innigkeit.Syscall.invoke(.wait_process, .{@as(usize, @intFromEnum(notify_handle))});
+    const ret = innigkeit.Syscall.invoke(.wait_process, .{@as(usize, @backingInt(notify_handle))});
     return @truncate(try innigkeit.Syscall.decode(ret));
 }
 
@@ -164,7 +164,7 @@ pub fn getPid() u64 {
 /// Returns the exit status if the process has exited, or `error.WouldBlock` if
 /// it is still running. Never blocks.
 pub fn waitProcessNb(notify_handle: innigkeit.capabilities.Handle) innigkeit.Error.Syscall!u8 {
-    const ret = innigkeit.Syscall.invoke(.wait_process_nb, .{@as(usize, @intFromEnum(notify_handle))});
+    const ret = innigkeit.Syscall.invoke(.wait_process_nb, .{@as(usize, @backingInt(notify_handle))});
     return @truncate(try innigkeit.Syscall.decode(ret));
 }
 
@@ -174,6 +174,6 @@ pub fn waitProcessNb(notify_handle: innigkeit.capabilities.Handle) innigkeit.Err
 /// This is a "soft kill": the target process is not immediately terminated,
 /// but the wait syscall will return with status 130.
 pub fn killProcess(notify_handle: innigkeit.capabilities.Handle) innigkeit.Error.Syscall!void {
-    const ret = innigkeit.Syscall.invoke(.process_kill, .{@as(usize, @intFromEnum(notify_handle))});
+    const ret = innigkeit.Syscall.invoke(.process_kill, .{@as(usize, @backingInt(notify_handle))});
     _ = try innigkeit.Syscall.decode(ret);
 }

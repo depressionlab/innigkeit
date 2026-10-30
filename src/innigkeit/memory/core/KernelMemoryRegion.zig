@@ -90,7 +90,7 @@ pub const List = struct {
         while (true) {
             const region = if (i < regions.len) regions[i] else {
                 const size_of_free_range = core.Size.from(
-                    std.math.maxInt(u64) - @intFromEnum(current_address),
+                    std.math.maxInt(u64) - @backingInt(current_address),
                     .byte,
                 );
 
@@ -109,7 +109,7 @@ pub const List = struct {
             }
 
             const size_of_free_range = core.Size.from(
-                (@intFromEnum(region_address) - 1) - @intFromEnum(current_address),
+                (@backingInt(region_address) - 1) - @backingInt(current_address),
                 .byte,
             );
 

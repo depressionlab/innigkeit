@@ -9,19 +9,19 @@ const VolumeHeader = @import("filesystem/VolumeHeader.zig");
 test "recovery: passphrase slot in the volume header round-trips the key" {
     const io = std.testing.io;
     const alloc = std.testing.allocator;
-    const key = [_]u8{0x9E} ** PassphraseKeyslot.key_length;
+    const key = @as([PassphraseKeyslot.key_length]u8, @splat(0x9E));
 
     // Wrap the volume key under a passphrase; lay it into the header next to an
     // (opaque) TPM slot, exactly as a recovery tool would augment a disk that
     // the kernel provisioned with only a TPM slot.
-    const salt = [_]u8{0x01} ** PassphraseKeyslot.salt_length;
-    const nonce = [_]u8{0x02} ** 24;
+    const salt = @as([PassphraseKeyslot.salt_length]u8, @splat(0x01));
+    const nonce = @as([24]u8, @splat(0x02));
     const params: PassphraseKeyslot.Params = .{ .t_cost = 1, .m_cost_kib = 8, .lanes = 1 };
     const slot = try PassphraseKeyslot.wrap(alloc, io, key, "recover me", salt, nonce, params);
 
     var sector: [512]u8 = undefined;
     try VolumeHeader.write(&sector, &.{
-        .{ .type = .tpm_pcr, .bytes = &[_]u8{0xAA} ** 48 },
+        .{ .type = .tpm_pcr, .bytes = &@as([48]u8, @splat(0xAA)) },
         .{ .type = .passphrase, .bytes = &slot },
     });
 
@@ -37,5 +37,5 @@ test "recovery: passphrase slot in the volume header round-trips the key" {
         error.WrongPassphrase,
         PassphraseKeyslot.unwrap(alloc, io, found[0..PassphraseKeyslot.slot_length].*, "wrong"),
     );
-    try std.testing.expect(std.mem.eql(u8, &[_]u8{0xAA} ** 48, h.find(.tpm_pcr).?));
+    try std.testing.expect(std.mem.eql(u8, &@as([48]u8, @splat(0xAA)), h.find(.tpm_pcr).?));
 }

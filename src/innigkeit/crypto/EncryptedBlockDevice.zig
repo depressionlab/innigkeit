@@ -80,7 +80,7 @@ const TestDisk = struct {
 
 test "encrypted block device: multi-sector write/read round-trips" {
     var disk = TestDisk{};
-    var dev = EncryptedBlockDevice(*TestDisk).init(&disk, [_]u8{0x42} ** 64);
+    var dev = EncryptedBlockDevice(*TestDisk).init(&disk, @as([64]u8, @splat(0x42)));
 
     var plain: [3 * sector_size]u8 = undefined;
     for (&plain, 0..) |*b, i| b.* = @truncate(i *% 3 +% 7);
@@ -94,9 +94,9 @@ test "encrypted block device: multi-sector write/read round-trips" {
 
 test "encrypted block device: backing store holds ciphertext, not plaintext" {
     var disk = TestDisk{};
-    var dev = EncryptedBlockDevice(*TestDisk).init(&disk, [_]u8{0x42} ** 64);
+    var dev = EncryptedBlockDevice(*TestDisk).init(&disk, @as([64]u8, @splat(0x42)));
 
-    const plain = [_]u8{0xAB} ** sector_size;
+    const plain = @as([sector_size]u8, @splat(0xAB));
     try dev.writeSectors(2, &plain, 1);
 
     // The raw sector on the backing device must not be the plaintext.
@@ -105,9 +105,9 @@ test "encrypted block device: backing store holds ciphertext, not plaintext" {
 
 test "encrypted block device: identical plaintext differs per sector (LBA tweak)" {
     var disk = TestDisk{};
-    var dev = EncryptedBlockDevice(*TestDisk).init(&disk, [_]u8{0x42} ** 64);
+    var dev = EncryptedBlockDevice(*TestDisk).init(&disk, @as([64]u8, @splat(0x42)));
 
-    const plain = [_]u8{0} ** (2 * sector_size); // same content in both sectors
+    const plain = @as([(2 * sector_size)]u8, @splat(0)); // same content in both sectors
     try dev.writeSectors(8, &plain, 2);
 
     // Sector 8 and sector 9 hold the same plaintext but must differ on disk.

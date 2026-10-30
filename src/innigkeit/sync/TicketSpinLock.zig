@@ -42,7 +42,7 @@ pub fn lock(self: *TicketSpinLock) void {
 pub fn tryLock(self: *TicketSpinLock) bool {
     // no need to check if we already have the lock as the below logic will not allow us
     // to acquire it again
-    const old_container: Container = @bitCast(@atomicLoad(u64, &self.container.full, .monotonic));
+    const old_container: Container = .{ .full = @atomicLoad(u64, &self.container.full, .monotonic) };
     if (old_container.contents.current != old_container.contents.ticket) return false;
 
     var new_container = old_container;

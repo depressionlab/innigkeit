@@ -26,7 +26,7 @@ core_type: CoreType = .unknown,
 
 // used during `innigkeit.debug.interruptSourcePanic`
 interrupt_source_panic_buffer: [
-    @intFromEnum(innigkeit.config.executor.interrupt_source_panic_buffer_size) + interrupt_source_panic_truncated.len
+    @backingInt(innigkeit.config.executor.interrupt_source_panic_buffer_size) + interrupt_source_panic_truncated.len
 ]u8 = undefined,
 const interrupt_source_panic_truncated = " (msg truncated)";
 
@@ -52,11 +52,11 @@ pub fn renderInterruptSourcePanicMessage(self: *Executor, comptime fmt: []const 
 
     const full_buffer = self.interrupt_source_panic_buffer[0..];
 
-    var bw: std.Io.Writer = .fixed(full_buffer[0..@intFromEnum(innigkeit.config.executor.interrupt_source_panic_buffer_size)]);
+    var bw: std.Io.Writer = .fixed(full_buffer[0..@backingInt(innigkeit.config.executor.interrupt_source_panic_buffer_size)]);
 
     bw.print(fmt, args) catch {
         @memcpy(
-            full_buffer[@intFromEnum(innigkeit.config.executor.interrupt_source_panic_buffer_size)..],
+            full_buffer[@backingInt(innigkeit.config.executor.interrupt_source_panic_buffer_size)..],
             interrupt_source_panic_truncated,
         );
         return full_buffer;
@@ -76,10 +76,10 @@ pub inline fn format(self: *const Executor, writer: *std.Io.Writer) !void {
 pub const Id = enum(u32) {
     _,
 
-    pub const bootstrap: Id = @enumFromInt(0);
+    pub const bootstrap: Id = @fromBackingInt(@intCast(0));
 
     pub inline fn format(self: Id, writer: *std.Io.Writer) !void {
-        try writer.print("Executor({d})", .{@intFromEnum(self)});
+        try writer.print("Executor({d})", .{@backingInt(self)});
     }
 };
 
