@@ -90,8 +90,20 @@ pub fn Cache(
             }
         }
 
+        /// Debug builds overwrite a freed item of a constructor-less type, so a stale
+        /// read of a recycled slot yields an obviously wrong value rather than the
+        /// previous occupant's plausible one.
+        ///
+        /// Skipped if a constructor already exists, since its once-per-slot state must
+        /// survive reuse.
+        inline fn poison(item: *T) void {
+            if (comptime core.is_debug and construct_destruct == null)
+                @memset(std.mem.asBytes(item), 0xAA);
+        }
+
         /// Deallocate an item back to the cache.
         pub fn deallocate(self: *CacheT, item: *T) void {
+            poison(item);
             self.inner.deallocate(std.mem.asBytes(item));
         }
 
@@ -104,6 +116,7 @@ pub fn Cache(
                 const raw_items = raw_item_buffer[0..@min(raw_item_buffer.len, items.len - item_index)];
 
                 for (raw_items, items[item_index..][0..raw_items.len]) |*raw_item, item| {
+                    poison(item);
                     raw_item.* = @ptrCast(@alignCast(item));
                 }
 

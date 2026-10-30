@@ -23,6 +23,10 @@ const Object = @import("Object.zig");
 
 const log = innigkeit.debug.log.scoped(.address_space);
 
+/// slab-reuse-ok: no field has a default and no constructor exists, so a recycled
+/// `Entry` holds garbage until the caller assigns the whole struct
+/// (`entry.* = ...`), which every writer in `AddressSpace` does before the entry
+/// is linked into `entries`.
 const Entry = @This();
 
 range: innigkeit.VirtualRange,

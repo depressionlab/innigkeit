@@ -1,15 +1,9 @@
 ---
-description: Run the full Innigkeit verification gate and report results. Use when asked to verify, check, test, or validate the tree.
-argument-hint: [-Darm=true] [-Dcpus=1] [-Dtpm=true] [-Dsecboot=true]
+description: Fast pre-commit check for Innigkeit (compile check, formatting, host tests). Use before committing code changes; for the full QEMU gate use verify-full.
 ---
 
-!`zig build verify ${ARGUMENTS:-} --summary all 2>&1 | tail -50`
+!`zig fmt --check --ast-check apps build build.zig build.zig.zon library sdk src testing tools 2>&1 | tail -20; zig build check --summary all 2>&1 | tail -30; zig build test_native --summary all 2>&1 | tail -15`
 
-Report each stage (PASS/FAIL). If anything failed:
-1. Identify which stage and which specific test(s) failed.
-2. Show the relevant failure lines from the output above.
-3. If it's a QEMU environment issue (not a code regression), say so explicitly.
+Report PASS/FAIL for formatting, `check`, and `test_native`. If anything failed, show the first relevant error lines and fix them.
 
-For a compile-only check (no boot), run `zig build check` instead.
-
-Baseline to compare against: x64 138/138, arm 98 (+13 skipped), host test_native 63.
+This does **not** boot QEMU and `check` does not validate inline assembly. After touching arch `asm`, kernel behaviour, or anything the x64/arm suites exercise, run `verify-full` (or `zig build build_all` for asm-only changes).

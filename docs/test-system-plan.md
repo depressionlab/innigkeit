@@ -56,7 +56,7 @@ last.
 
 **Found while implementing TH-2 (the IPC/capability-transfer integration
 test this doc's own §6 stages).** Full diagnostic trail, evidence, and
-current mitigation: `.claude/rules/arm.md`'s "Two concurrent spawns panic
+current mitigation: `.claude/rules/arm.md`'s "Open: concurrent spawns" (history: docs/bug-archive.md; was "Two concurrent spawns panic
 the kernel" entry — read that first, this is a summary and pointer, not a
 duplicate.
 

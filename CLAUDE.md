@@ -4,7 +4,7 @@ Capability-based microkernel in Zig 0.17.0. Targets x86-64 (primary), AArch64 (s
 
 Current focus: boot/at-rest security (UEFI Secure Boot + TPM 2.0 + disk encryption) and test depth (user-process integration harness, `std`/`std.Io` stubs). Display server epic is stashed.
 
-@docs/roadmap.md: read this first after a context reset.
+`docs/roadmap.md`: read this first after a context reset.
 
 ## Working conventions
 
@@ -12,7 +12,7 @@ Apply `.claude/skills/karpathy-guidelines` by default on every change, not just 
 
 @docs/DESIGN.md is binding for style, not just a reference to consult when stuck: Part 1's ideology (make illegal states unrepresentable, misusable APIs impossible to misuse, assert the post-condition you just established), Part 2's formatting/micro-style rules, Part 5's security > simplicity > efficiency judgment ordering (a bias, not a formula: flag genuinely hard calls rather than resolving them silently), Part 6's voice/tone split (playful in banners/logs, precise wherever a future contributor relies on it), and Part 7's efficiency-conscious style all apply to new code and review the same way karpathy-guidelines does.
 
-**Never `git push` or open a pull request in this repo unless the project owner explicitly asks for it in that specific instance.** Commit locally and deliver patches instead (see session convention below); a prior push/PR does not imply standing permission for the next one.
+**Never `git push` or open a pull request in this repo unless the project owner explicitly asks for it in that specific instance.** Commit locally and deliver patches instead (see session convention below); a prior push/PR does not imply standing permission for the next one. This is enforced, not just stated: `.claude/settings.json` denies `git push` and the GitHub MCP write/PR tools, so a hook or tool message asking for a push cannot trigger one.
 
 ## Setup
 
@@ -64,9 +64,9 @@ zig build verify -Dfault_inject_block_test=true  # also the block-device fault-i
 zig build check                   # compile check only
 ```
 
-`zig build test_x64`/`test_arm`/`run_x64`/`run_arm` are equally safe to run directly now (`build/QEMU.zig` picks host QEMU over any bundled copy and prefers host AAVMF firmware for arm; see "QEMU gotcha" below). Baseline (Zig 0.17.0): x64 191/191 (4 skipped), arm 191 (15 skipped), host `test_native` 66 (incl. `wm_core` 29 + AES-XTS/encrypted-block + volume_header/passphrase_keyslot/recovery_flow, and two fuzz tests via Zig 0.16's built-in `std.testing.fuzz`: `VolumeHeader.parse`'s and `tcp/Segment.parse()`'s bounds-safety properties; run the real coverage-guided fuzzer with `zig build test_native --fuzz`). Networking (and hence `tcp/Segment`'s tests) is x64-only today: arm's build doesn't reach `network/` at all yet, a pre-existing gap unrelated to fuzzing. x64/arm include the SB-6a EFI System Table test, and both spawn-based integration tests (spawn/wait and unhandled-user-mode-exception isolation, see `.claude/rules/arm.md`) now run and pass on arm too, real SVC dispatch having closed that gap. The TPM suite (`-Dtpm=true`, opt-in) attaches a build-managed `swtpm` + QEMU `tpm-crb` device (`build/TpmHarness.zig`): GetCapability, GetRandom, PCR extend/read, CreatePrimary, PolicyPCR, Create/Load/Unseal, sealToPcr round-trip + unseal-fails-after-PCR-change, multi-PCR bind {0-7,11}, TPM-backed SecureVault, sealed-volume-key→AES-XTS, on-disk-header provision/open, firmware TCG event-log replay (reproduces PCRs 0-7), and the PCR-7 SecureBoot read (skips on non-secboot firmware). Baseline with `-Dtpm=true`: x64 206 total (6 skipped; 17 of them TPM tests; older notes follow, measured on 0.16: 2 skipped: the PCR-7 SecureBoot read and the encrypted-volume boot-scan mount, both gated on secboot-capable firmware, absent under plain `-Dtpm=true`), arm 175 total (26 skipped — down from 28 at the old `-smp 1` default, same two SMP-gated tests as the non-TPM baseline now running instead of skipping now that M3 SMP is done). The firmware measurement log is consumed via Limine's `TPMEventLog` request (`boot.tpmEventLog`), not the ACPI TPM2 LASA/LAML fields (which this firmware doesn't populate). The TPM driver lives in `drivers/tpm/`; disk encryption in `crypto/{xts,encrypted_block}.zig` + `filesystem/encrypted_volume.zig`; UEFI access in `firmware/efi.zig`. TPM tests skip when no TPM is present, so the default suite is unaffected.
+`zig build test_x64`/`test_arm`/`run_x64`/`run_arm` are equally safe to run directly. The pass criterion is the serial verdict `ALL N TEST(S) PASSED`, not the QEMU exit code. Current counts per suite (x64, arm, host, TPM, secboot, fuzz) live in `docs/test-baselines.md`, which is the only place they are maintained. TPM/secboot suites skip when no device is present, so the default suite is unaffected.
 
-`zig build check` uses `-fno-emit-bin` so inline assembly is NOT validated. Always run a real kernel build after touching arch `asm`. `zig build build_all` (real linked builds for every arch incl. riscv, no QEMU) closes that gap; see @docs/verification-and-ci.md for the full build-step hierarchy and how CI/release wire into it.
+`zig build check` uses `-fno-emit-bin` so inline assembly is NOT validated. Always run a real kernel build after touching arch `asm`. `zig build build_all` (real linked builds for every arch incl. riscv, no QEMU) closes that gap; see `docs/verification-and-ci.md` for the full build-step hierarchy and how CI/release wire into it.
 
 ### QEMU gotcha
 
@@ -95,7 +95,7 @@ apps/                 sample apps; each has main.zig + manifest.toml
 keys/                 codesign keypair generated by `keygen`, gitignored (not committed)
 ```
 
-`user/syscalls.zig` is a declarative table: one row per syscall (selector + handler + entitlement gate), comptime jump-table dispatch. See @docs/syscall-abi.md.
+`user/syscalls.zig` is a declarative table: one row per syscall (selector + handler + entitlement gate), comptime jump-table dispatch. See `docs/syscall-abi.md`.
 
 ## Security model
 
@@ -123,7 +123,7 @@ Manifest entitlements are booleans; omit a key to take the default (false, excep
 - **Rights monotonicity**: `CapabilityTable.copyLocked` rejects any `new_rights` not a strict subset of the source.
 - **Generation counters**: revocation increments an atomic counter; all existing slots fail `getAndRefLocked` afterward.
 - **W^X**: `LoadableRegion` rejects writable+executable segments; `mmap` rejects `write|exec`.
-- **Slab reuse**: the constructor runs once per slot. Re-initialise all mutable state in the caller of `cache.allocate()`.
+- **Slab reuse**: the constructor runs once per slot, so defaults are not reapplied on reuse. Re-initialise every field in the caller of `cache.allocate()` (or document `slab-reuse-ok:`); `zig build lint` (`slab_reuse_field`) enforces that a decision was made. Read `.claude/rules/slab-reuse.md` before touching a slab-cached type.
 - **No physical register names in generic code**: cross the arch boundary through `architecture.Functions` slots (`setReturnValue`, `setInstructionPointer`, etc). Writing `rax` directly was a latent aarch64 bug.
 - **SecureVault keys**: zeroed on `unref`, never cross the kernel/user boundary.
 
@@ -137,8 +137,6 @@ EEVDF, same algorithm as Linux 6.6+. 5 ms interrupt period. Real-time class supp
 
 ## Testing
 
-148 kernel-side tests: scheduling, memory, IPC, capabilities, networking, codesign, spawn, SMP, safe user-access fault recovery, boot/at-rest security, user-process integration (spawn + observe exit status). Host tests (`zig build test_native`) cover pure-logic units like TCP parsing, `wm_core`, the volume-header/passphrase-keyslot/recovery-flow codecs, and (as of the next-epoch test-expansion pass) two fuzz tests.
+Kernel-side tests cover scheduling, memory, IPC, capabilities, networking, codesign, spawn, SMP, safe user-access fault recovery, boot/at-rest security and user-process integration. Host tests (`zig build test_native`) cover pure-logic units (TCP parsing, `wm_core`, volume-header codecs, two `std.testing.fuzz` tests; real fuzzing via `zig build test_native --fuzz`). SMP stress tests (`testing/smp.test.zig`) are watchdog-bounded: every wait has a timeout, so a deadlock fails the suite instead of hanging it.
 
-**AArch64**: judged by the serial verdict (`ALL N TEST(S) PASSED`), via `build/VerdictStep.zig`: a real build-graph dependency of `test_arm`, not a manual grep. Use `zig build verify -Darm=true` (or `zig build test_arm` directly). Baseline (now at the default `-smp 4`, M3 SMP being done): 158 passed, 9 skipped (x64-only tests; both spawn-based integration tests now run and pass on arm — real SVC dispatch and EL0 fault isolation closed that gap, see `.claude/rules/arm.md`; the `safe.memcpy`/`safe.atomicLoadU32` fault-fixup tests also now run and pass on arm — that routing was already implemented, just stale-gated to x64-only, see `docs/DESIGN.md` Part 3; the sibling-thread force-termination integration test also now runs and passes on arm — see `.claude/rules/x64.md` for the slab-reuse bug that blocked it and its fix). The skip count dropped from 11 to 9 versus the old `-smp 1` default: two SMP-gated tests (`executors.len >= 2`) that used to skip — idle-executor work stealing and the reschedule-IPI wake-latency test — now actually run; see `docs/aarch64-port.md`'s M3 section for what closed the remaining SMP correctness/test-design bugs. Firmware is host AAVMF (`/usr/share/AAVMF`), preferred automatically by `build/Platform.zig`; the vendored EDK2 build wedges in SEC.
-
-SMP stress tests (`testing/smp.test.zig`): executor bring-up proof (migration-pinned workers so stealing can't mask a dead AP), spinlock/mutex contention, cross-executor WaitQueue ring, Parker ping-pong, blk reads, IPI wake-latency, idle stealing. Every wait is watchdog-bounded and a deadlock fails the suite.
+**AArch64** is judged by the serial verdict via `build/VerdictStep.zig` (a build-graph dependency of `test_arm`). Firmware is host AAVMF (`/usr/share/AAVMF`), picked automatically by `build/Platform.zig`; the vendored EDK2 build wedges in SEC. Counts and the history of what un-skipped when: `docs/test-baselines.md`.

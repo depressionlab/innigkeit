@@ -1,6 +1,9 @@
 ---
 description: Checklist and guidance for adding a new syscall to Innigkeit. Use when asked to add, implement, or create a syscall.
 argument-hint: <syscall-name>
+paths:
+  - "src/innigkeit/user/**"
+  - "library/innigkeit/**"
 ---
 
 # Adding syscall: $ARGUMENTS
@@ -46,4 +49,4 @@ Add a row to the registry table in `docs/syscall-abi.md`.
 zig build verify -Darm=true
 ```
 
-Expected baseline: x64 138/138, arm 98 (+13 skipped). If you added a test, counts go up.
+Compare against `docs/test-baselines.md`. If you added a test, counts go up.

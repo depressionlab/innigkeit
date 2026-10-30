@@ -62,6 +62,10 @@ pub fn build(b: *std.Build) void {
         .path = "rules/unvalidated_arg_slice.zig",
     } }, .{});
     builder.addRule(.{ .custom = .{
+        .name = "slab_reuse_field",
+        .path = "rules/slab_reuse_field.zig",
+    } }, .{});
+    builder.addRule(.{ .custom = .{
         .name = "undocumented_zlinter_disable",
         .path = "rules/undocumented_zlinter_disable.zig",
     } }, .{});

@@ -50,57 +50,9 @@ true (these functions require the address space to be entirely idle, not
 mid-mapping) and does not conflict with the nesting above, since those
 functions never take `page_table_lock` themselves either.
 
-## Page-table lock gap — FIXED
+## Page-table locking
 
-Originally found (Stage 4a) as a documented-not-fixed gap; fixed in a
-follow-up pass once the project owner asked for it.
-
-The page table used to be mutated by two disjoint code paths sharing no
-common lock:
-
-- **`AddressSpace.unmap()`** and **`AddressSpace.changeProtection()`**
-  mutate the page table directly (`innigkeit.memory.unmap()` /
-  `innigkeit.memory.changeProtection()` in `memory/root.zig`, neither of
-  which takes any lock itself) while holding only `entries_lock.writeLock()`.
-  `page_table_lock` is asserted **unlocked** during these calls.
-- **`vmem_map`/`framebuffer_map`** (`user/handlers/{vmem,framebuffer}.zig`)
-  populated the page table via `mapSinglePage()` while holding only
-  `page_table_lock`, taken *after* `AddressSpace.map()` had already released
-  `entries_lock`.
-
-Since a process can have multiple threads (`spawn_thread`) scheduled
-concurrently on different executors (SMP), this was reachable: thread A
-calls `vmem_map`, which inserts a new `Entry` under `entries_lock` and then
-released it; before or while A subsequently took `page_table_lock` to run
-`mapSinglePage` on that range, thread B (a sibling thread in the same
-process) could call `unmap`/`changeProtection` targeting an overlapping
-range, take `entries_lock.writeLock()` (now free), see the entry A just
-inserted, and mutate the same page-table structure via
-`innigkeit.memory.unmap()`/`changeProtection()` — with no lock serializing A
-and B against each other.
-
-**The fix**: `MapOptions` gained a `keep_entries_locked: bool` field. When
-`true`, `map()` returns with `entries_lock` still held (write) instead of
-releasing it, paired with a new `unlockEntriesAfterMap()` the caller must
-call exactly once when done. `vmem_map`, `framebufferMap`, and
-`framebufferMapGpu` now pass `keep_entries_locked = true` and hold
-`entries_lock` across their `page_table_lock`-guarded `mapSinglePage()`
-loop, releasing `page_table_lock` then `entries_lock` (in that order —
-inner lock first) before returning or falling through to `unmap()`'s own
-cleanup on a population failure (calling `unmap()` while still holding
-`entries_lock` would self-deadlock, since `unmap()` takes it itself).
-
-This closes the gap by extending the *already-established*
-`entries_lock` (outer) → `page_table_lock` (inner) nesting that
-`FaultInfo`'s demand-paging fault path already used (`FaultInfo.zig` lines
-~301, ~426 take `page_table_lock` while `entries_lock` is held) to these
-two handler call sites, rather than inventing a new lock order — so no
-new deadlock ordering was introduced. Verified: `zig build verify
--Darm=true`, x64 139/139 and arm 99/99 (unchanged pass count from before
-this fix; no dedicated concurrency stress test was added since exercising
-the specific race deterministically would need a new multi-threaded
-harness in the spirit of `testing/smp.test.zig` — flagged as a
-recommended follow-up, not done here).
+Lock order is `entries_lock` (outer) then `page_table_lock` (inner), the same nesting `FaultInfo`'s demand-paging path uses. Any handler that maps and then populates the page table (`vmem_map`, `framebufferMap`, `framebufferMapGpu`) passes `MapOptions.keep_entries_locked = true`, calls `unlockEntriesAfterMap()` exactly once, and releases `page_table_lock` before `entries_lock`. Never call `unmap()` while holding `entries_lock` (it takes it itself). `unmap`/`changeProtection` mutate the table under `entries_lock` alone, so no population may run outside it. A deterministic multi-threaded stress test for this race does not exist yet.
 
 ## Object-backed fault path is still unimplemented
 

@@ -55,23 +55,6 @@ dependency graph shape. Don't "simplify" this to `b.dependency(...)`
 app happened to also declare an identically-named `innigkeit` dependency,
 which isn't guaranteed by the SDK's contract.
 
-## `sdk/example/`'s `innigkeit_hello` app's build failure — FIXED (2026-07-13), was misdiagnosed as a Zig backend limitation
+## `createApp()` disables UBSan on its modules
 
-Building `sdk/example/`'s own worked example used to fail with
-`error: failed to select fpext f128 f64` inside `ubsan_rt.zig`/
-`std.Io.Writer.print`, under the freestanding soft-float x86_64 target,
-and this file previously called it "a Zig compiler backend limitation,
-not a bug in `sdk/`'s own code." That framing was wrong. The real cause,
-found while root-causing the *identical* symptom in the monorepo's own
-`build/App.zig` this session: `sdk/build.zig`'s `createApp()` never set
-`sanitize_c` on `app_mod`/`prelude_mod`, so both silently took Zig's
-implicit Debug-mode default (`.full`) instead of `.off` — pulling in
-`ubsan_rt.zig`'s f128 float-reporting path, which the freestanding
-soft-float backend genuinely can't codegen (that specific limitation is
-real; the bug was in never avoiding the code path that hits it). Fixed
-by setting `sanitize_c = .off` on both modules (`createApp` has no
-C-linking capability at all, unlike `build/App.zig`'s `app_module`, so
-this is unconditional rather than derived from C-source presence).
-Verified: `cd sdk/example && zig build` now compiles `innigkeit_hello`
-cleanly, failing only at the codesign step for the expected, unrelated
-reason (no local `keys/codesign_private.key` present in this sandbox).
+`sdk/build.zig`'s `createApp()` sets `sanitize_c = .off` on both the app and prelude modules. Left at Zig's Debug default (`.full`), it pulls in `ubsan_rt.zig`'s f128 reporting path, which the freestanding soft-float x86-64 backend cannot codegen. The same rule applies to `build/App.zig` (see `docs/verification-and-ci.md` §6).
