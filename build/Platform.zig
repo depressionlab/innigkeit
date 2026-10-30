@@ -4,18 +4,21 @@
 //! firmware and any bundled `.tools/qemu` build.
 
 const Bundle = @import("Bundle.zig");
+const configure_deps = @import("configure_deps.zig");
 const std = @import("std");
 
-/// Resolve the QEMU binary for `arch`: prefer whatever's on the host PATH
-/// (empirically what boots this kernel on both x64 and arm), falling back
-/// to a locally built copy in `.tools/qemu/bin/` only if the host has none.
+/// Resolve the QEMU binary for `arch`: a locally built copy in
+/// `.tools/qemu/bin/` if one exists, otherwise the bare name, which the run
+/// step resolves on the host PATH when it executes. Deliberately not a
+/// configure-time PATH search: that would poison the configuration cache.
 pub fn findQemuBinary(b: *std.Build, arch: Bundle.Architecture) []const u8 {
     const name = switch (arch) {
         .arm => "qemu-system-aarch64",
         .riscv => "qemu-system-riscv64",
         .x64 => "qemu-system-x86_64",
     };
-    return b.findProgram(&.{name}, &.{".tools/qemu/bin"}) catch name;
+    const bundled = b.pathJoin(&.{ ".tools", "qemu", "bin", name });
+    return if (pathExists(b, bundled)) bundled else name;
 }
 
 pub const FirmwarePaths = struct {
@@ -38,7 +41,7 @@ pub fn hostFirmware(b: *std.Build, arch: Bundle.Architecture) ?FirmwarePaths {
             break :found .{ .code = code, .vars = vars };
         },
         .macos => found: {
-            const qemu_bin = b.findProgram(&.{"qemu-system-aarch64"}, &.{}) catch break :found null;
+            const qemu_bin = b.findProgram(.{ .names = &.{"qemu-system-aarch64"} }) orelse break :found null;
             const bin_dir = std.Io.Dir.path.dirname(qemu_bin) orelse break :found null;
             const prefix = std.Io.Dir.path.dirname(bin_dir) orelse break :found null;
             const code = b.pathJoin(&.{ prefix, "share", "qemu", "edk2-aarch64-code.fd" });
@@ -61,7 +64,7 @@ pub fn secbootFirmware(b: *std.Build) ?FirmwarePaths {
             break :found .{ .code = code, .vars = vars };
         },
         .macos => found: {
-            const qemu_bin = b.findProgram(&.{"qemu-system-aarch64"}, &.{}) catch break :found null;
+            const qemu_bin = b.findProgram(.{ .names = &.{"qemu-system-aarch64"} }) orelse break :found null;
             const bin_dir = std.Io.Dir.path.dirname(qemu_bin) orelse break :found null;
             const prefix = std.Io.Dir.path.dirname(bin_dir) orelse break :found null;
             const code = b.pathJoin(&.{ prefix, "share", "qemu", "edk2-x86_64-secure-code.fd" });
@@ -77,11 +80,11 @@ pub fn secbootFirmware(b: *std.Build) ?FirmwarePaths {
 /// Used to gate `-Dtpm=true`/`-Dsecboot=true` with a clear message instead
 /// of a cryptic subprocess failure when a required tool is missing.
 pub fn hasTool(b: *std.Build, name: []const u8) bool {
-    _ = b.findProgram(&.{name}, &.{}) catch return false;
-    return true;
+    return b.findProgram(.{ .names = &.{name} }) != null;
 }
 
+/// Configure-time existence probe, tracked as a configuration dependency
+/// rather than poisoning the cache.
 fn pathExists(b: *std.Build, path: []const u8) bool {
-    std.Io.Dir.accessAbsolute(b.graph.io, path, .{}) catch return false;
-    return true;
+    return configure_deps.track(b, path, .file_metadata);
 }

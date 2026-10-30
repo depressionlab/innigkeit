@@ -139,7 +139,7 @@ pub fn startProcess(self: *Thread, entry_point: innigkeit.UserVirtualAddress, in
     // the stack size; assert it explicitly here too, since a future caller
     // violating that contract would otherwise silently write past the
     // mapped stack via moveBackward below.
-    if (core.is_debug) std.debug.assert(frame_size <= @intFromEnum(user_stack.size));
+    if (core.is_debug) std.debug.assert(frame_size <= @backingInt(user_stack.size));
 
     const stack_top = user_stack.toUser().after();
     const stack_ptr = stack_top.moveBackward(core.Size.from(frame_size, .byte));
@@ -152,7 +152,7 @@ pub fn startProcess(self: *Thread, entry_point: innigkeit.UserVirtualAddress, in
         // stays within the asserted `frame_size`, inside this `UserAccess`
         // window. the whole block writes the initial user stack layout the
         // kernel is constructing, not a foreign buffer.
-        var meta: usize = @intFromEnum(stack_ptr);
+        var meta: usize = @backingInt(stack_ptr);
 
         // argc
         @as(*usize, @ptrFromInt(meta)).* = argc;
@@ -175,16 +175,16 @@ pub fn startProcess(self: *Thread, entry_point: innigkeit.UserVirtualAddress, in
         meta += S;
 
         // auxv: AT_PHDR, AT_PHNUM, AT_ENTRY, AT_NULL
-        @as(*std.elf.Auxv, @ptrFromInt(meta)).* = .{ .a_type = std.elf.AT_PHDR, .a_un = .{ .a_val = initial.phdr_vaddr } };
+        @as(*std.elf.Auxv, @ptrFromInt(meta)).* = .{ .a_type = std.elf.AT.PHDR, .a_un = .{ .a_val = initial.phdr_vaddr } };
         meta += @sizeOf(std.elf.Auxv);
         // meta, see comment above
-        @as(*std.elf.Auxv, @ptrFromInt(meta)).* = .{ .a_type = std.elf.AT_PHNUM, .a_un = .{ .a_val = initial.phnum } };
+        @as(*std.elf.Auxv, @ptrFromInt(meta)).* = .{ .a_type = std.elf.AT.PHNUM, .a_un = .{ .a_val = initial.phnum } };
         meta += @sizeOf(std.elf.Auxv);
         // meta, see comment above
-        @as(*std.elf.Auxv, @ptrFromInt(meta)).* = .{ .a_type = std.elf.AT_ENTRY, .a_un = .{ .a_val = initial.entry } };
+        @as(*std.elf.Auxv, @ptrFromInt(meta)).* = .{ .a_type = std.elf.AT.ENTRY, .a_un = .{ .a_val = initial.entry } };
         meta += @sizeOf(std.elf.Auxv);
         // meta, see comment above
-        @as(*std.elf.Auxv, @ptrFromInt(meta)).* = .{ .a_type = std.elf.AT_NULL, .a_un = .{ .a_val = 0 } };
+        @as(*std.elf.Auxv, @ptrFromInt(meta)).* = .{ .a_type = std.elf.AT.NULL, .a_un = .{ .a_val = 0 } };
         meta += @sizeOf(std.elf.Auxv);
         // meta == stack_ptr.value + metadata_size; string data follows here.
 

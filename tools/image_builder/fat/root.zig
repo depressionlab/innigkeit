@@ -28,7 +28,7 @@ pub fn create(allocator: std.mem.Allocator, io: std.Io, partition: ImageDescript
     // clusters) whatever the image size, so growing the image never grew
     // what fit in it. One entry per sector (plus the two reserved entries)
     // is a slight overestimate of the data clusters, which is harmless.
-    const entries_per_fat_sector = @intFromEnum(sector_size) / @sizeOf(filesystem.fat.FAT32Entry);
+    const entries_per_fat_sector = @backingInt(sector_size) / @sizeOf(filesystem.fat.FAT32Entry);
     const sectors_per_fat: u32 = @intCast((number_of_sectors + 2 + entries_per_fat_sector - 1) / entries_per_fat_sector);
 
     // Exclusive upper bound on a cluster number (clusters start at 2), so
@@ -41,7 +41,7 @@ pub fn create(allocator: std.mem.Allocator, io: std.Io, partition: ImageDescript
     const bpb = root.asPtr(*filesystem.fat.BPB, slice, 0, sector_size);
     bpb.* = filesystem.fat.BPB{
         .oem_identifier = [_]u8{ 'C', 'A', 'S', 'C', 'A', 'D', 'E', 0 },
-        .bytes_per_sector = @intCast(@intFromEnum(sector_size)),
+        .bytes_per_sector = @intCast(@backingInt(sector_size)),
         .sectors_per_cluster = sectors_per_cluster,
         .reserved_sectors = reserved_sectors,
         .number_of_fats = number_of_fat,
@@ -94,8 +94,8 @@ pub fn create(allocator: std.mem.Allocator, io: std.Io, partition: ImageDescript
         .subtract(size_of_info);
 
     @memcpy(
-        slice[@intFromEnum(padding_before_backup_info)..][0..@intFromEnum(size_of_info)],
-        slice[0..@intFromEnum(size_of_info)],
+        slice[@backingInt(padding_before_backup_info)..][0..@backingInt(size_of_info)],
+        slice[0..@backingInt(size_of_info)],
     );
 
     const fat_begin = reserved_sectors;
@@ -116,10 +116,10 @@ pub fn create(allocator: std.mem.Allocator, io: std.Io, partition: ImageDescript
     );
 
     // BPB media in lower byte and all ones elsewhere
-    context.setFAT(0, @enumFromInt(0xFFFFF00 | @as(u32, @intFromEnum(bpb.media_descriptor_type))));
+    context.setFAT(0, @fromBackingInt(@intCast(0xFFFFF00 | @as(u32, @backingInt(bpb.media_descriptor_type)))));
 
     // Reserved entry
-    context.setFAT(1, @enumFromInt(0xFFFFFFF));
+    context.setFAT(1, @fromBackingInt(@intCast(0xFFFFFFF)));
 
     // Root directory end of chain
     context.setFAT(root_cluster, filesystem.fat.FAT32Entry.end_of_chain);

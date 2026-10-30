@@ -19,7 +19,7 @@ pub const PhysicalRange = struct {
     pub inline fn fromDirectMap(direct_map_range: root.KernelVirtualRange) PhysicalRange {
         if (core.is_debug) std.debug.assert(innigkeit.memory.globals.direct_map.fullyContains(direct_map_range));
         return .{
-            .address = @enumFromInt(@intFromEnum(direct_map_range.address) - @intFromEnum(innigkeit.memory.globals.direct_map.address)),
+            .address = @fromBackingInt(@intCast(@backingInt(direct_map_range.address) - @backingInt(innigkeit.memory.globals.direct_map.address))),
             .size = direct_map_range.size,
         };
     }
@@ -30,7 +30,7 @@ pub const PhysicalRange = struct {
     /// - `range` must be fully covered by the direct map.
     pub inline fn toDirectMap(range: PhysicalRange) root.KernelVirtualRange {
         const direct_map_range: root.KernelVirtualRange = .{
-            .address = @enumFromInt(@intFromEnum(range.address) + @intFromEnum(innigkeit.memory.globals.direct_map.address)),
+            .address = @fromBackingInt(@intCast(@backingInt(range.address) + @backingInt(innigkeit.memory.globals.direct_map.address))),
             .size = range.size,
         };
         if (core.is_debug) std.debug.assert(innigkeit.memory.globals.direct_map.fullyContains(direct_map_range));
@@ -60,6 +60,6 @@ test "PhysicalRange: pageAlign covers the last byte even when it lands exactly o
     const range: PhysicalRange = .from(.zero, page_size.add(.one));
     const aligned = range.pageAlign();
 
-    try std.testing.expectEqual(@as(u64, 0), @intFromEnum(aligned.address));
-    try std.testing.expectEqual(@intFromEnum(page_size) * 2, @intFromEnum(aligned.size));
+    try std.testing.expectEqual(@as(u64, 0), @backingInt(aligned.address));
+    try std.testing.expectEqual(@backingInt(page_size) * 2, @backingInt(aligned.size));
 }

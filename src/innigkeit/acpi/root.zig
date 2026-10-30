@@ -40,7 +40,7 @@ pub const init = struct {
     /// NOP if ACPI is not present.
     pub fn earlyInitialize() !AcpiTablesHandle {
         const static = struct {
-            var buffer: [@intFromEnum(architecture.paging.standard_page_size)]u8 align(@sizeOf(usize)) = undefined;
+            var buffer: [@backingInt(architecture.paging.standard_page_size)]u8 align(@sizeOf(usize)) = undefined;
         };
 
         const rsdp = switch (boot.rsdp() orelse return .{}) {

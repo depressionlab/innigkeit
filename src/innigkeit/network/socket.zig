@@ -23,6 +23,8 @@ const std = @import("std");
 const tcp_sock = @import("tcp/Socket.zig");
 const udp_pkt = @import("udp.zig");
 
+pub const Owner = @import("owner.zig").Owner;
+
 const log = innigkeit.debug.log.scoped(.net_socket);
 const wallclock = innigkeit.time.wallclock;
 
@@ -32,13 +34,13 @@ const RX_RING: usize = 8;
 pub const MAX_PAYLOAD: usize = 1472; // 1500 - 20 (IP) - 8 (UDP)
 
 const ArpEntry = struct {
-    ip: [4]u8 = .{0} ** 4,
-    mac: [6]u8 = .{0} ** 6,
+    ip: [4]u8 = @splat(0),
+    mac: [6]u8 = @splat(0),
     valid: bool = false,
 };
 
 pub const RxFrame = struct {
-    from_ip: [4]u8 = .{0} ** 4,
+    from_ip: [4]u8 = @splat(0),
     from_port: u16 = 0,
     len: u16 = 0,
     data: [MAX_PAYLOAD]u8 = undefined,
@@ -46,6 +48,7 @@ pub const RxFrame = struct {
 
 const Socket = struct {
     in_use: bool = false,
+    owner: Owner = .kernel,
     port: u16 = 0,
     rx_head: u8 = 0,
     rx_tail: u8 = 0,
@@ -59,7 +62,7 @@ const Socket = struct {
 // Ping state: only one outstanding ICMP echo at a time.
 const PingState = struct {
     active: bool = false,
-    dst_ip: [4]u8 = .{0} ** 4,
+    dst_ip: [4]u8 = @splat(0),
     id: u16 = 0,
     seq: u16 = 0,
     send_ms: u64 = 0,
@@ -67,32 +70,54 @@ const PingState = struct {
     received: bool = false,
 };
 
-var sockets: [SOCKET_MAX]Socket = [_]Socket{.{}} ** SOCKET_MAX;
-var arp_cache: [ARP_CACHE_MAX]ArpEntry = [_]ArpEntry{.{}} ** ARP_CACHE_MAX;
+var sockets: [SOCKET_MAX]Socket = @splat(.{});
+var arp_cache: [ARP_CACHE_MAX]ArpEntry = @splat(.{});
 var ping_state: PingState = .{};
 var lock: innigkeit.sync.TicketSpinLock = .{};
 
-/// Open a UDP socket bound to `port`. Returns the socket id (0–15) or null
-/// if all slots are taken or the port is already in use.
-pub fn openSocket(port: u16) ?u8 {
+/// Open a UDP socket bound to `port`, owned by `owner`. Returns the socket id
+/// (0–15) or null if all slots are taken.
+pub fn openSocket(owner: Owner, port: u16) ?u8 {
     lock.lock();
     defer lock.unlock();
     for (&sockets, 0..) |*s, i| {
         if (!s.in_use) {
-            s.* = .{ .in_use = true, .port = port };
+            s.* = .{ .in_use = true, .owner = owner, .port = port };
             return @intCast(i);
         }
     }
     return null;
 }
 
-/// Close the socket with `id`. No-op if the id is out of range or not open.
-/// Any task blocked in `recvUdpBlocking` on this socket is woken and observes
-/// `in_use == false` (recv then fails with null).
-pub fn closeSocket(id: u8) void {
-    if (id >= SOCKET_MAX) return;
+/// True if `id` is an open UDP socket owned by `owner`. Caller holds `lock`.
+fn ownedLocked(owner: Owner, id: u8) bool {
+    return id < SOCKET_MAX and sockets[id].in_use and sockets[id].owner == owner;
+}
+
+/// Close every socket (UDP and TCP) `owner` still has open. Run when a
+/// process is torn down so its sockets neither leak nor outlive the identity
+/// that `Owner.of` derives from the process's address.
+pub fn closeAllOwnedBy(owner: Owner) void {
+    {
+        lock.lock();
+        defer lock.unlock();
+        for (&sockets) |*s| {
+            if (!s.in_use or s.owner != owner) continue;
+            s.in_use = false;
+            while (s.waiters.pop(&lock)) |task|
+                task.wakeFromBlocked();
+        }
+    }
+    tcp_sock.closeAllOwnedBy(owner);
+}
+
+/// Close the socket with `id`. No-op if the id is out of range, not open, or
+/// not owned by `owner`. Any task blocked in `recvUdpBlocking` on this socket
+/// is woken and observes `in_use == false` (recv then fails with null).
+pub fn closeSocket(owner: Owner, id: u8) void {
     lock.lock();
     defer lock.unlock();
+    if (!ownedLocked(owner, id)) return;
     const s = &sockets[id];
     s.in_use = false;
     while (s.waiters.pop(&lock)) |task|
@@ -103,6 +128,7 @@ pub fn closeSocket(id: u8) void {
 /// bounded by `arp_timeout_ns`). Returns false on error (no NIC, ARP
 /// timeout, send failure).
 pub fn sendUdp(
+    owner: Owner,
     sock_id: u8,
     dst_ip: [4]u8,
     dst_port: u16,
@@ -115,7 +141,7 @@ pub fn sendUdp(
     const our_ip = our_ip_ptr.*;
 
     lock.lock();
-    if (!sockets[sock_id].in_use) {
+    if (!ownedLocked(owner, sock_id)) {
         lock.unlock();
         return false;
     }
@@ -231,14 +257,13 @@ fn dequeueLocked(s: *Socket, buf: []u8, from: *RecvFrom) u16 {
     return copy_len;
 }
 
-pub fn recvUdp(sock_id: u8, buf: []u8, from: *RecvFrom) ?u16 {
-    if (sock_id >= SOCKET_MAX) return null;
-
+pub fn recvUdp(owner: Owner, sock_id: u8, buf: []u8, from: *RecvFrom) ?u16 {
     lock.lock();
     defer lock.unlock();
 
+    if (!ownedLocked(owner, sock_id)) return null;
     const s = &sockets[sock_id];
-    if (!s.in_use or s.rx_head == s.rx_tail) return null;
+    if (s.rx_head == s.rx_tail) return null;
     return dequeueLocked(s, buf, from);
 }
 
@@ -251,16 +276,16 @@ pub fn recvUdp(sock_id: u8, buf: []u8, from: *RecvFrom) ?u16 {
 /// the caller must NOT hold a `UserAccess` window or any lock across this
 /// call, since it blocks indefinitely (no timeout; see the syscall handler
 /// for the rationale).
-pub fn recvUdpBlocking(sock_id: u8, buf: []u8, from: *RecvFrom) ?u16 {
-    if (sock_id >= SOCKET_MAX) return null;
-
+pub fn recvUdpBlocking(owner: Owner, sock_id: u8, buf: []u8, from: *RecvFrom) ?u16 {
     lock.lock();
     while (true) {
-        const s = &sockets[sock_id];
-        if (!s.in_use) {
+        // Re-checked after every wakeup: the slot may have been closed and
+        // reopened by someone else while this task slept.
+        if (!ownedLocked(owner, sock_id)) {
             lock.unlock();
             return null;
         }
+        const s = &sockets[sock_id];
         if (s.rx_head != s.rx_tail) {
             const n = dequeueLocked(s, buf, from);
             lock.unlock();
@@ -304,6 +329,8 @@ fn handleArp(payload: []const u8) void {
 
 fn handleIp(payload: []const u8) void {
     const pkt = ip4.parse(payload) orelse return;
+    const our_ip = innigkeit.drivers.virtio.net.getIp() orelse return;
+    if (!ip4.isForUs(pkt.dst, our_ip.*)) return;
 
     switch (pkt.proto) {
         .udp => handleUdp(pkt.src, pkt.payload),
@@ -430,38 +457,42 @@ pub fn arpLookup(ip: [4]u8) ?[6]u8 {
     return lookupArpCache(ip);
 }
 
-pub fn openTcpListener(port: u16) ?u8 {
-    return tcp_sock.openListener(port);
+pub fn openTcpListener(owner: Owner, port: u16) ?u8 {
+    return tcp_sock.openListener(owner, port);
 }
 
-pub fn openTcpConnect(src_port: u16, dst_ip: [4]u8, dst_port: u16) ?u8 {
-    return tcp_sock.openConnect(src_port, dst_ip, dst_port);
+pub fn openTcpConnect(owner: Owner, src_port: u16, dst_ip: [4]u8, dst_port: u16) ?u8 {
+    return tcp_sock.openConnect(owner, src_port, dst_ip, dst_port);
 }
 
-pub fn tcpWaitConnected(id: u8) bool {
-    return tcp_sock.waitConnected(id);
+pub fn tcpWaitConnected(owner: Owner, id: u8) bool {
+    return tcp_sock.waitConnected(owner, id);
 }
 
 /// Blocks until an inbound connection is established on the listener; returns
 /// the new socket id, or null if the listener id is invalid or closed.
-pub fn tcpAccept(listener_id: u8) ?u8 {
-    return tcp_sock.accept(listener_id);
+pub fn tcpAccept(owner: Owner, listener_id: u8) ?u8 {
+    return tcp_sock.accept(owner, listener_id);
 }
 
-pub fn tcpSend(id: u8, data: []const u8) usize {
-    return tcp_sock.sendData(id, data);
+pub fn tcpReown(from: Owner, to: Owner, id: u8) bool {
+    return tcp_sock.reown(from, to, id);
+}
+
+pub fn tcpSend(owner: Owner, id: u8, data: []const u8) usize {
+    return tcp_sock.sendData(owner, id, data);
 }
 
 /// Non-blocking TCP receive (returns 0 when no data is buffered). `net_tcp_recv`
 /// copies through a kernel bounce buffer (see `handlers/network.zig`), so
 /// this stays non-blocking because no caller needs a blocking variant yet,
 /// not for user-memory-safety reasons.
-pub fn tcpRecv(id: u8, buf: []u8) u16 {
-    return tcp_sock.recvData(id, buf);
+pub fn tcpRecv(owner: Owner, id: u8, buf: []u8) u16 {
+    return tcp_sock.recvData(owner, id, buf);
 }
 
-pub fn closeTcp(id: u8) void {
-    return tcp_sock.closeSocket(id);
+pub fn closeTcp(owner: Owner, id: u8) void {
+    return tcp_sock.closeSocket(owner, id);
 }
 
 /// Bound on how long `resolveArpWithRetry` waits for an ARP reply.
@@ -479,7 +510,7 @@ fn resolveArpWithRetry(dst_ip: [4]u8, our_mac: *const [6]u8, our_ip: [4]u8) ?[6]
     _ = innigkeit.drivers.virtio.net.send(&req);
 
     const start = wallclock.read();
-    while (@intFromEnum(wallclock.elapsed(start, wallclock.read())) < arp_timeout_ns) {
+    while (@backingInt(wallclock.elapsed(start, wallclock.read())) < arp_timeout_ns) {
         if (lookupArpCache(dst_ip)) |m| return m;
         const h: innigkeit.Task.Scheduler.Handle = .get();
         h.yield();
@@ -490,8 +521,8 @@ fn resolveArpWithRetry(dst_ip: [4]u8, our_mac: *const [6]u8, our_ip: [4]u8) ?[6]
 
 test "udp socket: delivered datagram is received without blocking" {
     const port: u16 = 47123; // arbitrary high port, unused elsewhere
-    const id = openSocket(port) orelse return error.NoSocketSlot;
-    defer closeSocket(id);
+    const id = openSocket(.kernel, port) orelse return error.NoSocketSlot;
+    defer closeSocket(.kernel, id);
 
     const src_ip: [4]u8 = .{ 10, 0, 2, 2 };
 
@@ -501,18 +532,18 @@ test "udp socket: delivered datagram is received without blocking" {
     deliverUdp(src_ip, 5556, port, "world!");
 
     var buf: [MAX_PAYLOAD]u8 = undefined;
-    var from: RecvFrom = .{ .ip = .{0} ** 4, .port = 0 };
+    var from: RecvFrom = .{ .ip = @splat(0), .port = 0 };
 
     // Blocking receive must return immediately: a datagram is already queued,
     // so the fast path never reaches the wait queue.
-    const n1 = recvUdpBlocking(id, &buf, &from) orelse return error.NoDatagram;
+    const n1 = recvUdpBlocking(.kernel, id, &buf, &from) orelse return error.NoDatagram;
     try std.testing.expectEqual(@as(u16, 5), n1);
     try std.testing.expectEqualSlices(u8, "hello", buf[0..n1]);
     try std.testing.expectEqualSlices(u8, &src_ip, &from.ip);
     try std.testing.expectEqual(@as(u16, 5555), from.port);
 
     // Non-blocking receive drains the second datagram in FIFO order.
-    const n2 = recvUdp(id, &buf, &from) orelse return error.NoDatagram;
+    const n2 = recvUdp(.kernel, id, &buf, &from) orelse return error.NoDatagram;
     try std.testing.expectEqual(@as(u16, 6), n2);
     try std.testing.expectEqualSlices(u8, "world!", buf[0..n2]);
     try std.testing.expectEqual(@as(u16, 5556), from.port);
@@ -520,29 +551,94 @@ test "udp socket: delivered datagram is received without blocking" {
 
 test "udp socket: empty socket would-block (non-blocking returns null)" {
     const port: u16 = 47124;
-    const id = openSocket(port) orelse return error.NoSocketSlot;
-    defer closeSocket(id);
+    const id = openSocket(.kernel, port) orelse return error.NoSocketSlot;
+    defer closeSocket(.kernel, id);
 
     var buf: [16]u8 = undefined;
-    var from: RecvFrom = .{ .ip = .{0} ** 4, .port = 0 };
-    try std.testing.expectEqual(@as(?u16, null), recvUdp(id, &buf, &from));
+    var from: RecvFrom = .{ .ip = @splat(0), .port = 0 };
+    try std.testing.expectEqual(@as(?u16, null), recvUdp(.kernel, id, &buf, &from));
 }
 
 test "udp socket: blocking recv on a closed socket returns null immediately" {
     const port: u16 = 47125;
-    const id = openSocket(port) orelse return error.NoSocketSlot;
-    closeSocket(id);
+    const id = openSocket(.kernel, port) orelse return error.NoSocketSlot;
+    closeSocket(.kernel, id);
 
     var buf: [16]u8 = undefined;
-    var from: RecvFrom = .{ .ip = .{0} ** 4, .port = 0 };
-    try std.testing.expectEqual(@as(?u16, null), recvUdpBlocking(id, &buf, &from));
+    var from: RecvFrom = .{ .ip = @splat(0), .port = 0 };
+    try std.testing.expectEqual(@as(?u16, null), recvUdpBlocking(.kernel, id, &buf, &from));
     // Out-of-range ids fail without touching the table.
-    try std.testing.expectEqual(@as(?u16, null), recvUdpBlocking(@intCast(SOCKET_MAX), &buf, &from));
+    try std.testing.expectEqual(@as(?u16, null), recvUdpBlocking(.kernel, @intCast(SOCKET_MAX), &buf, &from));
 }
 
 test "tcp accept: closed or invalid listener returns null immediately" {
-    const lid = openTcpListener(47126) orelse return error.NoSocketSlot;
-    closeTcp(lid);
+    const lid = openTcpListener(.kernel, 47126) orelse return error.NoSocketSlot;
+    closeTcp(.kernel, lid);
     // The slot is no longer in use, so blocking accept must bail out at once.
-    try std.testing.expectEqual(@as(?u8, null), tcpAccept(lid));
+    try std.testing.expectEqual(@as(?u8, null), tcpAccept(.kernel, lid));
+}
+
+test "UDP sockets: only the opening owner can use or close them" {
+    const alice: Owner = .of(&sockets[0]);
+    const bob: Owner = .of(&sockets[1]);
+
+    const id = openSocket(alice, 40001) orelse return error.SocketOpenFailed;
+    // Closed explicitly below on the success path; closeAllOwnedBy is the net for failures.
+    defer closeAllOwnedBy(alice);
+
+    var from: RecvFrom = .{ .ip = @splat(0), .port = 0 };
+    var buf: [8]u8 = undefined;
+
+    // A datagram queued for alice is invisible to bob and to the kernel identity.
+    deliverUdp(.{ 10, 0, 0, 1 }, 7, 40001, "hi");
+    try std.testing.expectEqual(@as(?u16, null), recvUdp(bob, id, &buf, &from));
+    try std.testing.expectEqual(@as(?u16, null), recvUdp(.kernel, id, &buf, &from));
+    try std.testing.expect(!sendUdp(bob, id, .{ 10, 0, 0, 1 }, 7, "x"));
+
+    // bob closing it is a no-op: alice still receives her datagram.
+    closeSocket(bob, id);
+    closeSocket(.kernel, id);
+    try std.testing.expectEqual(@as(?u16, 2), recvUdp(alice, id, &buf, &from));
+    try std.testing.expectEqualStrings("hi", buf[0..2]);
+
+    // A closed id is dead for everyone, including its former owner.
+    closeSocket(alice, id);
+    try std.testing.expectEqual(@as(?u16, null), recvUdp(alice, id, &buf, &from));
+}
+
+test "UDP sockets: closeAllOwnedBy closes only that owner's sockets" {
+    const alice: Owner = .of(&sockets[0]);
+    const bob: Owner = .of(&sockets[1]);
+
+    const a = openSocket(alice, 40002) orelse return error.SocketOpenFailed;
+    const b = openSocket(bob, 40003) orelse return error.SocketOpenFailed;
+    defer closeAllOwnedBy(bob);
+
+    closeAllOwnedBy(alice);
+
+    deliverUdp(.{ 10, 0, 0, 1 }, 7, 40002, "gone");
+    deliverUdp(.{ 10, 0, 0, 1 }, 7, 40003, "kept");
+    var from: RecvFrom = .{ .ip = @splat(0), .port = 0 };
+    var buf: [8]u8 = undefined;
+    try std.testing.expectEqual(@as(?u16, null), recvUdp(alice, a, &buf, &from));
+    try std.testing.expectEqual(@as(?u16, 4), recvUdp(bob, b, &buf, &from));
+}
+
+test "TCP listeners: only the opening owner can accept on or close them" {
+    const alice: Owner = .of(&sockets[0]);
+    const bob: Owner = .of(&sockets[1]);
+
+    const id = tcp_sock.openListener(alice, 40004) orelse return error.SocketOpenFailed;
+    defer tcp_sock.closeAllOwnedBy(alice);
+
+    // bob's accept sees "no such listener" (null) instead of blocking on alice's.
+    try std.testing.expectEqual(@as(?u8, null), tcp_sock.accept(bob, id));
+    try std.testing.expectEqual(@as(?u8, null), tcp_sock.accept(.kernel, id));
+
+    // bob closing it has no effect: alice's listener is still open ...
+    tcp_sock.closeSocket(bob, id);
+    try std.testing.expect(tcp_sock.ownedBy(alice, id));
+    // ... until alice closes it.
+    tcp_sock.closeSocket(alice, id);
+    try std.testing.expect(!tcp_sock.ownedBy(alice, id));
 }

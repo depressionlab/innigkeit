@@ -69,7 +69,7 @@ fn alignUp512(n: usize) usize {
 /// Test helper: build a minimal valid ustar archive containing one file
 /// ("hello.txt" -> "hello"): header block, one data block, two zero blocks.
 fn buildTestArchive() [2048]u8 {
-    var a = [_]u8{0} ** 2048;
+    var a = @as([2048]u8, @splat(0));
     const hdr = a[0..512];
     @memcpy(hdr[0..9], "hello.txt");
     @memcpy(hdr[100..108], "0000644\x00"); // mode

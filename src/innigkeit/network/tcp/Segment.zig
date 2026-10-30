@@ -193,12 +193,12 @@ pub fn seqGe(a: u32, b: u32) bool {
 }
 
 test "tcp segment: parse rejects short input" {
-    const short = [_]u8{0} ** 10;
+    const short = @as([10]u8, @splat(0));
     try std.testing.expectEqual(@as(?Segment, null), parse(&short));
 }
 
 test "tcp segment: parse SYN with no options" {
-    var buf = [_]u8{0} ** 20;
+    var buf = @as([20]u8, @splat(0));
     writeHeader(&buf, 1234, 80, 0xDEAD, 0, .{ .syn = true }, 65535);
     fillChecksum(&buf, &.{ 10, 0, 0, 1 }, &.{ 10, 0, 0, 2 });
     const seg = parse(&buf) orelse return error.ParseFailed;
@@ -212,7 +212,7 @@ test "tcp segment: parse SYN with no options" {
 }
 
 test "tcp segment: parse SYN with MSS option" {
-    var buf = [_]u8{0} ** 24;
+    var buf = @as([24]u8, @splat(0));
     writeHeaderWithMss(&buf, 5000, 80, 1, 0, .{ .syn = true }, 8192, 1460);
     fillChecksum(&buf, &.{ 127, 0, 0, 1 }, &.{ 127, 0, 0, 2 });
     const seg = parse(&buf) orelse return error.ParseFailed;
@@ -221,7 +221,7 @@ test "tcp segment: parse SYN with MSS option" {
 }
 
 test "tcp segment: parse ACK with payload" {
-    var buf = [_]u8{0} ** (20 + 5);
+    var buf = @as([(20 + 5)]u8, @splat(0));
     writeHeader(buf[0..20], 9999, 22, 100, 200, .{ .ack = true, .psh = true }, 32768);
     buf[20..25].* = "hello".*;
     fillChecksum(&buf, &.{ 1, 2, 3, 4 }, &.{ 5, 6, 7, 8 });
@@ -245,7 +245,7 @@ test "tcp segment: malformed options terminate parsing" {
     // SYN with data_offset=6 (4 option bytes): kind=2 (MSS) with a zero
     // length byte previously looped forever; parsing must terminate and
     // simply skip the malformed option.
-    var buf = [_]u8{0} ** 24;
+    var buf = @as([24]u8, @splat(0));
     writeHeader(buf[0..20], 1, 2, 0, 0, .{ .syn = true }, 512);
     buf[12] = 0x60; // data offset = 6 words (24 bytes)
     buf[20] = 2; // kind = MSS
@@ -262,7 +262,7 @@ test "tcp segment: malformed options terminate parsing" {
 }
 
 test "tcp segment: parse rejects invalid data offset" {
-    var buf = [_]u8{0} ** 20;
+    var buf = @as([20]u8, @splat(0));
     writeHeader(&buf, 1, 2, 0, 0, .{ .syn = true }, 512);
 
     // Data offset below the 20-byte minimum (3 words = 12 bytes).
@@ -301,7 +301,7 @@ fn fuzzParse(context: void, smith: *std.testing.Smith) !void {
 test "tcp segment: MSS option after NOP padding ending at header end" {
     // data offset = 7 (28 bytes): four NOPs then an MSS option whose
     // declared length lands exactly on the header end (len == remaining).
-    var buf = [_]u8{0} ** 28;
+    var buf = @as([28]u8, @splat(0));
     writeHeader(buf[0..20], 4242, 443, 7, 0, .{ .syn = true }, 1024);
     buf[12] = 0x70;
     buf[20] = 1; // NOP

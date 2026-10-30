@@ -15,27 +15,27 @@ flag_register: [*]volatile u32,
 
 pub fn create(base: [*]volatile u32, baud: ?root.Baud) root.CreateError!PL011 {
     const identification =
-        readRegister(base + @intFromEnum(RegisterOffset.PrimeCellIdentification3)) << 24 |
-        readRegister(base + @intFromEnum(RegisterOffset.PrimeCellIdentification2)) << 16 |
-        readRegister(base + @intFromEnum(RegisterOffset.PrimeCellIdentification1)) << 8 |
-        readRegister(base + @intFromEnum(RegisterOffset.PrimeCellIdentification0));
+        readRegister(base + @backingInt(RegisterOffset.PrimeCellIdentification3)) << 24 |
+        readRegister(base + @backingInt(RegisterOffset.PrimeCellIdentification2)) << 16 |
+        readRegister(base + @backingInt(RegisterOffset.PrimeCellIdentification1)) << 8 |
+        readRegister(base + @backingInt(RegisterOffset.PrimeCellIdentification0));
 
     if (identification != 0xB105F00D) return error.IdentificationMismatch;
 
     // disable UART
     {
-        var control: ControlRegister = @bitCast(readRegister(base + @intFromEnum(RegisterOffset.Control)));
+        var control: ControlRegister = @bitCast(readRegister(base + @backingInt(RegisterOffset.Control)));
         control.enable = false;
         control.transmit_enable = false;
         control.receive_enable = false;
-        writeRegister(base + @intFromEnum(RegisterOffset.Control), @bitCast(control));
+        writeRegister(base + @backingInt(RegisterOffset.Control), @bitCast(control));
     }
 
     // disable interrupts
     {
-        var interrupt_mask: InterruptMaskRegister = @bitCast(readRegister(base + @intFromEnum(RegisterOffset.InterruptMask)));
+        var interrupt_mask: InterruptMaskRegister = @bitCast(readRegister(base + @backingInt(RegisterOffset.InterruptMask)));
         interrupt_mask.masks = 0;
-        writeRegister(base + @intFromEnum(RegisterOffset.InterruptMask), @bitCast(interrupt_mask));
+        writeRegister(base + @backingInt(RegisterOffset.InterruptMask), @bitCast(interrupt_mask));
     }
 
     // set baudrate
@@ -43,13 +43,13 @@ pub fn create(base: [*]volatile u32, baud: ?root.Baud) root.CreateError!PL011 {
         const divisor = try b.fractionalDivisor();
 
         writeRegister(
-            base + @intFromEnum(RegisterOffset.IntegerBaudRate),
+            base + @backingInt(RegisterOffset.IntegerBaudRate),
             @bitCast(IntegerBaudRateRegister{
                 .integer = divisor.integer,
             }),
         );
         writeRegister(
-            base + @intFromEnum(RegisterOffset.FractionalBaudRate),
+            base + @backingInt(RegisterOffset.FractionalBaudRate),
             @bitCast(FractionalBaudRateRegister{
                 .fractional = divisor.fractional,
             }),
@@ -58,42 +58,42 @@ pub fn create(base: [*]volatile u32, baud: ?root.Baud) root.CreateError!PL011 {
 
     // 8 bits, no parity, one stop bit
     {
-        var line_control: LineControlRegister = @bitCast(readRegister(base + @intFromEnum(RegisterOffset.LineControl)));
+        var line_control: LineControlRegister = @bitCast(readRegister(base + @backingInt(RegisterOffset.LineControl)));
         line_control.word_length = .@"8";
         line_control.two_stop_bits = false;
         line_control.parity = false;
         line_control.enable_fifo = false; // clear fifo
-        writeRegister(base + @intFromEnum(RegisterOffset.LineControl), @bitCast(line_control));
+        writeRegister(base + @backingInt(RegisterOffset.LineControl), @bitCast(line_control));
 
         line_control.enable_fifo = true; // enable fifo
-        writeRegister(base + @intFromEnum(RegisterOffset.LineControl), @bitCast(line_control));
+        writeRegister(base + @backingInt(RegisterOffset.LineControl), @bitCast(line_control));
     }
 
     // enable UART with loopback
     {
-        var control: ControlRegister = @bitCast(readRegister(base + @intFromEnum(RegisterOffset.Control)));
+        var control: ControlRegister = @bitCast(readRegister(base + @backingInt(RegisterOffset.Control)));
         control.enable = true;
         control.loopback = true;
         control.transmit_enable = true;
-        writeRegister(base + @intFromEnum(RegisterOffset.Control), @bitCast(control));
+        writeRegister(base + @backingInt(RegisterOffset.Control), @bitCast(control));
     }
 
     // send `\r` to the UART
-    writeRegister(base + @intFromEnum(RegisterOffset.Write), '\r');
+    writeRegister(base + @backingInt(RegisterOffset.Write), '\r');
 
     // check that the `\r` was received due to loopback
-    if (readRegister(base + @intFromEnum(RegisterOffset.Read)) != '\r') return error.LoopbackTestFailed;
+    if (readRegister(base + @backingInt(RegisterOffset.Read)) != '\r') return error.LoopbackTestFailed;
 
     // disable loopback
     {
-        var control: ControlRegister = @bitCast(readRegister(base + @intFromEnum(RegisterOffset.Control)));
+        var control: ControlRegister = @bitCast(readRegister(base + @backingInt(RegisterOffset.Control)));
         control.loopback = false;
-        writeRegister(base + @intFromEnum(RegisterOffset.Control), @bitCast(control));
+        writeRegister(base + @backingInt(RegisterOffset.Control), @bitCast(control));
     }
 
     return .{
-        .write_register = base + @intFromEnum(RegisterOffset.Write),
-        .flag_register = base + @intFromEnum(RegisterOffset.Flag),
+        .write_register = base + @backingInt(RegisterOffset.Write),
+        .flag_register = base + @backingInt(RegisterOffset.Flag),
     };
 }
 
@@ -150,7 +150,7 @@ inline fn readRegister(target: [*]volatile u32) u32 {
     return target[0];
 }
 
-pub const register_region_size: core.Size = .from(@intFromEnum(RegisterOffset.PrimeCellIdentification3) + 1, .byte);
+pub const register_region_size: core.Size = .from(@backingInt(RegisterOffset.PrimeCellIdentification3) + 1, .byte);
 
 const RegisterOffset = enum(usize) {
     ReadWrite = 0x000 / 4,

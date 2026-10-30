@@ -7,7 +7,7 @@ pub inline fn expectEqual(actual: anytype, expected: @TypeOf(actual)) !void {
 
 /// Asserts that the size *and* bit size of the given type matches the expected size.
 pub inline fn expectSize(comptime T: type, comptime size: core.Size) void {
-    const raw_size = @intFromEnum(size);
+    const raw_size = @backingInt(size);
 
     if (@sizeOf(T) != raw_size) {
         @compileError(std.fmt.comptimePrint(
@@ -16,7 +16,14 @@ pub inline fn expectSize(comptime T: type, comptime size: core.Size) void {
         ));
     }
 
-    if (@bitSizeOf(T) != 8 * raw_size) {
+    // `@bitSizeOf` is only defined for packed containers since Zig 0.17; for
+    // extern/auto ones the byte size check above is the whole story.
+    const has_bit_size = switch (@typeInfo(T)) {
+        .@"struct" => |info| info.layout == .@"packed",
+        .@"union" => |info| info.layout == .@"packed",
+        else => true,
+    };
+    if (has_bit_size and @bitSizeOf(T) != 8 * raw_size) {
         @compileError(std.fmt.comptimePrint(
             "{s} has bit size {} but is expected to have {}!",
             .{ @typeName(T), @bitSizeOf(T), 8 * raw_size },

@@ -399,6 +399,11 @@ fn parseManifest(io: std.Io, arena: std.mem.Allocator, path: []const u8) !Manife
                     }
                     std.debug.print("\n", .{});
                 },
+                .unknown_fields => |unknown| {
+                    std.debug.print("  unknown field(s):", .{});
+                    for (unknown.keys) |key| std.debug.print(" {s}", .{key});
+                    std.debug.print("\n", .{});
+                },
             }
         }
         std.process.exit(1);

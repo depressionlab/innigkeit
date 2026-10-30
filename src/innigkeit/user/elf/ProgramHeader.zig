@@ -58,7 +58,7 @@ pub const Iterator = struct {
         if (index >= header.program_header_entry_count) return null;
         defer it.index += 1;
 
-        var reader: std.Io.Reader = .fixed(it.program_header_table[@intFromEnum(header.program_header_entry_size.multiplyScalar(index))..]);
+        var reader: std.Io.Reader = .fixed(it.program_header_table[@backingInt(header.program_header_entry_size.multiplyScalar(index))..]);
 
         if (header.is_64) {
             const raw_header = reader.takeStruct(
@@ -67,7 +67,7 @@ pub const Iterator = struct {
             ) catch unreachable; // `iterateProgramHeaders` ensures the slice is long enough
 
             return .{
-                .type = @enumFromInt(raw_header.p_type),
+                .type = @fromBackingInt(@intCast(raw_header.p_type)),
                 .flags = @bitCast(raw_header.p_flags),
                 .offset = .from(raw_header.p_offset, .byte),
                 .virtual_address = .from(raw_header.p_vaddr),
@@ -83,7 +83,7 @@ pub const Iterator = struct {
             ) catch unreachable; // `iterateProgramHeaders` ensures the slice is long enough
 
             return .{
-                .type = @enumFromInt(raw_header.p_type),
+                .type = @fromBackingInt(@intCast(raw_header.p_type)),
                 .flags = @bitCast(raw_header.p_flags),
                 .offset = .from(raw_header.p_offset, .byte),
                 .virtual_address = .from(raw_header.p_vaddr),
@@ -221,10 +221,10 @@ pub fn print(self: *const ProgramHeader, writer: *std.Io.Writer, indent: usize) 
     try writer.writeAll(",\n");
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("offset: 0x{x},\n", .{@intFromEnum(self.offset)});
+    try writer.print("offset: 0x{x},\n", .{@backingInt(self.offset)});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("file_size: 0x{x},\n", .{@intFromEnum(self.file_size)});
+    try writer.print("file_size: 0x{x},\n", .{@backingInt(self.file_size)});
 
     try writer.splatByteAll(' ', new_indent);
     try writer.print("virtual_address: 0x{x},\n", .{self.virtual_address.value});
@@ -233,7 +233,7 @@ pub fn print(self: *const ProgramHeader, writer: *std.Io.Writer, indent: usize) 
     try writer.print("physical_address: 0x{x},\n", .{self.physical_address});
 
     try writer.splatByteAll(' ', new_indent);
-    try writer.print("memory_size: 0x{x},\n", .{@intFromEnum(self.memory_size)});
+    try writer.print("memory_size: 0x{x},\n", .{@backingInt(self.memory_size)});
 
     try writer.splatByteAll(' ', new_indent);
     try writer.print("alignment: 0x{x},\n", .{self.alignment});

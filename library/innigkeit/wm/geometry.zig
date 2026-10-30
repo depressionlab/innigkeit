@@ -217,7 +217,7 @@ test "Rect: clampedToSize clips damage to the screen" {
 }
 
 fn sid(n: u32) SurfaceId {
-    return @enumFromInt(n);
+    return @fromBackingInt(@intCast(n));
 }
 
 test "Stack: z-order, raise, and topAt hit-testing" {

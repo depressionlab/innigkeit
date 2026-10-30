@@ -1,0 +1,13 @@
+.{
+    .name = .innigkeit_lint,
+    .version = "0.0.0",
+    .fingerprint = 0x36e733a7ca74bc23,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .zlinter = .{
+            .url = "git+https://github.com/kurtwagner/zlinter?ref=0.17.x#e5a21c5ab5b8cd21e4afc5ee061e3db7079250f0",
+            .hash = "zlinter-0.0.1-OjQ08csQFgAg9VlUwsCrqekFuV5bSns5WceKuXrBZOai",
+        },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "rules" },
+}

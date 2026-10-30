@@ -16,7 +16,7 @@ const Bucket = struct {
     queue: innigkeit.sync.WaitQueue = .{},
 };
 
-var buckets: [num_buckets]Bucket = [_]Bucket{.{}} ** num_buckets;
+var buckets: [num_buckets]Bucket = @splat(.{});
 
 fn bucketOf(addr: usize) *Bucket {
     return &buckets[((addr >> 2) *% 2654435761) % num_buckets];

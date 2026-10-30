@@ -71,7 +71,7 @@ pub fn tpmEventLog() ?boot.TpmEventLog {
     const ptr = resp.address.toPtr([*]const u8);
 
     return .{
-        .bytes = ptr[0..@intFromEnum(resp.size)],
+        .bytes = ptr[0..@backingInt(resp.size)],
         .format = switch (resp.format) {
             .tcg_1_2 => .tcg_1_2,
             .tcg_2 => .tcg_2,

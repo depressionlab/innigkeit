@@ -16,7 +16,7 @@ pub fn determineEarlyMemoryLayout() EarlyMemoryLayoutHandle {
     globals.kernel_virtual_offset = innigkeit.config.memory.kernel_base_address.difference(base_address.virtual);
 
     init_globals.kernel_physical_to_virtual_offset = core.Size.from(
-        @intFromEnum(base_address.virtual) - @intFromEnum(base_address.physical),
+        @backingInt(base_address.virtual) - @backingInt(base_address.physical),
         .byte,
     );
 
@@ -52,8 +52,8 @@ pub const EarlyMemoryLayoutHandle = struct {
         init_log.debug("kernel memory offsets:", .{});
 
         init_log.debug("  virtual base address:       {f}", .{globals.virtual_base_address});
-        init_log.debug("  virtual offset:             0x{x:0>16}", .{@intFromEnum(globals.kernel_virtual_offset)});
-        init_log.debug("  physical to virtual:        0x{x:0>16}", .{@intFromEnum(init_globals.kernel_physical_to_virtual_offset)});
+        init_log.debug("  virtual offset:             0x{x:0>16}", .{@backingInt(globals.kernel_virtual_offset)});
+        init_log.debug("  physical to virtual:        0x{x:0>16}", .{@backingInt(init_globals.kernel_physical_to_virtual_offset)});
         init_log.debug("  direct map:                 {f}", .{globals.direct_map});
     }
 };
@@ -161,7 +161,7 @@ fn registerKernelSections(kernel_regions: *innigkeit.memory.KernelMemoryRegion.L
 
         const virtual_range: innigkeit.KernelVirtualRange = .from(
             start_address,
-            core.Size.from(@intFromEnum(end_address) - @intFromEnum(start_address), .byte)
+            core.Size.from(@backingInt(end_address) - @backingInt(start_address), .byte)
                 .alignForward(architecture.paging.standard_page_size_alignment),
         );
 
@@ -248,7 +248,7 @@ fn registerPages(kernel_regions: *innigkeit.memory.KernelMemoryRegion.List) void
             last_page = range.last();
         }
 
-        break :blk @intFromEnum(innigkeit.memory.PhysicalPage.Index.fromAddress(last_page)) + 1;
+        break :blk @backingInt(innigkeit.memory.PhysicalPage.Index.fromAddress(last_page)) + 1;
     };
 
     const pages_range = kernel_regions.findFreeRange(
@@ -305,7 +305,7 @@ fn buildAndLoadKernelPageTable() architecture.paging.PageTable {
                     if (!phys_start.lessThan(phys_end)) continue; // fully covered
                     const phys_range: innigkeit.PhysicalRange = .from(
                         phys_start,
-                        core.Size.from(@intFromEnum(phys_end) - @intFromEnum(phys_start), .byte),
+                        core.Size.from(@backingInt(phys_end) - @backingInt(phys_start), .byte),
                     );
                     mapped_until = phys_end;
 
@@ -335,7 +335,7 @@ fn buildAndLoadKernelPageTable() architecture.paging.PageTable {
                 kernel_page_table,
                 region.range.toVirtualRange(),
                 .from(
-                    .from(@intFromEnum(region.range.address) - @intFromEnum(init_globals.kernel_physical_to_virtual_offset)),
+                    .from(@backingInt(region.range.address) - @backingInt(init_globals.kernel_physical_to_virtual_offset)),
                     region.range.size,
                 ),
                 switch (region.type) {

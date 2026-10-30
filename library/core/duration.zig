@@ -19,32 +19,32 @@ pub const Duration = enum(u64) {
     };
 
     pub fn from(amount: u64, unit: Duration.Unit) Duration {
-        return @enumFromInt(amount * @intFromEnum(unit));
+        return @fromBackingInt(@intCast(amount * @backingInt(unit)));
     }
 
     /// Returns the whole number of `unit` in `self`.
     pub fn whole(self: Duration, unit: Duration.Unit) usize {
-        return @intFromEnum(self) / @intFromEnum(unit);
+        return @backingInt(self) / @backingInt(unit);
     }
 
     pub inline fn equal(self: Duration, other: Duration) bool {
-        return @intFromEnum(self) == @intFromEnum(other);
+        return @backingInt(self) == @backingInt(other);
     }
 
     pub inline fn lessThan(self: Duration, other: Duration) bool {
-        return @intFromEnum(self) < @intFromEnum(other);
+        return @backingInt(self) < @backingInt(other);
     }
 
     pub inline fn lessThanOrEqual(self: Duration, other: Duration) bool {
-        return @intFromEnum(self) <= @intFromEnum(other);
+        return @backingInt(self) <= @backingInt(other);
     }
 
     pub inline fn greaterThan(self: Duration, other: Duration) bool {
-        return @intFromEnum(self) > @intFromEnum(other);
+        return @backingInt(self) > @backingInt(other);
     }
 
     pub inline fn greaterThanOrEqual(self: Duration, other: Duration) bool {
-        return @intFromEnum(self) >= @intFromEnum(other);
+        return @backingInt(self) >= @backingInt(other);
     }
 
     pub fn compare(self: Duration, other: Duration) std.math.Order {
@@ -54,7 +54,7 @@ pub const Duration = enum(u64) {
     }
 
     pub fn add(self: Duration, other: Duration) Duration {
-        return @enumFromInt(@intFromEnum(self) + @intFromEnum(other));
+        return @fromBackingInt(@intCast(@backingInt(self) + @backingInt(other)));
     }
 
     pub fn addInPlace(self: *Duration, other: Duration) void {
@@ -62,7 +62,7 @@ pub const Duration = enum(u64) {
     }
 
     pub fn subtract(self: Duration, other: Duration) Duration {
-        return @enumFromInt(@intFromEnum(self) - @intFromEnum(other));
+        return @fromBackingInt(@intCast(@backingInt(self) - @backingInt(other)));
     }
 
     pub fn subtractInPlace(self: *Duration, other: Duration) void {
@@ -70,7 +70,7 @@ pub const Duration = enum(u64) {
     }
 
     pub fn multiply(self: Duration, other: Duration) Duration {
-        return @enumFromInt(@intFromEnum(self) * @intFromEnum(other));
+        return @fromBackingInt(@intCast(@backingInt(self) * @backingInt(other)));
     }
 
     pub fn multiplyInPlace(self: *Duration, other: Duration) void {
@@ -78,7 +78,7 @@ pub const Duration = enum(u64) {
     }
 
     pub fn multiplyScalar(self: Duration, value: u64) Duration {
-        return @enumFromInt(@intFromEnum(self) * value);
+        return @fromBackingInt(@intCast(@backingInt(self) * value));
     }
 
     pub fn multiplyScalarInPlace(self: *Duration, value: u64) void {
@@ -86,7 +86,7 @@ pub const Duration = enum(u64) {
     }
 
     pub fn divide(self: Duration, other: Duration) Duration {
-        return @enumFromInt(@intFromEnum(self) / @intFromEnum(other));
+        return @fromBackingInt(@intCast(@backingInt(self) / @backingInt(other)));
     }
 
     pub fn divideInPlace(self: *Duration, other: Duration) void {
@@ -94,7 +94,7 @@ pub const Duration = enum(u64) {
     }
 
     pub fn divideScalar(self: Duration, value: u64) Duration {
-        return @enumFromInt(@intFromEnum(self) / value);
+        return @fromBackingInt(@intCast(@backingInt(self) / value));
     }
 
     pub fn divideScalarInPlace(self: *Duration, value: u64) void {
@@ -103,15 +103,15 @@ pub const Duration = enum(u64) {
 
     pub fn print(self: Duration, writer: *std.Io.Writer, _: usize) !void {
         var any_output = false;
-        var value = @intFromEnum(self);
+        var value = @backingInt(self);
 
         if (value == 0) {
             try writer.writeAll("0.000000000");
             return;
         }
 
-        const days = value / @intFromEnum(Duration.Unit.day);
-        value -= days * @intFromEnum(Duration.Unit.day);
+        const days = value / @backingInt(Duration.Unit.day);
+        value -= days * @backingInt(Duration.Unit.day);
 
         if (days != 0) {
             try writer.printInt(days, 10, .lower, .{});
@@ -119,8 +119,8 @@ pub const Duration = enum(u64) {
             any_output = true;
         }
 
-        const hours = value / @intFromEnum(Duration.Unit.hour);
-        value -= hours * @intFromEnum(Duration.Unit.hour);
+        const hours = value / @backingInt(Duration.Unit.hour);
+        value -= hours * @backingInt(Duration.Unit.hour);
 
         if (hours != 0 or any_output) {
             try writer.printInt(hours, 10, .lower, .{ .fill = '0', .width = 2 });
@@ -128,8 +128,8 @@ pub const Duration = enum(u64) {
             any_output = true;
         }
 
-        const minutes = value / @intFromEnum(Duration.Unit.minute);
-        value -= minutes * @intFromEnum(Duration.Unit.minute);
+        const minutes = value / @backingInt(Duration.Unit.minute);
+        value -= minutes * @backingInt(Duration.Unit.minute);
 
         if (minutes != 0 or any_output) {
             try writer.printInt(minutes, 10, .lower, .{ .fill = '0', .width = 2 });
@@ -137,8 +137,8 @@ pub const Duration = enum(u64) {
             any_output = true;
         }
 
-        const seconds = value / @intFromEnum(Duration.Unit.second);
-        value -= seconds * @intFromEnum(Duration.Unit.second);
+        const seconds = value / @backingInt(Duration.Unit.second);
+        value -= seconds * @backingInt(Duration.Unit.second);
 
         try writer.printInt(
             seconds,

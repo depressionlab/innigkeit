@@ -9,4 +9,6 @@ pub const ObjectType = enum(u8) {
     secure_vault = 5,
     /// UMA zero-copy GPU buffer.
     gpu_buffer = 6,
+    /// UDP socket, or TCP listener / connection.
+    net_socket = 7,
 };

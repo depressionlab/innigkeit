@@ -225,7 +225,11 @@ pub const MapError = error{
 
 /// Map a range into the address space.
 pub fn map(self: *AddressSpace, options: MapOptions) MapError!innigkeit.VirtualRange {
-    self.mapInner(options) catch |err| log.debug("{s}: map failed {t}", .{ self.name(), err });
+    return self.mapInner(options) catch |err| {
+        @branchHint(.cold);
+        log.debug("{s}: map failed {t}", .{ self.name(), err });
+        return err;
+    };
 }
 
 fn mapInner(self: *AddressSpace, options: MapOptions) MapError!innigkeit.VirtualRange {
@@ -566,7 +570,11 @@ pub const ChangeProtectionError = error{
 
 /// Change the protection and/or maximum protection of a range in the address space.
 pub fn changeProtection(self: *AddressSpace, range: innigkeit.VirtualRange, change: ChangeProtection) ChangeProtectionError!void {
-    self.changeProtectionInner(range, change) catch |err| log.debug("{s}: change protection failed {t}", .{ self.name(), err });
+    self.changeProtectionInner(range, change) catch |err| {
+        @branchHint(.cold);
+        log.debug("{s}: change protection failed {t}", .{ self.name(), err });
+        return err;
+    };
 }
 
 fn changeProtectionInner(self: *AddressSpace, range: innigkeit.VirtualRange, change: ChangeProtection) ChangeProtectionError!void {
@@ -910,7 +918,11 @@ pub const UnmapError = error{
 
 /// Unmap a range from the address space.
 pub fn unmap(self: *AddressSpace, range: innigkeit.VirtualRange) UnmapError!void {
-    self.unmapInner(range) catch |err| log.debug("{s}: unmap failed {t}", .{ self.name(), err });
+    self.unmapInner(range) catch |err| {
+        @branchHint(.cold);
+        log.debug("{s}: unmap failed {t}", .{ self.name(), err });
+        return err;
+    };
 }
 
 fn unmapInner(self: *AddressSpace, range: innigkeit.VirtualRange) UnmapError!void {
@@ -1119,10 +1131,14 @@ pub const HandlePageFaultError = error{
 ///
 /// Called `uvm_fault` in OpenBSD uvm.
 pub fn handlePageFault(self: *AddressSpace, page_fault_details: innigkeit.memory.PageFaultDetails) HandlePageFaultError!void {
-    self.handlePageFaultInner(page_fault_details) catch |err| log.debug("{s}: page fault failed {t}", .{ self.name(), err });
+    self.handlePageFaultInner(page_fault_details) catch |err| {
+        @branchHint(.cold);
+        log.debug("{s}: page fault failed {t}", .{ self.name(), err });
+        return err;
+    };
 }
 
-pub fn handlePageFaultInner(self: *AddressSpace, page_fault_details: innigkeit.memory.PageFaultDetails) HandlePageFaultError!void {
+fn handlePageFaultInner(self: *AddressSpace, page_fault_details: innigkeit.memory.PageFaultDetails) HandlePageFaultError!void {
     log.verbose("{s}: page fault {f}", .{
         self.name(),
         page_fault_details,
@@ -1491,4 +1507,19 @@ pub fn print(self: *AddressSpace, writer: *std.Io.Writer, indent: usize) !void {
 
 pub inline fn format(self: *AddressSpace, writer: *std.Io.Writer) !void {
     return self.print(writer, 0);
+}
+
+// Regression: the wrappers around `mapInner`/`unmapInner`/... once logged the
+// error and then returned success (an `errdefer |err|` conversion that lost
+// the `return err`), so callers saw failed operations succeed. A range that is
+// rejected before any state is touched exercises that path safely.
+test "unmap and changeProtection report errors from their implementation" {
+    const space = innigkeit.memory.kernelAddressSpace();
+    const misaligned: innigkeit.VirtualRange = .from(.from(0x1001), core.Size.from(1, .byte));
+
+    try std.testing.expectError(error.RangeNotPageAligned, space.unmap(misaligned));
+    try std.testing.expectError(
+        error.RangeNotPageAligned,
+        space.changeProtection(misaligned, .{ .protection = .{ .read = true } }),
+    );
 }

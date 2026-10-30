@@ -233,19 +233,19 @@ test "deriveSalt: same TPM point + independent ephemeral seeds yield independent
     const base = P256.basePoint.affineCoordinates();
     const qs: EccPoint = .{ .x = base.x.toBytes(.big), .y = base.y.toBytes(.big) };
 
-    const a = try deriveSalt(qs, [_]u8{0x11} ** 64);
-    const b = try deriveSalt(qs, [_]u8{0x22} ** 64);
+    const a = try deriveSalt(qs, @as([64]u8, @splat(0x11)));
+    const b = try deriveSalt(qs, @as([64]u8, @splat(0x22)));
     try std.testing.expect(!std.mem.eql(u8, &a.salt, &b.salt));
     try std.testing.expect(!std.mem.eql(u8, &a.ephemeral_public.x, &b.ephemeral_public.x));
 
     // Deterministic in the seed (so the TPM side, given the same Qe and its
     // own private key, reproducibly derives the identical salt).
-    const a2 = try deriveSalt(qs, [_]u8{0x11} ** 64);
+    const a2 = try deriveSalt(qs, @as([64]u8, @splat(0x11)));
     try std.testing.expectEqualSlices(u8, &a.salt, &a2.salt);
 }
 
 test "marshalEncryptedSalt: wire layout is TPMS_ECC_POINT's two TPM2B coordinates, un-double-wrapped" {
-    const point: EccPoint = .{ .x = [_]u8{0xAA} ** digest_len, .y = [_]u8{0xBB} ** digest_len };
+    const point: EccPoint = .{ .x = @as([digest_len]u8, @splat(0xAA)), .y = @as([digest_len]u8, @splat(0xBB)) };
     var buf: [encrypted_salt_len]u8 = undefined;
     const out = marshalEncryptedSalt(&buf, point);
 
@@ -259,16 +259,16 @@ test "marshalEncryptedSalt: wire layout is TPMS_ECC_POINT's two TPM2B coordinate
 test "Session: command and response HMACs are independently verifiable and reject tampering" {
     var s: Session = .{
         .handle = 0x0300_0000,
-        .key = [_]u8{0x42} ** digest_len,
-        .nonce_caller = [_]u8{0x01} ** digest_len,
-        .nonce_tpm = [_]u8{0x02} ** digest_len,
+        .key = @as([digest_len]u8, @splat(0x42)),
+        .nonce_caller = @as([digest_len]u8, @splat(0x01)),
+        .nonce_tpm = @as([digest_len]u8, @splat(0x02)),
     };
-    const cp_hash = [_]u8{0x03} ** digest_len;
+    const cp_hash = @as([digest_len]u8, @splat(0x03));
     const hmac = s.commandHmac(cp_hash, attr_encrypt);
     try std.testing.expect(!std.mem.allEqual(u8, &hmac, 0));
 
-    const rp_hash = [_]u8{0x04} ** digest_len;
-    const new_nonce_tpm = [_]u8{0x05} ** digest_len;
+    const rp_hash = @as([digest_len]u8, @splat(0x04));
+    const new_nonce_tpm = @as([digest_len]u8, @splat(0x05));
     const good_hmac = blk: {
         var mac = HmacSha256.init(&s.key);
         mac.update(&rp_hash);
@@ -290,8 +290,8 @@ test "Session: command and response HMACs are independently verifiable and rejec
 }
 
 test "cfbCrypt: multi-block round-trip with a non-block-aligned final chunk" {
-    const key = [_]u8{0x11} ** cfb_key_len;
-    const iv = [_]u8{0x22} ** cfb_iv_len;
+    const key = @as([cfb_key_len]u8, @splat(0x11));
+    const iv = @as([cfb_iv_len]u8, @splat(0x22));
     const plain = "this sealed volume key is exactly the kind of thing SB-7 hides"; // not a multiple of 16
     try std.testing.expect(plain.len % 16 != 0);
 
@@ -306,9 +306,9 @@ test "cfbCrypt: multi-block round-trip with a non-block-aligned final chunk" {
 test "Session: encryptCommandParam/decryptResponseParam use independent key schedules but each round-trips" {
     var s: Session = .{
         .handle = 1,
-        .key = [_]u8{0x77} ** digest_len,
-        .nonce_caller = [_]u8{0x01} ** digest_len,
-        .nonce_tpm = [_]u8{0x02} ** digest_len,
+        .key = @as([digest_len]u8, @splat(0x77)),
+        .nonce_caller = @as([digest_len]u8, @splat(0x01)),
+        .nonce_tpm = @as([digest_len]u8, @splat(0x02)),
     };
     const secret = "0123456789abcdef0123456789abcdef"; // 33 bytes: > 2 blocks
 

@@ -56,7 +56,7 @@ pub fn compress(src: []const u8, dst: []u8) Error!usize {
     if (dst.len < MAX_COMPRESSED_SIZE) return error.BufferTooSmall;
     if (src.len == 0) return 0;
 
-    var table = [_]u32{0} ** HASH_SIZE;
+    var table = @as([HASH_SIZE]u32, @splat(0));
 
     var ip: usize = 0; // input position (cursor)
     var anchor: usize = 0; // start of current literal run
@@ -282,7 +282,7 @@ pub const CompressedSlot = struct {
 pub const CompressPool = struct {
     const MAX_SLOTS = 256; // 256 x up-to-4 KiB ≈ 1 MiB of compressed data
 
-    slots: [MAX_SLOTS]?CompressedSlot = [_]?CompressedSlot{null} ** MAX_SLOTS,
+    slots: [MAX_SLOTS]?CompressedSlot = @splat(null),
     used: usize = 0,
     pressure: Pressure = .low,
 
@@ -350,7 +350,7 @@ pub const CompressPool = struct {
 };
 
 test "compress: all-zero page compresses and decompresses" {
-    const src: [PAGE_SIZE]u8 = [_]u8{0} ** PAGE_SIZE;
+    const src: [PAGE_SIZE]u8 = @splat(0);
     var compressed: [MAX_COMPRESSED_SIZE]u8 = undefined;
     const clen = try compress(&src, &compressed);
 
@@ -393,7 +393,7 @@ test "compress: incompressible data fits in MAX_COMPRESSED_SIZE" {
 
 test "compress: CompressPool store and load round-trips" {
     var pool = CompressPool.init();
-    var page: [PAGE_SIZE]u8 = [_]u8{0xAB} ** PAGE_SIZE;
+    var page: [PAGE_SIZE]u8 = @splat(0xAB);
 
     const alloc = @import("innigkeit").memory.heap.allocator;
     const stored = pool.store(42, &page, alloc);

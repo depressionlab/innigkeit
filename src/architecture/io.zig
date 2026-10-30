@@ -52,10 +52,10 @@ pub const Port = struct {
 
     pub fn from(port: usize) FromError!Port {
         return .{
-            .arch_specific = @enumFromInt(@import("std").math.cast(
+            .arch_specific = @fromBackingInt(@intCast(@import("std").math.cast(
                 @typeInfo(architecture.current_decls.io.Port).@"enum".tag_type,
                 port,
-            ) orelse return error.InvalidPort),
+            ) orelse return error.InvalidPort)),
         };
     }
 

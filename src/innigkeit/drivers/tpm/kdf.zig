@@ -164,9 +164,9 @@ test "kdfa: distinct labels/contexts give distinct keys" {
 }
 
 test "kdfe: single-block output matches a direct SHA-256" {
-    const z = [_]u8{0x11} ** 32;
-    const pu = [_]u8{0x22} ** 32;
-    const pv = [_]u8{0x33} ** 32;
+    const z = @as([32]u8, @splat(0x11));
+    const pu = @as([32]u8, @splat(0x22));
+    const pv = @as([32]u8, @splat(0x33));
 
     var out: [32]u8 = undefined;
     kdfe(&z, "SECRET", &pu, &pv, &out);
@@ -185,7 +185,7 @@ test "kdfe: single-block output matches a direct SHA-256" {
 }
 
 test "kdfe: is distinct from kdfa for the same inputs" {
-    const key = [_]u8{0xAB} ** 32;
+    const key = @as([32]u8, @splat(0xAB));
     var e: [32]u8 = undefined;
     var a: [32]u8 = undefined;
     kdfe(&key, "SECRET", "", "", &e);

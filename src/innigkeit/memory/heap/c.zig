@@ -52,7 +52,7 @@ pub fn mallocWithNonSizedFree(size: usize) ?[*]u8 {
     const mem = allocator.alignedAlloc(
         u8,
         standard_alignment,
-        @intFromEnum(full_size),
+        @backingInt(full_size),
     ) catch {
         @branchHint(.unlikely);
         return null;

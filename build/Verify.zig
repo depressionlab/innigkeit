@@ -30,8 +30,8 @@ pub fn register(
     extra_binaries: []const Kernel.ExtraBinary,
     options: Options,
     native_test_step: *std.Build.Step,
-    x64_verdict: *VerdictStep,
-    arm_verdict: *VerdictStep,
+    x64_verdict: *std.Build.Step.Run,
+    arm_verdict: *std.Build.Step.Run,
     check: bool,
 ) !void {
     const verify_step = b.step(
@@ -76,14 +76,12 @@ fn registerSecbootSuite(
     // A dedicated TPM instance, distinct from the base -Dtpm=true one: the
     // secure boot suite always needs a TPM (to seal/unseal the disk key
     // regardless of whether the user separately asked for -Dtpm=true).
-    const state_dir = try b.cache_root.join(b.allocator, &.{ "tmp", "innigkeit-secboot-tpm" });
-    const socket = b.pathJoin(&.{ state_dir, "sock" });
-    const harness = try TpmHarness.create(b, state_dir, socket);
+    const harness = TpmHarness.create(b, "innigkeit-secboot-tpm");
 
-    const test_opts = options.withTestFlags(b, socket, true);
+    const test_opts = options.withTestFlags(b, true);
     const test_kernel = try Kernel.buildTestKernel(b, libraries, test_opts, .x64, apps, tools, extra_binaries);
     const test_image = try ImageStep.buildTestImageStep(b, test_kernel, tools, .x64, test_opts);
-    const base_image = test_image.image_file;
+    const base_image = test_image.built_file;
 
     const secureboot_exe = tools.get("secureboot").?.release_safe_exe;
 
@@ -142,28 +140,29 @@ fn registerSecbootSuite(
     tamper_run.addFileArg(tamper_image);
     tamper_run.step.dependOn(&tamper_cp.step);
 
-    // The three boots share one swtpm instance and one enrolled VARS file
+    // The three boots share one swtpm state directory and one enrolled VARS file
     // (opened read-write by QEMU); serialize them explicitly rather than
     // trust Zig not to parallelize otherwise-independent steps.
-    const signed_verdict = try bootSecboot(b, test_opts, signed_image, enrolled_vars, secboot_fw, harness, true, .{
+    const signed_verdict = try bootSecboot(b, tools, test_opts, signed_image, enrolled_vars, secboot_fw, harness, true, .{
         .extra_dependencies = &.{&sign_run.step},
         .required_substrings = &.{"pass  testing.tpm.test.test.tpm/eventlog: SecureBoot"},
     });
 
-    const unsigned_verdict = try bootSecboot(b, test_opts, unsigned_image, enrolled_vars, secboot_fw, harness, false, .{
+    const unsigned_verdict = try bootSecboot(b, tools, test_opts, unsigned_image, enrolled_vars, secboot_fw, harness, false, .{
         .timeout_secs = reject_timeout_secs,
+        .after = &signed_verdict.step,
     });
     unsigned_verdict.step.dependOn(&unsigned_cp.step);
     unsigned_verdict.step.dependOn(&signed_verdict.step);
 
-    const tampered_verdict = try bootSecboot(b, test_opts, tamper_image, enrolled_vars, secboot_fw, harness, false, .{
+    const tampered_verdict = try bootSecboot(b, tools, test_opts, tamper_image, enrolled_vars, secboot_fw, harness, false, .{
         .timeout_secs = reject_timeout_secs,
         .extra_dependencies = &.{&tamper_run.step},
+        .after = &unsigned_verdict.step,
     });
     tampered_verdict.step.dependOn(&unsigned_verdict.step);
 
-    harness.stop.dependOn(&tampered_verdict.step);
-    verify_step.dependOn(&harness.stop);
+    verify_step.dependOn(&tampered_verdict.step);
 }
 
 const BootSecbootOptions = struct {
@@ -174,32 +173,38 @@ const BootSecbootOptions = struct {
     /// an in-place mutation isn't tracked by the LazyPath/build-cache
     /// dependency mechanism).
     extra_dependencies: []const *std.Build.Step = &.{},
+    /// The previous boot's verdict. The boots share one swtpm state directory
+    /// and one writable VARS file, so each QEMU run must wait for the one
+    /// before it, not merely its verdict step.
+    after: ?*std.Build.Step = null,
     required_substrings: []const []const u8 = &.{},
 };
 
 fn bootSecboot(
     b: *std.Build,
+    tools: Tool.Collection,
     options: Options,
     image: std.Build.LazyPath,
     vars: std.Build.LazyPath,
     secboot_fw: Platform.FirmwarePaths,
-    harness: *TpmHarness,
+    harness: TpmHarness,
     expect_boot: bool,
     opts: BootSecbootOptions,
-) !*VerdictStep {
+) !*std.Build.Step.Run {
     var test_opts = options;
     test_opts.emulator.cpus = options.emulator.cpus orelse 4;
     test_opts.emulator.memory = 256;
 
     var log: std.Build.LazyPath = undefined;
-    const run = try QEMU.buildQemuCommand(b, .x64, image, test_opts, .{
+    const run = try QEMU.buildQemuCommand(b, .x64, image, tools, test_opts, .{
         .log_out = &log,
+        .tpm = harness,
         .firmware_override = .{ .secboot_uefi = .{ .code = secboot_fw.code, .vars = vars } },
         .timeout_secs = opts.timeout_secs,
     });
-    run.step.dependOn(&harness.start);
     for (opts.extra_dependencies) |dependency|
         run.step.dependOn(dependency);
+    if (opts.after) |after| run.step.dependOn(after);
 
     run.addArgs(&.{ "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04" });
     run.addArg("-no-reboot");
@@ -215,5 +220,5 @@ fn bootSecboot(
         run.stdio = .{ .check = .empty };
     }
 
-    return try VerdictStep.create(b, run, log, opts.required_substrings, expect_boot);
+    return VerdictStep.create(b, tools.get("build_helper").?.release_safe_exe, log, opts.required_substrings, expect_boot);
 }

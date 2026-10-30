@@ -170,7 +170,7 @@ pub fn open(name: []const u8, flags: OpenFlags) !OpenFile {
 
     const entry: *DirEntry = @ptrCast(@alignCast(dir_buf[free_idx * ENTRY_SIZE ..][0..ENTRY_SIZE]));
     entry.* = .{
-        .name = [_]u8{0} ** 16,
+        .name = @as([16]u8, @splat(0)),
         .size = 0,
         .start_sector = start,
         .flags = 1, // in use
@@ -279,7 +279,7 @@ pub fn close(file: *OpenFile) void {
 /// Test helper: write a directory entry into slot `idx` of a raw dir sector.
 fn writeTestEntry(dir_buf: *[512]u8, idx: usize, name: []const u8, size: u32, start_sector: u32) void {
     var entry: DirEntry = .{
-        .name = [_]u8{0} ** 16,
+        .name = @as([16]u8, @splat(0)),
         .size = size,
         .start_sector = start_sector,
         .flags = 1, // in use
@@ -289,7 +289,7 @@ fn writeTestEntry(dir_buf: *[512]u8, idx: usize, name: []const u8, size: u32, st
 }
 
 test "simple_fs: allocateSectors bounds check does not wrap near u32 max" {
-    var dir_buf: [512]u8 align(@alignOf(DirEntry)) = [_]u8{0} ** 512;
+    var dir_buf: [512]u8 align(@alignOf(DirEntry)) = @as([512]u8, @splat(0));
 
     // Empty directory: allocation starts at the first data sector.
     try std.testing.expectEqual(@as(u32, DATA_START_SECTOR), try allocateSectors(&dir_buf, 4));

@@ -55,20 +55,21 @@ const handlers_dir = "user/handlers/";
 
 fn run(
     rule: zlinter.rules.LintRule,
-    _: *zlinter.session.LintContext,
+    session: *zlinter.session.LintSession,
     doc: *const zlinter.session.LintDocument,
-    gpa: std.mem.Allocator,
     options: zlinter.rules.RunOptions,
 ) zlinter.rules.RunError!?zlinter.results.LintResult {
     const config = options.getConfig(Config);
     if (config.severity == .off) return null;
-    if (std.mem.find(u8, doc.path, handlers_dir) == null) return null;
+
+    const session_arena = session.runtime.sessionArena();
+    const rule_arena = session.runtime.ruleArena();
+    if (std.mem.find(u8, doc.absPath(session), handlers_dir) == null) return null;
 
     var lint_problems: std.ArrayList(zlinter.results.LintProblem) = .empty;
-    defer lint_problems.deinit(gpa);
 
-    const tree = doc.handle.tree;
-    var it = try doc.nodeLineageIterator(.root, gpa);
+    const tree = doc.tree(session);
+    var it = try doc.nodeLineageIterator(.root, rule_arena);
     defer it.deinit();
 
     while (try it.next()) |tuple| {
@@ -76,13 +77,12 @@ fn run(
         if (tree.nodeTag(node) != .fn_decl) continue;
 
         const body = tree.nodeData(node).node_and_node[1];
-        try checkBody(rule, config, tree, body, gpa, &lint_problems);
+        try checkBody(rule, config, tree, body, session_arena, &lint_problems);
     }
 
     return if (lint_problems.items.len > 0) try .init(
-        gpa,
-        doc.path,
-        try lint_problems.toOwnedSlice(gpa),
+        doc.file_id,
+        lint_problems.items,
     ) else null;
 }
 
@@ -91,7 +91,7 @@ fn checkBody(
     config: Config,
     tree: Ast,
     body: Ast.Node.Index,
-    gpa: std.mem.Allocator,
+    session_arena: std.mem.Allocator,
     lint_problems: *std.ArrayList(zlinter.results.LintProblem),
 ) !void {
     const first = tree.firstToken(body);
@@ -108,12 +108,12 @@ fn checkBody(
             const close = matching(tree, j, .l_bracket, .r_bracket, last) orelse continue;
             if (sliceMentions(tree, j, close, name)) {
                 if (guard == null or guard.? > j) {
-                    try lint_problems.append(gpa, .{
+                    try lint_problems.append(session_arena, .{
                         .rule_id = rule.rule_id,
                         .severity = config.severity,
                         .start = .startOfToken(tree, j),
                         .end = .endOfToken(tree, close),
-                        .message = try gpa.dupe(u8, MESSAGE),
+                        .message = try session_arena.dupe(u8, MESSAGE),
                     });
                 }
             }

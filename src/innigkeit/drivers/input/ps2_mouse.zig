@@ -30,7 +30,7 @@ pub const MouseEvent = extern struct {
 
 /// SPSC ring of decoded mouse events (64 slots). Fed by IRQ, drained by syscall.
 pub const RawMouseBuffer = struct {
-    buf: [64]MouseEvent = [_]MouseEvent{.{ .buttons = 0, .dx = 0, .dy = 0 }} ** 64,
+    buf: [64]MouseEvent = @splat(.{ .buttons = 0, .dx = 0, .dy = 0 }),
     read_pos: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
     write_pos: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
 
@@ -60,7 +60,7 @@ pub const RawMouseBuffer = struct {
 pub var raw_mouse: RawMouseBuffer = .{};
 
 /// 3-byte packet accumulator (interrupt context only: single writer).
-var pkt: [3]u8 = .{0} ** 3;
+var pkt: [3]u8 = @splat(0);
 var pkt_idx: u8 = 0;
 
 /// Initialize the PS/2 mouse.

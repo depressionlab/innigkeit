@@ -38,7 +38,7 @@ pub fn tryGetSerialOutput(memory_system_available: bool) ?architecture.init.Init
 
     for (std.meta.tags(static.COMPort)) |com_port| {
         const serial = SerialPort.create(
-            @intFromEnum(com_port),
+            @backingInt(com_port),
             .{ .clock_frequency = .@"1.8432 MHz", .baud_rate = .@"115200" },
         ) catch continue;
 
@@ -58,9 +58,9 @@ pub fn prepareBootstrapExecutor(
     architecture_processor_id: u64,
 ) void {
     const static = struct {
-        var bootstrap_double_fault_stack: [@intFromEnum(innigkeit.config.task.interrupt_stack_size)]u8 align(16) = undefined;
-        var bootstrap_non_maskable_interrupt_stack: [@intFromEnum(innigkeit.config.task.interrupt_stack_size)]u8 align(16) = undefined;
-        var bootstrap_irq_stack: [@intFromEnum(innigkeit.config.task.interrupt_stack_size)]u8 align(16) = undefined;
+        var bootstrap_double_fault_stack: [@backingInt(innigkeit.config.task.interrupt_stack_size)]u8 align(16) = undefined;
+        var bootstrap_non_maskable_interrupt_stack: [@backingInt(innigkeit.config.task.interrupt_stack_size)]u8 align(16) = undefined;
+        var bootstrap_irq_stack: [@backingInt(innigkeit.config.task.interrupt_stack_size)]u8 align(16) = undefined;
     };
 
     prepareExecutorShared(
@@ -321,7 +321,7 @@ fn disablePic() void {
 ///  - By every executor after `captureSystemInformation` has been called
 pub fn configurePerExecutorSystemFeatures() void {
     if (x64.info.cpu_id.rdtscp) {
-        x64.registers.IA32_TSC_AUX.write(@intFromEnum(innigkeit.Task.Current.get().knownExecutor().id));
+        x64.registers.IA32_TSC_AUX.write(@backingInt(innigkeit.Task.Current.get().knownExecutor().id));
     }
 
     // TODO: be more thorough with setting up these registers

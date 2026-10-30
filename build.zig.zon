@@ -22,24 +22,20 @@
             .hash = "N-V-__8AANNkKQDrI-ou4QFKjWf0VdX-4NB49Xq1KxtJXfkW",
         },
         .devicetree = .{
-            .url = "git+https://github.com/CascadeOS/zig-devicetree#53ec12cb0e724c16ee9cebb04ed3e97ff93ef82c",
-            .hash = "devicetree-4.0.1-cZRcrCCRAQC_m06ln8G0jL9d53Qij11v5cJgJ7LJfB74",
+            .url = "git+https://github.com/CascadeOS/zig-devicetree#2c8e3819942e6428952e4d8ce4eb5979981902b5",
+            .hash = "devicetree-4.0.1-cZRcrCCRAQCnly208pLV8GBrspHxNjMOf-kvriiMF5Li",
         },
         .sbi = .{
-            .url = "git+https://github.com/leecannon/zig-sbi#82c2376f13dda5034f1fcfbcbfa15788d5b35ec9",
-            .hash = "sbi-7.0.0-Muvb-gLyAQDyO6WOzpLCZ7EXPlL48WR-t4aaDkM1SSyb",
+            // Vendored: upstream's build.zig still sets `b.enable_qemu`, removed in Zig 0.17.
+            .path = "library/sbi",
         },
         .doomgeneric = .{
             .url = "git+https://github.com/ozkl/doomgeneric#dcb7a8dbc7a16ce3dda29382ac9aae9d77d21284",
             .hash = "N-V-__8AAJMtRADYgnFFWaSNURiX55QppO-9EWd4mUF8BoQG",
         },
         .toml = .{
-            .url = "git+https://github.com/sam701/zig-toml.git#24e0deeceaad1b7f1b12027ebae1c65ff1d86e33",
-            .hash = "toml-0.3.0-bV14BVqIAQANb68hDuVPZ72hrcIhT-fv_fcIbetQIAyg",
-        },
-        .zlinter = .{
-            .url = "git+https://github.com/kurtwagner/zlinter?ref=0.16.x#8b10b45d33c684be4f869baf95a37c282e9db750",
-            .hash = "zlinter-0.0.1-OjQ08doQDADkvkcRq2ONICvDheGl2onZzS5upWDxFNnA",
+            .url = "git+https://github.com/sam701/zig-toml.git#4a13e49ce7d19ac2df8b87962d9f23c0f5dd5bdd",
+            .hash = "toml-0.3.0-bV14BRmkAQDSILPPyXc31aAXPtJa1Uh8Frug3i6InAUc",
         },
     },
     .paths = .{

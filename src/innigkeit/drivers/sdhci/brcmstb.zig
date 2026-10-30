@@ -161,7 +161,7 @@ pub fn init() Error!Sdhci {
         log.warn("failed to map SDHCI MMIO region: {t}", .{err});
         return Error.CardError;
     };
-    const regs: *volatile Regs = @ptrFromInt(@intFromEnum(mapping.address));
+    const regs: *volatile Regs = @ptrFromInt(@backingInt(mapping.address));
 
     var self: Sdhci = .{ .regs = regs, .rca = 0 };
     try self.reset();
@@ -187,7 +187,7 @@ pub fn init() Error!Sdhci {
             if (ocr & (1 << 30) == 0) return Error.UnusableCard; // standard-capacity
             break;
         }
-        if (@intFromEnum(wallclock.elapsed(start, wallclock.read())) > acmd41_timeout_ms * std.time.ns_per_ms) {
+        if (@backingInt(wallclock.elapsed(start, wallclock.read())) > acmd41_timeout_ms * std.time.ns_per_ms) {
             return Error.Timeout;
         }
         architecture.spinLoopHint();
@@ -304,7 +304,7 @@ fn waitPresentState(self: Sdhci, mask: u32, value: u32, timeout_ms: u64) Error!v
     const start = wallclock.read();
     while (true) {
         if (self.regs.present_state & mask == value) return;
-        if (@intFromEnum(wallclock.elapsed(start, wallclock.read())) > timeout_ns) {
+        if (@backingInt(wallclock.elapsed(start, wallclock.read())) > timeout_ns) {
             if (self.regs.present_state & mask == value) return;
             return Error.Timeout;
         }
@@ -329,7 +329,7 @@ fn waitInterrupt(self: Sdhci, want: u32, timeout_ms: u64) Error!void {
             self.regs.int_status = want;
             return;
         }
-        if (@intFromEnum(wallclock.elapsed(start, wallclock.read())) > timeout_ns) {
+        if (@backingInt(wallclock.elapsed(start, wallclock.read())) > timeout_ns) {
             return Error.Timeout;
         }
         architecture.spinLoopHint();
@@ -341,7 +341,7 @@ fn reset(self: Sdhci) Error!void {
     const timeout_ns = cmd_timeout_ms * std.time.ns_per_ms;
     const start = wallclock.read();
     while (self.regs.software_reset & reset_all != 0) {
-        if (@intFromEnum(wallclock.elapsed(start, wallclock.read())) > timeout_ns) return Error.Timeout;
+        if (@backingInt(wallclock.elapsed(start, wallclock.read())) > timeout_ns) return Error.Timeout;
         architecture.spinLoopHint();
     }
     self.regs.int_enable = int_all_mask;
@@ -371,7 +371,7 @@ fn setClock(self: Sdhci, target_hz: u32) void {
     const timeout_ns = cmd_timeout_ms * std.time.ns_per_ms;
     const start = wallclock.read();
     while (self.regs.clock_control & clock_int_stable == 0) {
-        if (@intFromEnum(wallclock.elapsed(start, wallclock.read())) > timeout_ns) {
+        if (@backingInt(wallclock.elapsed(start, wallclock.read())) > timeout_ns) {
             log.warn("SDHCI clock did not stabilize within {d}ms", .{cmd_timeout_ms});
             break;
         }

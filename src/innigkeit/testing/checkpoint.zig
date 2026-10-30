@@ -95,7 +95,7 @@ pub fn awaitCaught(point: Point, timeout_ns: u64) ?*const Process {
     const slot = slots.getPtr(point);
     const start = wallclock.read();
     while (slot.state.load(.acquire) != .caught) {
-        if (@intFromEnum(wallclock.elapsed(start, wallclock.read())) > timeout_ns) return null;
+        if (@backingInt(wallclock.elapsed(start, wallclock.read())) > timeout_ns) return null;
         yieldNow();
     }
     return slot.subject;

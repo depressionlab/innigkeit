@@ -5,7 +5,7 @@ const std = @import("std");
 /// Granted at spawn time: handle 0 is a read+write Endpoint the kernel-side
 /// `fuzz_target.test.zig` uses to hand this process one (selector, args)
 /// tuple taken directly from the host's fuzz-channel corpus entry.
-const endpoint_handle: capabilities.Handle = @enumFromInt(0);
+const endpoint_handle: capabilities.Handle = @fromBackingInt(@intCast(0));
 
 /// Must match `tools/kernel_fuzz/corpus.zig`'s `scratch_sentinel`.
 const scratch_sentinel: u64 = 0x5C5C_5C5C_5C5C_5C5C;

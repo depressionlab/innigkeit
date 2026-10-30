@@ -73,7 +73,7 @@ const GpuCtrlHdr = extern struct {
     fence_id: u64 = 0,
     ctx_id: u32 = 0,
     ring_idx: u8 = 0,
-    _pad: [3]u8 = .{0} ** 3,
+    _pad: [3]u8 = @splat(0),
 };
 comptime {
     std.debug.assert(@sizeOf(GpuCtrlHdr) == 24);
@@ -402,8 +402,8 @@ pub fn flushRect(x: u32, y: u32, w: u32, h: u32) error{NoGpu}!void {
     // barrier the device may read stale zeroes.
     deviceBarrier();
 
-    const qp_virt = @intFromEnum(s.queue_page.baseAddress().toDirectMap());
-    const qp_phys = @intFromEnum(s.queue_page.baseAddress());
+    const qp_virt = @backingInt(s.queue_page.baseAddress().toDirectMap());
+    const qp_phys = @backingInt(s.queue_page.baseAddress());
     const rect: GpuRect = .{ .x = x, .y = y, .w = w, .h = h };
 
     // TRANSFER_TO_HOST_2D: `offset` is the byte position of the rect's top-left
@@ -472,8 +472,8 @@ fn virtioInit(cfg_va: usize, qp_phys: usize, notify_va: usize, notify_mult: u32)
 }
 
 fn getDisplayInfo(s: *GpuState) !void {
-    const qp_virt = @intFromEnum(s.queue_page.baseAddress().toDirectMap());
-    const qp_phys = @intFromEnum(s.queue_page.baseAddress());
+    const qp_virt = @backingInt(s.queue_page.baseAddress().toDirectMap());
+    const qp_phys = @backingInt(s.queue_page.baseAddress());
 
     _ = buildCmd(GpuCtrlHdr, .{ .type_ = CMD_GET_DISPLAY_INFO }, qp_virt);
     const resp_type = try submitCmd(s, qp_virt, qp_phys, @sizeOf(GpuCtrlHdr), OFF_CMD, @sizeOf(GpuRespDisplayInfo));
@@ -512,8 +512,8 @@ fn modeFitsFramebuffer(w: u32, h: u32) bool {
 }
 
 fn sendResourceCreate2d(s: *GpuState) !void {
-    const qp_virt = @intFromEnum(s.queue_page.baseAddress().toDirectMap());
-    const qp_phys = @intFromEnum(s.queue_page.baseAddress());
+    const qp_virt = @backingInt(s.queue_page.baseAddress().toDirectMap());
+    const qp_phys = @backingInt(s.queue_page.baseAddress());
     const cmd_off = buildCmd(GpuResourceCreate2d, .{
         .hdr = .{ .type_ = CMD_RESOURCE_CREATE_2D },
         .resource_id = RESOURCE_ID,
@@ -526,8 +526,8 @@ fn sendResourceCreate2d(s: *GpuState) !void {
 }
 
 fn sendResourceAttachBacking(s: *GpuState) !void {
-    const qp_virt = @intFromEnum(s.queue_page.baseAddress().toDirectMap());
-    const qp_phys = @intFromEnum(s.queue_page.baseAddress());
+    const qp_virt = @backingInt(s.queue_page.baseAddress().toDirectMap());
+    const qp_phys = @backingInt(s.queue_page.baseAddress());
 
     const n = s.fb_pages.len;
     const ep_count = s.entry_pages.len;
@@ -575,8 +575,8 @@ fn sendResourceAttachBacking(s: *GpuState) !void {
 }
 
 fn sendSetScanout(s: *GpuState) !void {
-    const qp_virt = @intFromEnum(s.queue_page.baseAddress().toDirectMap());
-    const qp_phys = @intFromEnum(s.queue_page.baseAddress());
+    const qp_virt = @backingInt(s.queue_page.baseAddress().toDirectMap());
+    const qp_phys = @backingInt(s.queue_page.baseAddress());
     const cmd_off = buildCmd(GpuSetScanout, .{
         .hdr = .{ .type_ = CMD_SET_SCANOUT },
         .r = .{ .x = 0, .y = 0, .w = s.fb_width, .h = s.fb_height },

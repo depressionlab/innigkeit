@@ -50,14 +50,14 @@ fn discoverGicAddressesFromMadt() void {
     var iter = madt_table.table.iterate();
     while (iter.next()) |entry| {
         switch (entry.entry_type) {
-            .gic_distributor => distributor_base = @intFromEnum(
+            .gic_distributor => distributor_base = @backingInt(
                 entry.specific.gic_distributor.physical_base_address,
             ),
             // Ignores the MADT header's legacy 32-bit
             // `local_interrupt_controller_address` fallback for a GICC entry
             // with a zero `physical_base_address`: not known to be needed by
             // any firmware this port targets.
-            .gic_cpu_interface => cpu_interface_base = @intFromEnum(
+            .gic_cpu_interface => cpu_interface_base = @backingInt(
                 entry.specific.gic_cpu_interface.physical_base_address,
             ),
             else => {},
@@ -151,21 +151,21 @@ inline fn counterFrequency() u64 {
 }
 
 fn wallclockRead() innigkeit.time.wallclock.Tick {
-    return @enumFromInt(arm.registers.CNTPCT_EL0.read());
+    return @fromBackingInt(@intCast(arm.registers.CNTPCT_EL0.read()));
 }
 
 fn wallclockElapsed(
     value1: innigkeit.time.wallclock.Tick,
     value2: innigkeit.time.wallclock.Tick,
 ) core.Duration {
-    const ticks = @intFromEnum(value2) - @intFromEnum(value1);
+    const ticks = @backingInt(value2) - @backingInt(value1);
     const freq = counterFrequency();
     // nanoseconds = ticks * 1e9 / freq. Order the multiply first; ticks here
     // are bounded by realistic uptimes so the intermediate does not overflow
     // for the durations the kernel prints.
     const ns = if (freq == 0) 0 else (ticks / freq) * 1_000_000_000 +
         ((ticks % freq) * 1_000_000_000) / freq;
-    return @enumFromInt(ns);
+    return @fromBackingInt(@intCast(ns));
 }
 
 fn referenceCounterPrepareToWaitFor(duration: core.Duration) void {
@@ -175,7 +175,7 @@ fn referenceCounterPrepareToWaitFor(duration: core.Duration) void {
 fn referenceCounterWaitFor(duration: core.Duration) void {
     const freq = counterFrequency();
     // ticks = ns * freq / 1e9
-    const duration_ns = @intFromEnum(duration);
+    const duration_ns = @backingInt(duration);
     const ticks = (duration_ns / 1_000_000_000) * freq +
         ((duration_ns % 1_000_000_000) * freq) / 1_000_000_000;
     const start = arm.registers.CNTPCT_EL0.read();
@@ -188,9 +188,9 @@ fn referenceCounterWaitFor(duration: core.Duration) void {
 var periodic_period_ns: u64 = 5_000_000;
 
 fn perExecutorPeriodicEnableInterrupt(period: core.Duration) void {
-    periodic_period_ns = @intFromEnum(period);
+    periodic_period_ns = @backingInt(period);
     // Arm the virtual timer and make sure the timer interrupt is unmasked.
-    arm.timer.setNextTick(@intFromEnum(period));
+    arm.timer.setNextTick(@backingInt(period));
     architecture.interrupts.enable();
 }
 

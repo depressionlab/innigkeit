@@ -86,7 +86,8 @@ pub fn vmemMap(context: Context) Error.Syscall!usize {
         process.address_space.page_table_lock.unlock();
         process.address_space.unlockEntriesAfterMap();
         // Unmap the VA we just reserved since we can't back it.
-        process.address_space.unmap(virt_range) catch {};
+        process.address_space.unmap(virt_range) catch |unmap_err|
+            log.warn("rollback unmap of {f} failed: {t}", .{ virt_range, unmap_err });
         log.debug("vmem_map: mapSinglePage failed: {t}", .{err});
         return Error.Syscall.OutOfMemory;
     };

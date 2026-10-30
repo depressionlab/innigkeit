@@ -46,7 +46,6 @@ test Bit {
     };
 
     try std.testing.expect(@sizeOf(S) == 4);
-    try std.testing.expect(@bitSizeOf(S) == 32);
 
     var s: S = .{ .val = 1 };
 
@@ -77,7 +76,6 @@ test Boolean {
     };
 
     try std.testing.expect(@sizeOf(S) == 4);
-    try std.testing.expect(@bitSizeOf(S) == 32);
 
     var s: S = .{ .val = 2 };
 

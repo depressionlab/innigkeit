@@ -12,7 +12,7 @@ pub const KernelVirtualAddress = enum(usize) {
     /// **REQUIREMENTS**:
     /// - The address must be within the kernel memory range.
     pub inline fn from(value: usize) KernelVirtualAddress {
-        const address: KernelVirtualAddress = @enumFromInt(value);
+        const address: KernelVirtualAddress = @fromBackingInt(@intCast(value));
         if (core.is_debug) std.debug.assert(architecture.paging.kernel_memory_range.containsAddress(address.toVirtualAddress()));
         return address;
     }
@@ -26,7 +26,7 @@ pub const KernelVirtualAddress = enum(usize) {
             const pointer_type_info = @typeInfo(@TypeOf(ptr)).pointer;
             std.debug.assert(pointer_type_info.size == .one or pointer_type_info.size == .many);
         }
-        return @enumFromInt(@intFromPtr(ptr));
+        return @fromBackingInt(@intCast(@intFromPtr(ptr)));
     }
 
     /// Converts the kernel virtual address to a pointer.
@@ -35,7 +35,7 @@ pub const KernelVirtualAddress = enum(usize) {
     /// - The pointer must be a valid kernel pointer.
     pub inline fn toPtr(self: KernelVirtualAddress, comptime PtrT: type) PtrT {
         // this is the sanctioned kernel-address-to-pointer convension.
-        return @ptrFromInt(@intFromEnum(self));
+        return @ptrFromInt(@backingInt(self));
     }
 
     pub inline fn toVirtualAddress(self: KernelVirtualAddress) root.VirtualAddress {

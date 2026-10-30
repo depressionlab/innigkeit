@@ -13,7 +13,7 @@ pub const UserVirtualAddress = enum(usize) {
     /// **REQUIREMENTS**:
     /// - The address must be within the user memory range.
     pub inline fn from(value: usize) UserVirtualAddress {
-        const address: UserVirtualAddress = @enumFromInt(value);
+        const address: UserVirtualAddress = @fromBackingInt(@intCast(value));
         if (core.is_debug) std.debug.assert(architecture.user.user_memory_range.containsAddress(address.toVirtualAddress()));
         return address;
     }
@@ -25,7 +25,7 @@ pub const UserVirtualAddress = enum(usize) {
     pub inline fn ptr(address: UserVirtualAddress, comptime PtrT: type) PtrT {
         if (core.is_debug) std.debug.assert(innigkeit.Task.Current.get().task.enable_access_to_user_memory_count.load(.acquire) != 0);
         // this is the sanctioned user-address-to-pointer convension.
-        return @ptrFromInt(@intFromEnum(address));
+        return @ptrFromInt(@backingInt(address));
     }
 
     pub inline fn toVirtualAddress(address: UserVirtualAddress) root.VirtualAddress {

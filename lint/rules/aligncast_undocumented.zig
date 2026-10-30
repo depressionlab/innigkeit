@@ -41,19 +41,20 @@ const MESSAGE = "`@alignCast` asserts an alignment with no static proof! add a "
 
 fn run(
     rule: zlinter.rules.LintRule,
-    _: *zlinter.session.LintContext,
+    session: *zlinter.session.LintSession,
     doc: *const zlinter.session.LintDocument,
-    gpa: std.mem.Allocator,
     options: zlinter.rules.RunOptions,
 ) zlinter.rules.RunError!?zlinter.results.LintResult {
     const config = options.getConfig(Config);
     if (config.severity == .off) return null;
 
-    var lint_problems = std.ArrayList(zlinter.results.LintProblem).empty;
-    defer lint_problems.deinit(gpa);
+    const session_arena = session.runtime.sessionArena();
+    const rule_arena = session.runtime.ruleArena();
 
-    const tree = doc.handle.tree;
-    var it = try doc.nodeLineageIterator(.root, gpa);
+    var lint_problems = std.ArrayList(zlinter.results.LintProblem).empty;
+
+    const tree = doc.tree(session);
+    var it = try doc.nodeLineageIterator(.root, rule_arena);
     defer it.deinit();
 
     nodes: while (try it.next()) |tuple| {
@@ -72,19 +73,18 @@ fn run(
         if (!std.mem.eql(u8, tree.tokenSlice(main_token), "@alignCast")) continue :nodes;
         if (hasNearbyComment(tree, main_token)) continue :nodes;
 
-        try lint_problems.append(gpa, .{
+        try lint_problems.append(session_arena, .{
             .rule_id = rule.rule_id,
             .severity = config.severity,
             .start = .startOfNode(tree, node),
             .end = .endOfNode(tree, node),
-            .message = try gpa.dupe(u8, MESSAGE),
+            .message = try session_arena.dupe(u8, MESSAGE),
         });
     }
 
     return if (lint_problems.items.len > 0) try .init(
-        gpa,
-        doc.path,
-        try lint_problems.toOwnedSlice(gpa),
+        doc.file_id,
+        lint_problems.items,
     ) else null;
 }
 

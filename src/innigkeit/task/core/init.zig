@@ -49,7 +49,7 @@ pub fn createAndAssignInitTask(executor: *innigkeit.Executor) !void {
 
     const task = try innigkeit.Task.createKernelTask(
         .{
-            .name = try .initPrint("init {}", .{@intFromEnum(executor.id)}),
+            .name = try .initPrint("init {}", .{@backingInt(executor.id)}),
             .entry = .prepare(dummyInitEntry, .{}),
         },
     );
@@ -71,7 +71,7 @@ pub fn initializeSchedulerTask(
     executor: *innigkeit.Executor,
 ) !void {
     scheduler_task.* = .{
-        .name = try .initPrint("scheduler {}", .{@intFromEnum(executor.id)}),
+        .name = try .initPrint("scheduler {}", .{@backingInt(executor.id)}),
 
         .state = .ready,
         .stack = try .createStack(),

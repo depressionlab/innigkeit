@@ -11,7 +11,7 @@ pub var handlers: [Idt.number_of_handlers]Handler = handlers: {
     var temp_handlers: [Idt.number_of_handlers]Handler = undefined;
 
     for (0..Idt.number_of_handlers) |i| {
-        const interrupt: Interrupt = @enumFromInt(i);
+        const interrupt: Interrupt = @fromBackingInt(@intCast(i));
 
         if (interrupt == .page_fault) {
             temp_handlers[i] = .{

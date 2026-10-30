@@ -6,6 +6,7 @@ const ImageStep = @import("ImageStep.zig");
 const Options = @import("Options.zig");
 const Platform = @import("Platform.zig");
 const std = @import("std");
+const Tool = @import("Tool.zig");
 const TpmHarness = @import("TpmHarness.zig");
 const VerdictStep = @import("VerdictStep.zig");
 
@@ -13,14 +14,16 @@ const VerdictStep = @import("VerdictStep.zig");
 pub fn registerQemuSteps(
     b: *std.Build,
     image_steps: ImageStep.Collection,
+    tools: Tool.Collection,
     options: Options,
     architectures: []const Bundle.Architecture,
 ) !void {
     for (architectures) |arch| {
-        const qemu = try buildQemuCommand(b, arch, image_steps.get(arch).?.image_file, options, .{});
-        qemu.addArgs(&.{
+        const image = image_steps.get(arch).?;
+        const qemu = try buildQemuCommand(b, arch, image.image_file, tools, options, .{ .after = &image.install_image.step });
+        if (options.emulator.wad_path) |wad_path| qemu.addArgs(&.{
             "-device", "virtio-blk-pci,drive=drive1,disable-modern=on,disable-legacy=off",
-            "-drive",  b.fmt("file={s},format=raw,if=none,id=drive1,readonly=on", .{options.emulator.wad_path}),
+            "-drive",  b.fmt("file={s},format=raw,if=none,id=drive1,readonly=on", .{wad_path}),
         });
         b.step(
             b.fmt("run_{s}", .{@tagName(arch)}),
@@ -46,12 +49,20 @@ pub const CommandOptions = struct {
     /// forever rather than exiting, so a bounded wait is the only way to
     /// tell "rejected as expected" apart from "actually hung".
     timeout_secs: ?u32 = null,
+    /// A step that must finish before the VM boots, e.g. the install step of
+    /// an `image` given as an install-prefix `LazyPath`.
+    after: ?*std.Build.Step = null,
+    /// Wrap the run in `build_helper with-swtpm` and attach a `tpm-crb` device.
+    tpm: ?TpmHarness = null,
+    /// Wrap the run in `build_helper with-fuzz-client`.
+    fuzz_channel: ?FuzzChannelHarness = null,
 };
 
 pub fn buildQemuCommand(
     b: *std.Build,
     arch: Bundle.Architecture,
     image: std.Build.LazyPath,
+    tools: Tool.Collection,
     options: Options,
     cmd_opts: CommandOptions,
 ) !*std.Build.Step.Run {
@@ -63,11 +74,24 @@ pub fn buildQemuCommand(
     } else .bios;
 
     const qemu_bin = Platform.findQemuBinary(b, arch);
-    const run = if (cmd_opts.timeout_secs) |secs|
+    const run = if (cmd_opts.tpm != null or cmd_opts.fuzz_channel != null) wrapped: {
+        // Outermost wrapper first; each later one is a nested `build_helper`.
+        const helper = tools.get("build_helper").?.release_safe_exe;
+        const run = b.addRunArtifact(helper);
+        if (cmd_opts.tpm) |tpm| tpm.addWrapperArgs(run);
+        if (cmd_opts.fuzz_channel) |fuzz| {
+            if (cmd_opts.tpm != null) run.addArtifactArg2(helper, .{});
+            fuzz.addWrapperArgs(run);
+        }
+        if (cmd_opts.timeout_secs) |secs| run.addArgs(&.{ "timeout", b.fmt("{d}", .{secs}) });
+        run.addArg(qemu_bin);
+        break :wrapped run;
+    } else if (cmd_opts.timeout_secs) |secs|
         b.addSystemCommand(&.{ "timeout", b.fmt("{d}", .{secs}), qemu_bin })
     else
         b.addSystemCommand(&.{qemu_bin});
     run.has_side_effects = true;
+    if (cmd_opts.after) |after| run.step.dependOn(after);
     run.stdio = .inherit;
 
     run.addArgs(&.{ "-nodefaults", "-no-user-config" });
@@ -210,12 +234,13 @@ pub fn buildQemuCommand(
         },
     }
 
-    if (emu.tpm_socket) |socket| {
+    if (cmd_opts.tpm) |tpm| {
         // CRB interface (PTP), matching drivers/tpm/crb.zig and QEMU's tpm-crb.
+        run.addArg("-chardev");
+        run.addDirectoryArg2(tpm.socket, .{ .prefix = "socket,id=chrtpm,path=" });
         run.addArgs(&.{
-            "-chardev", b.fmt("socket,id=chrtpm,path={s}", .{socket}),
-            "-tpmdev",  "emulator,id=tpm0,chardev=chrtpm",
-            "-device",  "tpm-crb,tpmdev=tpm0",
+            "-tpmdev", "emulator,id=tpm0,chardev=chrtpm",
+            "-device", "tpm-crb,tpmdev=tpm0",
         });
     }
 
@@ -232,29 +257,30 @@ fn testCpus(arch: Bundle.Architecture) u8 {
     };
 }
 
-/// Build a QEMU run step for `test_{arch}`.
+/// Build a QEMU run step for `test_{arch}`, plus the verdict step that judges it.
 ///
 /// Pass/fail convention:
 /// - x64: ISA debug-exit (port 0xf4). write 0 -> QEMU exits 1 (pass),
 ///        write 1 -> QEMU exits 3 (fail). Step uses expectExitCode(1).
 /// - arm: AArch64 semihosting SYS_EXIT subcode 0 (pass) / 1 (fail).
 ///        QEMU exits 0 on pass; standard exit-0-success applies.
+///
+/// Returns the verdict `Run`; depending on it depends on the whole boot.
 pub fn buildTestQemuStep(
     b: *std.Build,
     arch: Bundle.Architecture,
-    image: std.Build.LazyPath,
+    image: *const ImageStep,
+    tools: Tool.Collection,
     options: Options,
     /// Extra substrings the serial log must contain, beyond the plain
     /// pass/fail verdict line (e.g., proof the opt-in TPM suite actually
     /// ran rather than being silently skipped).
     required_substrings: []const []const u8,
-    /// When non-null (and `options.emulator.tpm_socket` is set), the run
-    /// step depends on `harness.start` and `harness.stop` depends on the
-    /// resulting verdict so the caller can fold the whole TPM lifecycle
-    /// into whatever step it names as depending on the returned VerdictStep.
-    tpm_harness: ?*TpmHarness,
-    fuzz_channel_harness: ?*FuzzChannelHarness,
-) !*VerdictStep {
+    /// When non-null the run is wrapped in `build_helper with-swtpm` and gets
+    /// a `tpm-crb` device. x64 only.
+    tpm_harness: ?TpmHarness,
+    fuzz_channel_harness: ?FuzzChannelHarness,
+) !*std.Build.Step.Run {
     var test_opts = options;
     test_opts.emulator.cpus = options.emulator.cpus orelse testCpus(arch);
     // TODO: arm has a bug at 512 MiB
@@ -264,19 +290,16 @@ pub fn buildTestQemuStep(
     };
     test_opts.emulator.display = false;
     // TODO: TPM-like security and networking on other arches
-    if (arch != .x64) test_opts.emulator.tpm_socket = null;
+    if (arch != .x64) test_opts.emulator.tpm = false;
     if (arch != .x64) test_opts.emulator.fuzz_channel = false;
 
     var log: std.Build.LazyPath = undefined;
-    const run = try buildQemuCommand(b, arch, image, test_opts, .{ .log_out = &log });
-    if (tpm_harness) |harness| {
-        if (test_opts.emulator.tpm_socket != null)
-            run.step.dependOn(&harness.start);
-    }
-    if (fuzz_channel_harness) |harness| {
-        if (test_opts.emulator.fuzz_channel)
-            run.step.dependOn(&harness.start);
-    }
+    const run = try buildQemuCommand(b, arch, image.image_file, tools, test_opts, .{
+        .log_out = &log,
+        .after = &image.install_image.step,
+        .tpm = if (test_opts.emulator.tpm) tpm_harness else null,
+        .fuzz_channel = if (test_opts.emulator.fuzz_channel) fuzz_channel_harness else null,
+    });
 
     switch (arch) {
         .x64 => run.addArgs(&.{ "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04" }),
@@ -293,16 +316,7 @@ pub fn buildTestQemuStep(
         .arm => {}, // semihosting SYS_EXIT subcode 0 -> QEMU exits 0 (default success)
         .riscv => {},
     }
-    const verdict = try VerdictStep.create(b, run, log, required_substrings, true);
-    if (tpm_harness) |harness| {
-        if (test_opts.emulator.tpm_socket != null)
-            harness.stop.dependOn(&verdict.step);
-    }
-    if (fuzz_channel_harness) |harness| {
-        if (test_opts.emulator.fuzz_channel)
-            harness.stop.dependOn(&verdict.step);
-    }
-    return verdict;
+    return VerdictStep.create(b, tools.get("build_helper").?.release_safe_exe, log, required_substrings, true);
 }
 
 /// Returns true for architectures that always require UEFI (no BIOS fallback).

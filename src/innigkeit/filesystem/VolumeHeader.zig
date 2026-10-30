@@ -68,7 +68,7 @@ pub fn parse(buf: []const u8) Error!Header {
     var i: usize = 0;
     while (i < count) : (i += 1) {
         if (off + 8 > buf.len) return Error.BadHeader;
-        const t: SlotType = @enumFromInt(readU32(buf, off));
+        const t: SlotType = @fromBackingInt(@intCast(readU32(buf, off)));
         const len = readU32(buf, off + 4);
         off += 8;
         if (off + len > buf.len) return Error.BadHeader;
@@ -93,7 +93,7 @@ pub fn write(buf: []u8, slots: []const Slot) Error!void {
 
     var off: usize = header_start;
     for (slots) |s| {
-        writeU32(buf, off, @intFromEnum(s.type));
+        writeU32(buf, off, @backingInt(s.type));
         writeU32(buf, off + 4, @intCast(s.bytes.len));
         off += 8;
         @memcpy(buf[off..][0..s.bytes.len], s.bytes);
@@ -110,8 +110,8 @@ fn writeU32(b: []u8, off: usize, v: u32) void {
 
 test "volume header: write then parse round-trips multiple slots" {
     var buf: [512]u8 = undefined;
-    const tpm_payload = [_]u8{0xAB} ** 40;
-    const pass_payload = [_]u8{0xCD} ** 132;
+    const tpm_payload = @as([40]u8, @splat(0xAB));
+    const pass_payload = @as([132]u8, @splat(0xCD));
     try write(&buf, &.{
         .{ .type = .tpm_pcr, .bytes = &tpm_payload },
         .{ .type = .passphrase, .bytes = &pass_payload },
@@ -126,7 +126,7 @@ test "volume header: write then parse round-trips multiple slots" {
 
 test "volume header: rejects bad magic / version / overflow" {
     var buf: [512]u8 = undefined;
-    try write(&buf, &.{.{ .type = .tpm_pcr, .bytes = &[_]u8{1} ** 8 }});
+    try write(&buf, &.{.{ .type = .tpm_pcr, .bytes = &@as([8]u8, @splat(1)) }});
 
     var bad = buf;
     bad[0] ^= 0xFF;
@@ -144,7 +144,7 @@ test "volume header: rejects bad magic / version / overflow" {
 
 test "volume header: write fails when slots exceed the sector" {
     var buf: [64]u8 = undefined;
-    const big = [_]u8{0} ** 100;
+    const big = @as([100]u8, @splat(0));
     try std.testing.expectError(Error.TooLarge, write(&buf, &.{.{ .type = .passphrase, .bytes = &big }}));
 }
 

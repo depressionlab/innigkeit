@@ -250,8 +250,8 @@ pub fn statFd(self: *FdTable, fd: usize) Error!Stat {
     defer self.lock.unlock();
     return switch (self.slots[fd].desc) {
         .closed => error.BadFd,
-        .terminal_out, .keyboard_in => .{ .size = 0, .kind = @intFromEnum(Kind.tty) },
-        .file => |*f| .{ .size = vfs.fileSize(&f.node), .kind = @intFromEnum(Kind.file) },
+        .terminal_out, .keyboard_in => .{ .size = 0, .kind = @backingInt(Kind.tty) },
+        .file => |*f| .{ .size = vfs.fileSize(&f.node), .kind = @backingInt(Kind.file) },
     };
 }
 
@@ -352,7 +352,7 @@ test "fd table: lseek and positioned reads against the boot disk via vfs" {
     // stat reports the synthetic size and the file kind.
     const st = try table.statFd(fd);
     try std.testing.expectEqual(@as(u64, 1024), st.size);
-    try std.testing.expectEqual(@intFromEnum(Kind.file), st.kind);
+    try std.testing.expectEqual(@backingInt(Kind.file), st.kind);
 
     // Writes through a read-only descriptor are rejected.
     try std.testing.expectError(error.NotWritable, table.writeFile(fd, "x"));

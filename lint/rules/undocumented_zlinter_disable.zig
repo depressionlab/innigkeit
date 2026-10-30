@@ -25,18 +25,18 @@ const MESSAGE = "`zlinter-disable` with no reason! add \" - why this is safe\" a
 
 fn run(
     rule: zlinter.rules.LintRule,
-    _: *zlinter.session.LintContext,
+    session: *zlinter.session.LintSession,
     doc: *const zlinter.session.LintDocument,
-    gpa: std.mem.Allocator,
     options: zlinter.rules.RunOptions,
 ) zlinter.rules.RunError!?zlinter.results.LintResult {
     const config = options.getConfig(Config);
     if (config.severity == .off) return null;
 
-    var lint_problems: std.ArrayList(zlinter.results.LintProblem) = .empty;
-    defer lint_problems.deinit(gpa);
+    const session_arena = session.runtime.sessionArena();
 
-    const source = doc.handle.tree.source;
+    var lint_problems: std.ArrayList(zlinter.results.LintProblem) = .empty;
+
+    const source = doc.source(session);
 
     var prev_line: []const u8 = "";
     var line_start: usize = 0;
@@ -63,19 +63,18 @@ fn run(
             !std.mem.startsWith(u8, prev_trimmed, "///") and
             !std.mem.startsWith(u8, prev_trimmed, "//!")) continue;
 
-        try lint_problems.append(gpa, .{
+        try lint_problems.append(session_arena, .{
             .rule_id = rule.rule_id,
             .severity = config.severity,
             .start = .{ .byte_offset = line_start + comment_at },
             .end = .{ .byte_offset = line_end - 1 },
-            .message = try gpa.dupe(u8, MESSAGE),
+            .message = try session_arena.dupe(u8, MESSAGE),
         });
     }
 
     return if (lint_problems.items.len > 0) try .init(
-        gpa,
-        doc.path,
-        try lint_problems.toOwnedSlice(gpa),
+        doc.file_id,
+        lint_problems.items,
     ) else null;
 }
 

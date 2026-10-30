@@ -41,6 +41,9 @@ pub fn capInvoke(context: Context) Error.Syscall!usize {
     switch (slot_info.cap_type) {
         .null => unreachable,
 
+        // Socket operations go through the net_* syscalls; there is no cap_invoke op set.
+        .net_socket => return Error.Syscall.InvalidArgument,
+
         .notify => {
             const Notify = innigkeit.capabilities.Notify;
             const notify: *Notify = @ptrCast(@alignCast(slot_info.ptr));
@@ -244,7 +247,7 @@ pub fn capInvoke(context: Context) Error.Syscall!usize {
             const gpu_op = std.enums.fromInt(GpuBuffer.Op, op) orelse
                 return Error.Syscall.InvalidArgument;
             switch (gpu_op) {
-                .phys_addr => return @intFromEnum(gpu.phys_base),
+                .phys_addr => return @backingInt(gpu.phys_base),
                 .size => return gpu.size_bytes,
                 .usage => return @as(u32, @bitCast(gpu.usage)),
             }
@@ -276,7 +279,7 @@ pub fn capInvoke(context: Context) Error.Syscall!usize {
                 .phys_addr => {
                     if (!slot_info.rights.read)
                         return Error.Syscall.PermissionDenied;
-                    return @intFromEnum(frame.physicalAddress());
+                    return @backingInt(frame.physicalAddress());
                 },
             }
         },
@@ -382,6 +385,8 @@ pub fn capCreate(context: Context) Error.Syscall!usize {
         },
         // Reply capabilities are created by the kernel (recv_call), not userspace.
         .reply => return Error.Syscall.InvalidArgument,
+        // Sockets are created by the net_udp_open / net_tcp_* syscalls, which bind a table slot.
+        .net_socket => return Error.Syscall.InvalidArgument,
         .secure_vault => {
             if (!context.entitled("secure_vault")) return Error.Syscall.PermissionDenied;
             // arg2 reserved (was a software-only/prefer-TPM hint): create() now

@@ -259,11 +259,11 @@ pub const LAPIC = union(enum) {
     };
 
     pub fn readDivideConfigurationRegister(lapic: LAPIC) DivideConfigurationRegister {
-        return @enumFromInt(lapic.readRegister(.divide_configuration));
+        return @fromBackingInt(@intCast(lapic.readRegister(.divide_configuration)));
     }
 
     pub fn writeDivideConfigurationRegister(lapic: LAPIC, register: DivideConfigurationRegister) void {
-        lapic.writeRegister(.divide_configuration, @intFromEnum(register));
+        lapic.writeRegister(.divide_configuration, @backingInt(register));
     }
 
     /// In x2APIC mode, the Logical Destination Register (LDR) is increased to 32 bits wide and is read-only.

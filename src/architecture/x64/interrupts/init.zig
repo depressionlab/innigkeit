@@ -17,11 +17,11 @@ pub fn initializeEarlyInterrupts() void {
         );
     }
 
-    globals.idt.handlers[@intFromEnum(Interrupt.double_fault)]
-        .setStack(@intFromEnum(InterruptStackSelector.double_fault));
+    globals.idt.handlers[@backingInt(Interrupt.double_fault)]
+        .setStack(@backingInt(InterruptStackSelector.double_fault));
 
-    globals.idt.handlers[@intFromEnum(Interrupt.non_maskable_interrupt)]
-        .setStack(@intFromEnum(InterruptStackSelector.non_maskable_interrupt));
+    globals.idt.handlers[@backingInt(Interrupt.non_maskable_interrupt)]
+        .setStack(@backingInt(InterruptStackSelector.non_maskable_interrupt));
 }
 
 /// Prepare interrupt allocation and routing.
@@ -46,15 +46,15 @@ pub fn initializeInterruptRouting() void {
 /// Switch away from the initial interrupt handlers installed by `initInterrupts` to the standard
 /// system interrupt handlers.
 pub fn loadStandardInterruptHandlers() void {
-    globals.handlers[@intFromEnum(Interrupt.non_maskable_interrupt)] = .{
+    globals.handlers[@backingInt(Interrupt.non_maskable_interrupt)] = .{
         .eoi = .none,
         .call = .prepare(interrupt_handlers.nonMaskableInterruptHandler, .{}),
     };
-    globals.handlers[@intFromEnum(Interrupt.page_fault)] = .{
+    globals.handlers[@backingInt(Interrupt.page_fault)] = .{
         .eoi = .none,
         .call = .prepare(interrupt_handlers.pageFaultHandler, .{}),
     };
-    globals.handlers[@intFromEnum(Interrupt.flush_request)] = .{
+    globals.handlers[@backingInt(Interrupt.flush_request)] = .{
         // important: this HAS to be `.before` rather than `.after`.
         // ending the interrupt only once `processFlushRequests()`
         // (which drains the executor's whole flush-request queue,
@@ -66,19 +66,19 @@ pub fn loadStandardInterruptHandlers() void {
         .eoi = .before,
         .call = .prepare(interrupt_handlers.flushRequestHandler, .{}),
     };
-    globals.handlers[@intFromEnum(Interrupt.reschedule)] = .{
+    globals.handlers[@backingInt(Interrupt.reschedule)] = .{
         .eoi = .before,
         .call = .prepare(interrupt_handlers.rescheduleHandler, .{}),
     };
-    globals.handlers[@intFromEnum(Interrupt.kill_request)] = .{
+    globals.handlers[@backingInt(Interrupt.kill_request)] = .{
         .eoi = .before,
         .call = .prepare(interrupt_handlers.killRequestHandler, .{}),
     };
-    globals.handlers[@intFromEnum(Interrupt.per_executor_periodic)] = .{
+    globals.handlers[@backingInt(Interrupt.per_executor_periodic)] = .{
         .eoi = .before,
         .call = .prepare(interrupt_handlers.perExecutorPeriodicHandler, .{}),
     };
-    globals.handlers[@intFromEnum(Interrupt.spurious_interrupt)] = .{
+    globals.handlers[@backingInt(Interrupt.spurious_interrupt)] = .{
         .eoi = .none,
         .call = .prepare(interrupt_handlers.spuriousInterruptHandler, .{}),
     };
@@ -95,7 +95,7 @@ pub fn loadIdt() void {
 ///
 /// @internal This is **only** to be used for debug and test introspection.
 pub fn eoiTimingForVector(interrupt: Interrupt) @import("architecture").interrupts.Interrupt.Handler.EOI {
-    return globals.handlers[@intFromEnum(interrupt)].eoi;
+    return globals.handlers[@backingInt(interrupt)].eoi;
 }
 
 const RawInterruptHandler = *const fn () callconv(.naked) void;

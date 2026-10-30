@@ -416,12 +416,12 @@ pub const Syscall = enum(u64) {
         const fields = @typeInfo(@TypeOf(args)).@"struct";
         return switch (fields.field_names.len) {
             0 => call0(syscall),
-            1 => call1(syscall, @field(args, fields[0].name)),
-            2 => call2(syscall, @field(args, fields[0].name), @field(args, fields[1].name)),
-            3 => call3(syscall, @field(args, fields[0].name), @field(args, fields[1].name), @field(args, fields[2].name)),
-            4 => call4(syscall, @field(args, fields[0].name), @field(args, fields[1].name), @field(args, fields[2].name), @field(args, fields[3].name)),
-            5 => call5(syscall, @field(args, fields[0].name), @field(args, fields[1].name), @field(args, fields[2].name), @field(args, fields[3].name), @field(args, fields[4].name)),
-            6 => call6(syscall, @field(args, fields[0].name), @field(args, fields[1].name), @field(args, fields[2].name), @field(args, fields[3].name), @field(args, fields[4].name), @field(args, fields[5].name)),
+            1 => call1(syscall, @field(args, fields.field_names[0])),
+            2 => call2(syscall, @field(args, fields.field_names[0]), @field(args, fields.field_names[1])),
+            3 => call3(syscall, @field(args, fields.field_names[0]), @field(args, fields.field_names[1]), @field(args, fields.field_names[2])),
+            4 => call4(syscall, @field(args, fields.field_names[0]), @field(args, fields.field_names[1]), @field(args, fields.field_names[2]), @field(args, fields.field_names[3])),
+            5 => call5(syscall, @field(args, fields.field_names[0]), @field(args, fields.field_names[1]), @field(args, fields.field_names[2]), @field(args, fields.field_names[3]), @field(args, fields.field_names[4])),
+            6 => call6(syscall, @field(args, fields.field_names[0]), @field(args, fields.field_names[1]), @field(args, fields.field_names[2]), @field(args, fields.field_names[3]), @field(args, fields.field_names[4]), @field(args, fields.field_names[5])),
             else => @compileError("too many syscall arguments (max 6)"),
         };
     }

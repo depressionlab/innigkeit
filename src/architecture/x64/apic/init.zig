@@ -123,7 +123,7 @@ fn initializeLapicTimerCalibrate(
 
     const average_ticks = total_ticks / number_of_samples;
 
-    globals.tick_duration_fs = (@intFromEnum(sample_duration) * innigkeit.time.fs_per_ns) / average_ticks;
+    globals.tick_duration_fs = (@backingInt(sample_duration) * innigkeit.time.fs_per_ns) / average_ticks;
     init_log.debug("tick duration (fs) using reference counter: {}", .{globals.tick_duration_fs});
 }
 
@@ -143,7 +143,7 @@ fn perExecutorPeriodicEnableInterrupt(period: core.Duration) void {
 
     const ticks = std.math.cast(
         u32,
-        (@intFromEnum(period) * innigkeit.time.fs_per_ns) / globals.tick_duration_fs,
+        (@backingInt(period) * innigkeit.time.fs_per_ns) / globals.tick_duration_fs,
     ) orelse @panic("period is too long!");
 
     globals.lapic.writeInitialCountRegister(ticks);

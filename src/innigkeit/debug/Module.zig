@@ -91,7 +91,6 @@ fn loadUnwindSections(self: *Module, gpa: std.mem.Allocator) std.debug.SelfInfoE
         error.InvalidOperation,
         => return error.InvalidDebugInfo,
         error.UnsupportedAddrSize,
-        error.UnsupportedDwarfVersion,
         error.UnimplementedUserOpcode,
         => return error.UnsupportedDebugInfo,
     };

@@ -142,7 +142,7 @@ pub fn records(elog: EventLog) ParseError!RecordIterator {
 /// per the PC Client PFP. Reproduces the firmware-owned PCR so it can be checked
 /// against a live `PCR_Read`.
 pub fn replaySha256Pcr(elog: EventLog, pcr_index: u32) ParseError![Sha256.digest_length]u8 {
-    var pcr = [_]u8{0} ** Sha256.digest_length;
+    var pcr = @as([Sha256.digest_length]u8, @splat(0));
     var it = try records(elog);
     while (try it.next()) |rec| {
         if (rec.pcr_index == pcr_index and rec.event_type != ev_no_action) {

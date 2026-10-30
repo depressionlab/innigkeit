@@ -12,7 +12,7 @@ const Options = @import("Options.zig");
 const std = @import("std");
 const Wrapper = @import("Wrapper.zig");
 
-const Modules = std.AutoHashMapUnmanaged(Bundle.Architecture, *std.Build.Module);
+const Modules = std.hash_map.AutoHashMapUnmanaged(Bundle.Architecture, *std.Build.Module);
 pub const Collection = std.array_hash_map.String(*Library);
 
 /// The library's canonical name; used as `@import` key and in step names.

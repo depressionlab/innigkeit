@@ -112,7 +112,7 @@ const qos_presets = [_]QosPreset{
 
 comptime {
     // Keep the preset table in lockstep with the Qos enum.
-    std.debug.assert(qos_presets.len == @typeInfo(Qos).@"enum".fields.len);
+    std.debug.assert(qos_presets.len == @typeInfo(Qos).@"enum".field_names.len);
 }
 
 pub const SchedEntity = struct {
@@ -518,7 +518,7 @@ pub fn taskNew(rq: *Runqueue, task: *innigkeit.Task) void {
 pub fn setQos(se: *SchedEntity, qos: Qos) void {
     std.debug.assert(!se.on_rq);
     se.qos = qos;
-    const preset = qos_presets[@intFromEnum(qos)];
+    const preset = qos_presets[@backingInt(qos)];
     se.weight = preset.weight;
     if (!se.custom_slice) se.slice = preset.slice;
     se.deadline = se.vruntime + calcDeltaFair(se.slice, se.weight);
@@ -697,7 +697,7 @@ fn placeEntity(erq: *EevdfRunqueue, se: *SchedEntity, flags: SchedClass.EnqueueF
 /// Advance the current task's vruntime by the time elapsed since exec_start.
 fn updateCurr(erq: *EevdfRunqueue, curr: *innigkeit.Task, now: wallclock.Tick) void {
     const se = &curr.sched;
-    const elapsed_ns = @intFromEnum(wallclock.elapsed(se.exec_start, now));
+    const elapsed_ns = @backingInt(wallclock.elapsed(se.exec_start, now));
     if (elapsed_ns == 0) return;
 
     se.exec_start = now;
@@ -1170,7 +1170,7 @@ test "augmentation: randomized enqueue/dequeue keeps invariant, pickBest matches
 
     const n = 24;
     var entities: [n]SchedEntity = @splat(.{});
-    var in_tree = [_]bool{false} ** n;
+    var in_tree = @as([n]bool, @splat(false));
 
     var erq: EevdfRunqueue = .{};
     var next_deadline: u64 = 1; // unique deadlines -> unambiguous linear-scan winner
@@ -1247,7 +1247,7 @@ test "fairness: double weight advances vruntime at half rate; underserved entity
 /// that occurs when accumulating elapsed-since-window-start each tick.
 fn updateUtil(se: *SchedEntity, now: wallclock.Tick) void {
     const window_ns: u64 = 32_000_000; // 32 ms window
-    const elapsed = @intFromEnum(wallclock.elapsed(se.util_window_start, now));
+    const elapsed = @backingInt(wallclock.elapsed(se.util_window_start, now));
 
     if (elapsed < window_ns) {
         @branchHint(.likely);

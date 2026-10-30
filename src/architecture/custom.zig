@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const Bundle = @import("../../build/Bundle.zig");
+const configure_deps = @import("../../build/configure_deps.zig");
 const Options = @import("../../build/Options.zig");
 
 pub fn custom(
@@ -32,6 +33,7 @@ pub fn custom(
             "asm",
         });
 
+        _ = configure_deps.track(b, assembly_files_dir_path, .directory_contents);
         var assembly_files_dir = std.Io.Dir.cwd().openDir(
             b.graph.io,
             assembly_files_dir_path,

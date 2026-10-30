@@ -56,14 +56,14 @@ pub const BaseRevison = extern struct {
         _,
 
         pub fn equalToOrGreaterThan(revision: Revison, other: Revison) bool {
-            return @intFromEnum(revision) >= @intFromEnum(other);
+            return @backingInt(revision) >= @backingInt(other);
         }
     };
 
     /// Returns the revision that the bootloader is providing or `null` if the requested revision is unknown to the bootloader.
     pub fn loadedRevision(base_revision: *const BaseRevison) ?Revison {
         if (base_revision.id[1] == 0x6A7B384944536BDC) return null;
-        return @enumFromInt(base_revision.id[1]);
+        return @fromBackingInt(@intCast(base_revision.id[1]));
     }
 
     comptime {

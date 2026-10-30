@@ -151,7 +151,7 @@ fn resolveTool(
     // Top-level run step: `zig build {name} -- <args>`.
     const run = b.addRunArtifact(normal_exe);
     run.step.dependOn(&install.step);
-    if (b.args) |args| run.addArgs(args);
+    run.addPassthruArgs();
     b.step(
         description.name,
         b.fmt("Run {s}", .{description.name}),

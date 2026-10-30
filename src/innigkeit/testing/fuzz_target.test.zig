@@ -141,7 +141,7 @@ fn waitForExitOrForceUnblock(notify: *capabilities.Notify) !u8 {
     while (true) {
         const bits = notify.poll(0xFF_01);
         if (bits != 0) return @truncate(bits >> 8);
-        const elapsed_ns = @intFromEnum(wallclock.elapsed(start, wallclock.read()));
+        const elapsed_ns = @backingInt(wallclock.elapsed(start, wallclock.read()));
         if (!force_signalled and elapsed_ns > per_iteration_hang_ns) {
             log.info("target appears permanently blocked; force-signalling its exit notify", .{});
             notify.signal(@as(u64, 1) | (@as(u64, hang_status) << 8));
@@ -170,7 +170,7 @@ fn waitForExitOrForceUnblock(notify: *capabilities.Notify) !u8 {
 /// a descriptor that would hit it is redirected to a neighbouring id.
 fn avoidChannelSocket(msg: *capabilities.Message, channel_sock: u8) void {
     inline for (.{ Syscall.net_udp_send, Syscall.net_udp_recv, Syscall.net_udp_recv_nb, Syscall.net_udp_close }) |op| {
-        if (msg.tag == @intFromEnum(op) and (msg.words[0] & 0xFF) == channel_sock) msg.words[0] ^= 1;
+        if (msg.tag == @backingInt(op) and (msg.words[0] & 0xFF) == channel_sock) msg.words[0] ^= 1;
     }
 }
 
@@ -181,11 +181,11 @@ fn avoidChannelSocket(msg: *capabilities.Message, channel_sock: u8) void {
 fn recvDescriptor(sock: u8, buf: *[descriptor_len]u8, from: *socket.RecvFrom) !void {
     const start = wallclock.read();
     while (true) {
-        if (socket.recvUdp(sock, buf, from)) |n| {
+        if (socket.recvUdp(.kernel, sock, buf, from)) |n| {
             if (n == descriptor_len) return;
             continue;
         }
-        if (@intFromEnum(wallclock.elapsed(start, wallclock.read())) > descriptor_silence_ns) {
+        if (@backingInt(wallclock.elapsed(start, wallclock.read())) > descriptor_silence_ns) {
             log.err("watchdog tripped waiting for the host's syscall descriptor (NIC rx ring holds an unread frame: {})", .{
                 innigkeit.drivers.virtio.net.rxPending(),
             });
@@ -225,8 +225,8 @@ fn runOneDescriptor(msg: capabilities.Message) !u8 {
 }
 
 test "fuzz target: a real mutation loop drives host-chosen syscall descriptors through a minimally-entitled process" {
-    const sock = socket.openSocket(port) orelse return error.SocketOpenFailed;
-    defer socket.closeSocket(sock);
+    const sock = socket.openSocket(.kernel, port) orelse return error.SocketOpenFailed;
+    defer socket.closeSocket(.kernel, sock);
 
     var iterations: usize = 0;
     var last_seq: ?u32 = null;
@@ -247,7 +247,7 @@ test "fuzz target: a real mutation loop drives host-chosen syscall descriptors t
         // not dispatch it again. An older number is a stale copy; drop it.
         if (last_seq) |last| {
             if (seq == last) {
-                _ = socket.sendUdp(sock, from.ip, from.port, &reply_buf);
+                _ = socket.sendUdp(.kernel, sock, from.ip, from.port, &reply_buf);
                 continue;
             }
             if (seq < last) continue;
@@ -278,7 +278,7 @@ test "fuzz target: a real mutation loop drives host-chosen syscall descriptors t
         for (raw_coverage, 0..) |count, i| std.mem.writeInt(u32, reply_buf[8 + i * 4 ..][0..4], count, .little);
         last_seq = seq;
         iterations += 1;
-        if (!socket.sendUdp(sock, from.ip, from.port, &reply_buf)) {
+        if (!socket.sendUdp(.kernel, sock, from.ip, from.port, &reply_buf)) {
             log.err("could not send the reply for iteration {d}; the channel socket was probably closed by a fuzzed descriptor", .{seq});
             return error.ReplySendFailed;
         }

@@ -49,7 +49,7 @@ pub const functions: architecture.Functions = .{
     .init = .{
         .getStandardWallclockStartTime = struct {
             fn getStandardWallclockStartTime() innigkeit.time.wallclock.Tick {
-                return @enumFromInt(riscv.instructions.readTime());
+                return @fromBackingInt(@intCast(riscv.instructions.readTime()));
             }
         }.getStandardWallclockStartTime,
 

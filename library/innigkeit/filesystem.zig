@@ -43,7 +43,7 @@ pub const Stat = extern struct {
     _pad: [7]u8 = @splat(0),
 
     pub fn getKind(self: Stat) Kind {
-        return @enumFromInt(self.kind);
+        return @fromBackingInt(@intCast(self.kind));
     }
 };
 
@@ -105,7 +105,7 @@ pub const File = struct {
         const result = innigkeit.Syscall.invoke(.lseek, .{
             @as(usize, self.fd),
             @as(usize, @bitCast(offset)),
-            @as(usize, @intFromEnum(whence)),
+            @as(usize, @backingInt(whence)),
         });
         return @intCast(try innigkeit.Syscall.decode(result));
     }

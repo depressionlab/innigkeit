@@ -14,7 +14,7 @@ const init_log = innigkeit.debug.log.scoped(.tsc_init);
 ///
 /// For example on x86_64 this is the TSC.
 pub fn getStandardWallclockStartTime() innigkeit.time.wallclock.Tick {
-    return @enumFromInt(readTsc());
+    return @fromBackingInt(@intCast(readTsc()));
 }
 
 pub fn registerTimeSource(candidate_time_sources: *innigkeit.time.init.CandidateTimeSources) void {
@@ -54,7 +54,7 @@ pub fn registerTimeSource(candidate_time_sources: *innigkeit.time.init.Candidate
                         const current_value = readTsc();
 
                         const target_value = current_value +
-                            ((@intFromEnum(duration) * innigkeit.time.fs_per_ns) / globals.tick_duration_fs);
+                            ((@backingInt(duration) * innigkeit.time.fs_per_ns) / globals.tick_duration_fs);
 
                         while (readTsc() < target_value) {}
                     }
@@ -66,12 +66,12 @@ pub fn registerTimeSource(candidate_time_sources: *innigkeit.time.init.Candidate
         .wallclock = .{
             .readFn = struct {
                 fn readFn() Tick {
-                    return @enumFromInt(readTsc());
+                    return @fromBackingInt(@intCast(readTsc()));
                 }
             }.readFn,
             .elapsedFn = struct {
                 fn elapsedFn(value1: Tick, value2: Tick) core.Duration {
-                    const number_of_ticks = @intFromEnum(value2) - @intFromEnum(value1);
+                    const number_of_ticks = @backingInt(value2) - @backingInt(value1);
                     return core.Duration.from((number_of_ticks * globals.tick_duration_fs) / innigkeit.time.fs_per_ns, .nanosecond);
                 }
             }.elapsedFn,
@@ -99,7 +99,7 @@ fn initializeTscCalibrate(reference_counter: innigkeit.time.init.ReferenceCounte
 
     const average_ticks = total_ticks / number_of_samples;
 
-    globals.tick_duration_fs = (@intFromEnum(sample_duration) * innigkeit.time.fs_per_ns) / average_ticks;
+    globals.tick_duration_fs = (@backingInt(sample_duration) * innigkeit.time.fs_per_ns) / average_ticks;
     init_log.debug("tick duration (fs) using reference counter: {}", .{globals.tick_duration_fs});
 }
 

@@ -172,6 +172,7 @@ fn TypeForTag(comptime tag: ObjectType) type {
         .reply => @import("types/Reply.zig"),
         .secure_vault => @import("types/SecureVault.zig"),
         .gpu_buffer => @import("types/GpuBuffer.zig"),
+        .net_socket => @import("types/NetSocket.zig"),
     };
 }
 
@@ -573,12 +574,12 @@ test "capability: property rights-monotonicity holds under randomized copy/revok
     for (&objects) |*o| o.* = try Notify.create();
     defer for (objects) |o| o.unref();
 
-    var root_rights: [object_count]Rights = .{Rights{}} ** object_count;
-    var created: [object_count]bool = .{false} ** object_count;
+    var root_rights: [object_count]Rights = @splat(Rights{});
+    var created: [object_count]bool = @splat(false);
     // slot_owner[idx] tracks which modeled object (if any) currently
     // occupies physical slot idx, mirroring the TLA+ model's table[p][s].obj
     // for the single process this test exercises.
-    var slot_owner: [cap_count]?usize = .{null} ** cap_count;
+    var slot_owner: [cap_count]?usize = @splat(null);
 
     var table: CapabilityTable = undefined;
     table.init();

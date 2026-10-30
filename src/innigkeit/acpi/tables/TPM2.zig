@@ -448,7 +448,7 @@ pub const TPM2 = extern struct {
             else => |method| try writer.print("start_method: {t},\n", .{method}),
             _ => |method| try writer.print(
                 "start_method (unknown): {d},\n",
-                .{@intFromEnum(method)},
+                .{@backingInt(method)},
             ),
         }
 

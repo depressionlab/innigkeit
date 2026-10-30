@@ -30,10 +30,10 @@ const num_orders: usize = max_order + 1;
 
 /// Per-order free lists (doubly-linked via PhysicalPage.prev_node + node.next).
 /// Protected by `lock`.
-free_lists: [num_orders]FreeList = [_]FreeList{.{}} ** num_orders,
+free_lists: [num_orders]FreeList = @splat(.{}),
 
 /// Count of free pages per order (in blocks, not pages).
-nr_free: [num_orders]u32 = [_]u32{0} ** num_orders,
+nr_free: [num_orders]u32 = @splat(0),
 
 /// Protects all mutations of free_lists and nr_free.
 lock: sync.TicketSpinLock = .{},
@@ -63,8 +63,8 @@ fn allocLocked(self: *BuddyAllocator, order: u4) error{PagesExhausted}!Index {
     while (cur_order > order) {
         cur_order -= 1;
         const pages_per_block: u32 = @as(u32, 1) << cur_order;
-        const upper_idx: u32 = @intFromEnum(block) + pages_per_block;
-        const upper: Index = @enumFromInt(upper_idx);
+        const upper_idx: u32 = @backingInt(block) + pages_per_block;
+        const upper: Index = @fromBackingInt(@intCast(upper_idx));
         const upper_page = PhysicalPage.fromIndex(upper);
         upper_page.is_free = true;
         upper_page.free_order = cur_order;
@@ -92,7 +92,7 @@ fn freeLocked(self: *BuddyAllocator, index: Index, order: u4) void {
         const page = PhysicalPage.fromIndex(index);
         if (page.is_free) std.debug.panic(
             "BuddyAllocator: double-free of page index {} at order {}",
-            .{ @intFromEnum(index), order },
+            .{ @backingInt(index), order },
         );
     }
 
@@ -100,12 +100,12 @@ fn freeLocked(self: *BuddyAllocator, index: Index, order: u4) void {
     zeroBlock(index, order);
 
     var cur_order: u4 = order;
-    var cur_idx: u32 = @intFromEnum(index);
+    var cur_idx: u32 = @backingInt(index);
 
     // Coalesce with buddy upward.
     while (cur_order < max_order) {
         const buddy_idx: u32 = cur_idx ^ (@as(u32, 1) << cur_order);
-        const buddy: Index = @enumFromInt(buddy_idx);
+        const buddy: Index = @fromBackingInt(@intCast(buddy_idx));
         const buddy_page = PhysicalPage.fromIndex(buddy);
 
         if (!buddy_page.is_free or buddy_page.free_order != cur_order) break;
@@ -121,7 +121,7 @@ fn freeLocked(self: *BuddyAllocator, index: Index, order: u4) void {
     }
 
     // Insert merged block at cur_order.
-    const merged: Index = @enumFromInt(cur_idx);
+    const merged: Index = @fromBackingInt(@intCast(cur_idx));
     PhysicalPage.fromIndex(merged).is_free = true;
     PhysicalPage.fromIndex(merged).free_order = cur_order;
     self.free_lists[cur_order].prepend(merged);
@@ -149,11 +149,11 @@ pub fn totalFreePages(self: *const BuddyAllocator) u64 {
 }
 
 fn zeroBlock(index: Index, order: u4) void {
-    const page_size = @intFromEnum(architecture.paging.standard_page_size);
+    const page_size = @backingInt(architecture.paging.standard_page_size);
     const size: usize = page_size << order;
     const base = index.baseAddress().toDirectMap();
     // `base` is an already-typed direct-map `KernelVirtualAddress`, not a raw integer.
-    @memset(@as([*]u8, @ptrFromInt(@intFromEnum(base)))[0..size], 0);
+    @memset(@as([*]u8, @ptrFromInt(@backingInt(base)))[0..size], 0);
 }
 
 /// A doubly-linked free list backed by PhysicalPage.node.next and prev_node.
@@ -203,18 +203,18 @@ test "buddy: alloc returns zeroed pages" {
     const page = try page_globals.buddy.alloc(0);
     defer page_globals.buddy.free(page, 0);
 
-    const page_size = @intFromEnum(architecture.paging.standard_page_size);
+    const page_size = @backingInt(architecture.paging.standard_page_size);
     // Already-typed direct-map KernelVirtualAddress, not a raw integer.
-    const ptr: [*]const u8 = @ptrFromInt(@intFromEnum(page.baseAddress().toDirectMap()));
+    const ptr: [*]const u8 = @ptrFromInt(@backingInt(page.baseAddress().toDirectMap()));
     for (0..page_size) |i| try std.testing.expectEqual(@as(u8, 0), ptr[i]);
 }
 
 test "buddy: free zeroes the block before returning it to the free list" {
     const page = try page_globals.buddy.alloc(0);
 
-    const page_size = @intFromEnum(architecture.paging.standard_page_size);
+    const page_size = @backingInt(architecture.paging.standard_page_size);
     // Already-typed direct-map KernelVirtualAddress, not a raw integer.
-    const ptr: [*]u8 = @ptrFromInt(@intFromEnum(page.baseAddress().toDirectMap()));
+    const ptr: [*]u8 = @ptrFromInt(@backingInt(page.baseAddress().toDirectMap()));
     @memset(ptr[0..page_size], 0xAB);
 
     // free() must zero the block; the next alloc of this page must see zeros.
@@ -223,7 +223,7 @@ test "buddy: free zeroes the block before returning it to the free list" {
     defer page_globals.buddy.free(page2, 0);
 
     // Already-typed direct-map KernelVirtualAddress, not a raw integer.
-    const ptr2: [*]const u8 = @ptrFromInt(@intFromEnum(page2.baseAddress().toDirectMap()));
+    const ptr2: [*]const u8 = @ptrFromInt(@backingInt(page2.baseAddress().toDirectMap()));
     for (0..page_size) |i| try std.testing.expectEqual(@as(u8, 0), ptr2[i]);
 }
 
@@ -231,8 +231,8 @@ test "buddy: order-1 block is 2 contiguous zeroed pages" {
     const block = try page_globals.buddy.alloc(1);
     defer page_globals.buddy.free(block, 1);
 
-    const page_size = @intFromEnum(architecture.paging.standard_page_size);
+    const page_size = @backingInt(architecture.paging.standard_page_size);
     // Already-typed direct-map KernelVirtualAddress, not a raw integer.
-    const ptr: [*]const u8 = @ptrFromInt(@intFromEnum(block.baseAddress().toDirectMap()));
+    const ptr: [*]const u8 = @ptrFromInt(@backingInt(block.baseAddress().toDirectMap()));
     for (0..page_size * 2) |i| try std.testing.expectEqual(@as(u8, 0), ptr[i]);
 }

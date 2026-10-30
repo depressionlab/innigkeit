@@ -151,9 +151,10 @@ pub fn load(
                 break :dwarf null; // debug info not present
             }
             var sections: std.debug.Dwarf.SectionArray = @splat(null);
-            inline for (@typeInfo(std.debug.Dwarf.Section.Id).@"enum".fields) |f| {
-                if (result.sections.get(@field(Section.Id, f.name))) |s| {
-                    sections[f.value] = .{ .data = s.bytes, .owned = false };
+            const section_ids = @typeInfo(std.debug.Dwarf.Section.Id).@"enum";
+            inline for (section_ids.field_names, section_ids.field_values) |name, value| {
+                if (result.sections.get(@field(Section.Id, name))) |s| {
+                    sections[value] = .{ .data = s.bytes, .owned = false };
                 }
             }
             break :dwarf .{ .sections = sections };
@@ -325,7 +326,7 @@ fn loadInner(
     const mapped_mem = mapped_elf;
 
     if (opt_crc) |crc| {
-        if (std.hash.crc.Crc32.hash(mapped_mem) != crc) {
+        if (std.hash.Crc32.hash(mapped_mem) != crc) {
             return error.CrcMismatch;
         }
     }
@@ -368,9 +369,9 @@ fn loadInner(
         if (shdr.sh_name > shstrtab.len) return error.TruncatedElfFile;
         const name = std.mem.sliceTo(shstrtab[@intCast(shdr.sh_name)..], 0);
 
-        const section_id: Section.Id = inline for (@typeInfo(Section.Id).@"enum".fields) |s| {
-            if (std.mem.eql(u8, "." ++ s.name, name)) {
-                break @fromBackingInt(@intCast(s.value));
+        const section_id: Section.Id = inline for (@typeInfo(Section.Id).@"enum".field_names, @typeInfo(Section.Id).@"enum".field_values) |field_name, field_value| {
+            if (std.mem.eql(u8, "." ++ field_name, name)) {
+                break @fromBackingInt(@intCast(field_value));
             }
         } else continue;
 

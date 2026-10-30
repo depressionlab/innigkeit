@@ -46,7 +46,7 @@ pub fn AddressMixin(comptime Address: type) type {
         }
 
         pub inline fn moveForward(address: Address, size: core.Size) Address {
-            return fromValue(toValue(address) + @intFromEnum(size));
+            return fromValue(toValue(address) + @backingInt(size));
         }
 
         pub inline fn moveForwardPage(address: Address) Address {
@@ -54,7 +54,7 @@ pub fn AddressMixin(comptime Address: type) type {
         }
 
         pub inline fn moveForwardInPlace(address: *Address, size: core.Size) void {
-            address.* = fromValue(toValue(address.*) + @intFromEnum(size));
+            address.* = fromValue(toValue(address.*) + @backingInt(size));
         }
 
         pub inline fn moveForwardPageInPlace(address: *Address) void {
@@ -62,7 +62,7 @@ pub fn AddressMixin(comptime Address: type) type {
         }
 
         pub inline fn moveBackward(address: Address, size: core.Size) Address {
-            return fromValue(toValue(address) - @intFromEnum(size));
+            return fromValue(toValue(address) - @backingInt(size));
         }
 
         pub inline fn moveBackwardPage(address: Address) Address {
@@ -70,7 +70,7 @@ pub fn AddressMixin(comptime Address: type) type {
         }
 
         pub inline fn moveBackwardInPlace(address: *Address, size: core.Size) void {
-            address.* = fromValue(toValue(address.*) - @intFromEnum(size));
+            address.* = fromValue(toValue(address.*) - @backingInt(size));
         }
 
         pub inline fn moveBackwardPageInPlace(address: *Address) void {
@@ -138,7 +138,7 @@ pub fn AddressMixin(comptime Address: type) type {
         pub inline fn fromValue(value: usize) Address {
             return switch (Address) {
                 root.VirtualAddress => .{ .value = value },
-                root.KernelVirtualAddress, root.UserVirtualAddress, root.PhysicalAddress => @enumFromInt(value),
+                root.KernelVirtualAddress, root.UserVirtualAddress, root.PhysicalAddress => @fromBackingInt(@intCast(value)),
                 else => unreachable,
             };
         }
@@ -146,7 +146,7 @@ pub fn AddressMixin(comptime Address: type) type {
         pub inline fn toValue(address: Address) usize {
             return switch (Address) {
                 root.VirtualAddress => address.value,
-                root.KernelVirtualAddress, root.UserVirtualAddress, root.PhysicalAddress => @intFromEnum(address),
+                root.KernelVirtualAddress, root.UserVirtualAddress, root.PhysicalAddress => @backingInt(address),
                 else => unreachable,
             };
         }

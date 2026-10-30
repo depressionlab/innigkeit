@@ -50,7 +50,7 @@ pub const KernelVirtualRange = struct {
     /// **REQUIREMENTS**:
     /// - The range must be fully contained in kernel memory.
     pub inline fn byteSlice(self: KernelVirtualRange) []u8 {
-        return self.address.toPtr([*]u8)[0..@intFromEnum(self.size)];
+        return self.address.toPtr([*]u8)[0..@backingInt(self.size)];
     }
 
     pub const pageAligned: fn (range: @This()) callconv(.@"inline") bool = Mixin.pageAligned;

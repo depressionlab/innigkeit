@@ -10,11 +10,11 @@ pub const Message = extern struct {
     /// Caller-defined operation tag (type of request).
     tag: u64 = 0,
     /// Inline message payload: 4x8 bytes = 32 bytes.
-    words: [4]u64 = [_]u64{0} ** 4,
+    words: [4]u64 = @splat(0),
     /// Capability handles to transfer: 4x4 bytes = 16 bytes.
     /// A value of 0 means "no capability". During IPC handoff, each non-zero
     /// handle is copied from the sender's capability table into the receiver's
     /// capability table (with the same rights). The field is updated to the new
     /// handle in the receiver's table, or 0 if the copy fails.
-    caps: [4]u32 = [_]u32{0} ** 4,
+    caps: [4]u32 = @splat(0),
 };

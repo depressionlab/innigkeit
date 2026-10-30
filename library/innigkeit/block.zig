@@ -58,10 +58,10 @@ pub const Client = struct {
     /// Query block device information.
     pub fn getInfo(self: Client) !BlockInfo {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(Op.get_info),
+            .tag = @backingInt(Op.get_info),
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(Error.none)) return error.BlockError;
+        if (msg.tag != @backingInt(Error.none)) return error.BlockError;
         // BlockInfo fits in 4 words (32 bytes): block_size(4)+phys_block_size(4)+block_count(8)+max_transfer_blocks(4)+flags(4)+pad(4) = 28 bytes
         var info: BlockInfo = undefined;
         @memcpy(
@@ -76,11 +76,11 @@ pub const Client = struct {
     /// the Frame when done.
     pub fn read(self: Client, lba: u64, count: u32) !innigkeit.capabilities.Handle {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(Op.read),
+            .tag = @backingInt(Op.read),
             .words = .{ lba, @as(u64, count), 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(Error.none)) return error.BlockError;
+        if (msg.tag != @backingInt(Error.none)) return error.BlockError;
         const frame_handle = msg.caps[0];
         if (frame_handle == 0) return error.BlockError;
         return frame_handle;
@@ -89,31 +89,31 @@ pub const Client = struct {
     /// Write `count` blocks starting at `lba` from the provided Frame.
     pub fn write(self: Client, lba: u64, count: u32, frame: innigkeit.capabilities.Handle) !void {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(Op.write),
+            .tag = @backingInt(Op.write),
             .words = .{ lba, @as(u64, count), 0, 0 },
             .caps = .{ frame, 0, 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(Error.none)) return error.BlockError;
+        if (msg.tag != @backingInt(Error.none)) return error.BlockError;
     }
 
     /// Flush the device's volatile write cache.
     pub fn flush(self: Client) !void {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(Op.flush),
+            .tag = @backingInt(Op.flush),
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(Error.none)) return error.BlockError;
+        if (msg.tag != @backingInt(Error.none)) return error.BlockError;
     }
 
     /// Send a TRIM/discard hint for `count` blocks starting at `lba`.
     pub fn discard(self: Client, lba: u64, count: u64) !void {
         var msg: innigkeit.capabilities.Message = .{
-            .tag = @intFromEnum(Op.discard),
+            .tag = @backingInt(Op.discard),
             .words = .{ lba, count, 0, 0 },
         };
         try innigkeit.capabilities.endpointCall(self.handle, &msg);
-        if (msg.tag != @intFromEnum(Error.none)) return error.BlockError;
+        if (msg.tag != @backingInt(Error.none)) return error.BlockError;
     }
 };
 
@@ -147,7 +147,7 @@ pub fn serve(endpoint: innigkeit.capabilities.Handle, handler: Handler) noreturn
             switch (op) {
                 .get_info => {
                     const info = handler.getInfo(handler.ctx);
-                    reply.tag = @intFromEnum(Error.none);
+                    reply.tag = @backingInt(Error.none);
                     @memcpy(
                         @as([*]u8, @ptrCast(&reply.words))[0..@sizeOf(BlockInfo)],
                         @as([*]const u8, @ptrCast(&info))[0..@sizeOf(BlockInfo)],
@@ -157,10 +157,10 @@ pub fn serve(endpoint: innigkeit.capabilities.Handle, handler: Handler) noreturn
                     const lba = req_words[0];
                     const count: u32 = @truncate(req_words[1]);
                     if (handler.read(handler.ctx, lba, count)) |frame_handle| {
-                        reply.tag = @intFromEnum(Error.none);
+                        reply.tag = @backingInt(Error.none);
                         reply.caps[0] = frame_handle;
                     } else |err| {
-                        reply.tag = @intFromEnum(err);
+                        reply.tag = @backingInt(err);
                     }
                 },
                 .write => {
@@ -168,33 +168,33 @@ pub fn serve(endpoint: innigkeit.capabilities.Handle, handler: Handler) noreturn
                     const count: u32 = @truncate(req_words[1]);
                     const frame_handle = req_caps[0];
                     if (handler.write(handler.ctx, lba, count, frame_handle)) {
-                        reply.tag = @intFromEnum(Error.none);
+                        reply.tag = @backingInt(Error.none);
                     } else |err| {
-                        reply.tag = @intFromEnum(err);
+                        reply.tag = @backingInt(err);
                     }
                 },
                 .flush => {
                     if (handler.flush(handler.ctx)) {
-                        reply.tag = @intFromEnum(Error.none);
+                        reply.tag = @backingInt(Error.none);
                     } else |err| {
-                        reply.tag = @intFromEnum(err);
+                        reply.tag = @backingInt(err);
                     }
                 },
                 .discard => {
                     const lba = req_words[0];
                     const count = req_words[1];
                     if (handler.discard(handler.ctx, lba, count)) {
-                        reply.tag = @intFromEnum(Error.none);
+                        reply.tag = @backingInt(Error.none);
                     } else |err| {
-                        reply.tag = @intFromEnum(err);
+                        reply.tag = @backingInt(err);
                     }
                 },
                 _ => {
-                    reply.tag = @intFromEnum(Error.not_supported);
+                    reply.tag = @backingInt(Error.not_supported);
                 },
             }
         } else {
-            reply.tag = @intFromEnum(Error.not_supported);
+            reply.tag = @backingInt(Error.not_supported);
         }
 
         // replyRecv atomically sends the reply and waits for the next request.

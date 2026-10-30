@@ -10,7 +10,9 @@ const std = @import("std");
 const Step = std.Build.Step;
 
 const App = @import("App.zig");
+const CompilerRt = @import("CompilerRt.zig");
 const Bundle = @import("Bundle.zig");
+const configure_deps = @import("configure_deps.zig");
 const KernelModule = @import("KernelModule.zig");
 const Library = @import("Library.zig");
 const Options = @import("Options.zig");
@@ -22,14 +24,14 @@ const Wrapper = @import("Wrapper.zig");
 pub const ExtraBinary = struct {
     /// Name used as the initfs entry (e.g. `"rust_hello"`).
     name: []const u8,
-    /// Absolute path to the built ELF; only valid after `step` has run.
-    binary_path: []const u8,
+    /// The built ELF; only valid after `step` has run.
+    binary: std.Build.LazyPath,
     /// Build step that produces the binary (e.g. a cargo invocation).
     step: *std.Build.Step,
 };
 
 /// A collection of `Kernel`s mapped by their target `Bundle.Architecture`.
-pub const Collection = std.AutoHashMapUnmanaged(Bundle.Architecture, Kernel);
+pub const Collection = std.hash_map.AutoHashMapUnmanaged(Bundle.Architecture, Kernel);
 
 /// The name of the root component from which DAG traversal begins.
 const kernel_entry = "innigkeit";
@@ -88,7 +90,7 @@ fn buildKernel(
     const initfs_archive = buildInitfsCached(b, architecture, apps, tools, extra_binaries, false);
 
     // Check compilation: verifies correctness without emitting a binary.
-    wrapper.registerCheck(b.addExecutable(.{
+    const check_exe = b.addExecutable(.{
         .name = "kernel_check",
         .root_module = try buildRootModule(
             b,
@@ -98,7 +100,9 @@ fn buildKernel(
             initfs_archive,
             .check,
         ),
-    }));
+    });
+    CompilerRt.apply(b, check_exe);
+    wrapper.registerCheck(check_exe);
 
     const kernel_exe = b.addExecutable(.{
         .name = "kernel",
@@ -114,6 +118,7 @@ fn buildKernel(
 
     // x64: the Zig x86 backend does not yet support disabling SSE; force LLVM.
     if (architecture == .x64) kernel_exe.use_llvm = true;
+    CompilerRt.apply(b, kernel_exe);
 
     kernel_exe.entry = .disabled;
     kernel_exe.lto = .none;
@@ -141,7 +146,8 @@ fn buildKernel(
         const kernel_sig = sign_kernel_run.addOutputFileArg("kernel.codesig");
         // --store provides out a content-addressed store path as a side effect for now.
         // see: docs/nixos-design-plan/design.md Stage 1a.
-        sign_kernel_run.addArgs(&.{ "--store", b.getInstallPath(.prefix, "store") });
+        sign_kernel_run.addArg("--store");
+        sign_kernel_run.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "store" } }, .{});
         const install_sig = b.addInstallFile(
             kernel_sig,
             b.pathJoin(&.{ @tagName(architecture), "kernel.codesig" }),
@@ -227,6 +233,7 @@ pub fn buildTestKernel(
     // TODO: make this better
     // Force LLVM for architectures whose Zig backend lacks freestanding support.
     if (architecture == .x64 or architecture == .arm) test_exe.use_llvm = true;
+    CompilerRt.apply(b, test_exe);
     test_exe.entry = .disabled;
     test_exe.lto = .none;
     test_exe.pie = true;
@@ -295,26 +302,20 @@ fn buildInitfs(
             const sign_run = b.addRunArtifact(codesign_exe);
             sign_run.step.dependOn(eb.step);
             sign_run.addArg("sign");
-            sign_run.addArg(eb.binary_path);
+            sign_run.addFileArg(eb.binary);
             sign_run.addFileArg(entitlements_path);
             const sig_name = b.fmt("{s}.codesig", .{eb.name});
             const sig_file = sign_run.addOutputFileArg(sig_name);
 
             run.step.dependOn(eb.step);
             run.addArg(eb.name);
-            run.addArg(eb.binary_path);
+            run.addFileArg(eb.binary);
             run.addArg(sig_name);
             run.addFileArg(sig_file);
         }
     }
 
-    const archive = run.captureStdOut(.{});
-    const archive_gen_file: *std.Build.GeneratedFile = @constCast(switch (archive) {
-        .generated => |g| g.file,
-        else => unreachable,
-    });
-    archive_gen_file.path = "__initfs_zls_placeholder__";
-    return archive;
+    return run.captureStdOut(.{});
 }
 
 fn buildInitfsCached(
@@ -528,7 +529,7 @@ fn collectSourceFileModules(
 
     try collectFilesRecursive(b, &modules, &file_paths, "src");
 
-    var visited: std.AutoHashMapUnmanaged(*const Library, void) = .empty;
+    var visited: std.hash_map.AutoHashMapUnmanaged(*const Library, void) = .empty;
     defer visited.deinit(b.allocator);
     for (required_libraries.values()) |lib| {
         try collectFilesFromLibrary(b, &modules, &file_paths, lib, &visited);
@@ -550,7 +551,7 @@ fn collectFilesFromLibrary(
     modules: *std.ArrayList(SourceFileModule),
     file_paths: *std.ArrayList([]const u8),
     library: *const Library,
-    visited: *std.AutoHashMapUnmanaged(*const Library, void),
+    visited: *std.hash_map.AutoHashMapUnmanaged(*const Library, void),
 ) !void {
     if (visited.contains(library)) return;
     try collectFilesRecursive(b, modules, file_paths, library.directory_path);
@@ -571,6 +572,7 @@ fn collectFilesRecursive(
     file_paths: *std.ArrayList([]const u8),
     dir_path: []const u8,
 ) !void {
+    _ = configure_deps.track(b, dir_path, .directory_contents);
     var dir = try b.root.openDir(
         b.graph.io,
         dir_path,

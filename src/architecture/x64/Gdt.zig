@@ -43,14 +43,14 @@ pub const Gdt = extern struct {
 
         const limit: u64 = (@sizeOf(x64.Tss) - 1) & mask_u16;
 
-        const tss_index = @intFromEnum(Selector.tss) / @sizeOf(u64);
+        const tss_index = @backingInt(Selector.tss) / @sizeOf(u64);
 
         gdt.descriptors[tss_index] = low_base | mid_base | limit | present | available_64_bit_tss;
         gdt.descriptors[tss_index + 1] = high_base;
 
         asm volatile ("ltr %[ts_sel]"
             :
-            : [ts_sel] "r" (@intFromEnum(Selector.tss)),
+            : [ts_sel] "r" (@backingInt(Selector.tss)),
         );
     }
 
@@ -78,8 +78,8 @@ pub const Gdt = extern struct {
             \\1:
             :
             : [gdt_ptr] "*p" (&gdt_ptr),
-              [dsel] "r" (@intFromEnum(Selector.kernel_data)),
-              [csel] "i" (@intFromEnum(Selector.kernel_code)),
+              [dsel] "r" (@backingInt(Selector.kernel_data)),
+              [csel] "i" (@backingInt(Selector.kernel_code)),
             : .{ .rax = true });
     }
 

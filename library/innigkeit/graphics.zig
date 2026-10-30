@@ -837,7 +837,7 @@ pub const rainbow: [256]Color = blk: {
 /// Each entry is 8 bytes; each byte is one row with bit 7 = leftmost pixel.
 /// Printable ASCII (0x20–0x7E) contains proper glyphs; the rest are zeroed.
 const font: [256][8]u8 = blk: {
-    var f: [256][8]u8 = @splat([8]u8{.{ 0, 0, 0, 0, 0, 0, 0, 0 }});
+    var f: [256][8]u8 = @splat(@splat(0));
 
     // 0x20  SPACE
     f[0x20] = .{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };

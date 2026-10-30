@@ -1,20 +1,19 @@
-//! Flags `@truncate(...)` wrapping a plain (non-wrapping) arithmetic
-//! expression. `@truncate` silently discards any bits that don't fit the
-//! target type. If the value being truncated came from `*`/`+`/`-`
-//! (rather than the explicitly-wrapping `*%`/`+%`/`-%` forms), it reads as
-//! though the overflow wasn't intentional. Inspired by clippy's
-//! `cast_possible_truncation`, scoped to the specific shape that caused a
-//! real bug in this codebase (a truncating multiply overflow, see
-//! docs/security-audit.md F2) rather than flagging every `@truncate`.
+//! Flags `@ptrFromInt(...)` with no comment on the same line or the line
+//! immediately above. Fabricating a pointer from a raw integer has no
+//! type-system provenance at all. The reason the address is valid
+//! (memory-mapped device register, a manifest-provided physical address,
+//! a value already validated elsewhere) should be written down next to
+//! the call, not left implicit. Inspired by clippy's `undocumented_unsafe_blocks`.
 //!
-//! **Good** (wrapping op makes truncation-of-overflow explicit):
+//! **Good:**
 //! ```zig
-//! b.* = @truncate(i *% 3 +% 7);
+//! // APIC base is fixed per the SDM, always page-aligned.
+//! const apic: *volatile u32 = @ptrFromInt(0xFEE00000);
 //! ```
 //!
-//! **Bad** (plain op; did the author mean to discard the overflow?):
+//! **Bad:**
 //! ```zig
-//! b.* = @truncate(i * 3 + 7);
+//! const apic: *volatile u32 = @ptrFromInt(0xFEE00000);
 //! ```
 const std = @import("std");
 const zlinter = @import("zlinter");
@@ -29,30 +28,30 @@ pub fn buildRule(options: zlinter.rules.RuleOptions) zlinter.rules.LintRule {
     _ = options;
 
     return .{
-        .rule_id = "truncate_unchecked_arithmetic",
+        .rule_id = "ptr_from_int_undocumented",
         .run = &run,
     };
 }
 
-const MESSAGE = "`@truncate` of a plain (non-wrapping) arithmetic expression discards overflow " ++
-    "silently! use a wrapping operator (`*%`/`+%`/`-%`) to make the intent " ++
-    "explicit, or add a comment justifying the truncation";
+const MESSAGE = "`@ptrFromInt` fabricates a pointer with no type-system provenance! add a " ++
+    "comment explaining why this address is valid";
 
 fn run(
     rule: zlinter.rules.LintRule,
-    _: *zlinter.session.LintContext,
+    session: *zlinter.session.LintSession,
     doc: *const zlinter.session.LintDocument,
-    gpa: std.mem.Allocator,
     options: zlinter.rules.RunOptions,
 ) zlinter.rules.RunError!?zlinter.results.LintResult {
     const config = options.getConfig(Config);
     if (config.severity == .off) return null;
 
-    var lint_problems: std.ArrayList(zlinter.results.LintProblem) = .empty;
-    defer lint_problems.deinit(gpa);
+    const session_arena = session.runtime.sessionArena();
+    const rule_arena = session.runtime.ruleArena();
 
-    const tree = doc.handle.tree;
-    var it = try doc.nodeLineageIterator(.root, gpa);
+    var lint_problems: std.ArrayList(zlinter.results.LintProblem) = .empty;
+
+    const tree = doc.tree(session);
+    var it = try doc.nodeLineageIterator(.root, rule_arena);
     defer it.deinit();
 
     nodes: while (try it.next()) |tuple| {
@@ -68,32 +67,21 @@ fn run(
         }
 
         const main_token = tree.nodeMainToken(node);
-        if (!std.mem.eql(u8, tree.tokenSlice(main_token), "@truncate")) continue :nodes;
-
-        var buffer: [2]Ast.Node.Index = undefined;
-        const params = tree.builtinCallParams(&buffer, node) orelse continue :nodes;
-        if (params.len != 1) continue :nodes;
-
-        switch (tree.nodeTag(params[0])) {
-            .mul, .add, .sub => {},
-            else => continue :nodes,
-        }
-
+        if (!std.mem.eql(u8, tree.tokenSlice(main_token), "@ptrFromInt")) continue :nodes;
         if (hasNearbyComment(tree, main_token)) continue :nodes;
 
-        try lint_problems.append(gpa, .{
+        try lint_problems.append(session_arena, .{
             .rule_id = rule.rule_id,
             .severity = config.severity,
             .start = .startOfNode(tree, node),
             .end = .endOfNode(tree, node),
-            .message = try gpa.dupe(u8, MESSAGE),
+            .message = try session_arena.dupe(u8, MESSAGE),
         });
     }
 
     return if (lint_problems.items.len > 0) try .init(
-        gpa,
-        doc.path,
-        try lint_problems.toOwnedSlice(gpa),
+        doc.file_id,
+        lint_problems.items,
     ) else null;
 }
 
@@ -114,35 +102,32 @@ fn hasNearbyComment(tree: Ast, token: Ast.TokenIndex) bool {
     return std.mem.find(u8, source[prev_line_start..prev_line_end], "//") != null;
 }
 
-test "flags @truncate of plain arithmetic" {
+test "flags undocumented @ptrFromInt" {
     try zlinter.testing.testRunRule(
         buildRule(.{}),
         \\pub fn main() void {
-        \\  var b: u8 = undefined;
-        \\  const i: u32 = 300;
-        \\  b = @truncate(i * 3 + 7);
+        \\  const p: *volatile u32 = @ptrFromInt(0xFEE00000);
         \\}
     ,
         .{},
         Config{},
         &.{
             .{
-                .rule_id = "truncate_unchecked_arithmetic",
+                .rule_id = "ptr_from_int_undocumented",
                 .severity = .warning,
-                .slice = "@truncate(i * 3 + 7)",
+                .slice = "@ptrFromInt(0xFEE00000)",
                 .message = MESSAGE,
             },
         },
     );
 }
 
-test "allows @truncate of wrapping arithmetic" {
+test "allows @ptrFromInt with a preceding comment" {
     try zlinter.testing.testRunRule(
         buildRule(.{}),
         \\pub fn main() void {
-        \\  var b: u8 = undefined;
-        \\  const i: u32 = 300;
-        \\  b = @truncate(i *% 3 +% 7);
+        \\  // APIC base is fixed per the SDM.
+        \\  const p: *volatile u32 = @ptrFromInt(0xFEE00000);
         \\}
     ,
         .{},
@@ -151,29 +136,11 @@ test "allows @truncate of wrapping arithmetic" {
     );
 }
 
-test "allows @truncate of plain arithmetic with a justifying comment" {
+test "allows @ptrFromInt with a trailing comment" {
     try zlinter.testing.testRunRule(
         buildRule(.{}),
         \\pub fn main() void {
-        \\  var b: u8 = undefined;
-        \\  const i: u32 = 300;
-        \\  // Safe: i is already bounded above by an earlier check.
-        \\  b = @truncate(i * 3 + 7);
-        \\}
-    ,
-        .{},
-        Config{},
-        &.{},
-    );
-}
-
-test "allows @truncate of a plain value" {
-    try zlinter.testing.testRunRule(
-        buildRule(.{}),
-        \\pub fn main() void {
-        \\  var b: u8 = undefined;
-        \\  const i: u32 = 300;
-        \\  b = @truncate(i);
+        \\  const p: *volatile u32 = @ptrFromInt(0xFEE00000); // APIC base
         \\}
     ,
         .{},
@@ -186,9 +153,7 @@ test "off" {
     try zlinter.testing.testRunRule(
         buildRule(.{}),
         \\pub fn main() void {
-        \\  var b: u8 = undefined;
-        \\  const i: u32 = 300;
-        \\  b = @truncate(i * 3);
+        \\  const p: *volatile u32 = @ptrFromInt(0xFEE00000);
         \\}
     ,
         .{},

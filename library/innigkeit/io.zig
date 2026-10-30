@@ -17,7 +17,7 @@ fn rawWrite(fd: Fd, bytes: []const u8) !void {
     var remaining = bytes;
     while (remaining.len > 0) {
         const result = innigkeit.Syscall.invoke(.write, .{
-            @intFromEnum(fd),
+            @backingInt(fd),
             @intFromPtr(remaining.ptr),
             remaining.len,
         });
@@ -29,7 +29,7 @@ fn rawWrite(fd: Fd, bytes: []const u8) !void {
 
 fn rawRead(fd: Fd, buf: []u8) !usize {
     const result = innigkeit.Syscall.invoke(.read, .{
-        @intFromEnum(fd),
+        @backingInt(fd),
         @intFromPtr(buf.ptr),
         buf.len,
     });
