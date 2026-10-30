@@ -31,6 +31,8 @@ cap_table: *innigkeit.capabilities.CapabilityTable,
 queued_for_cleanup: std.atomic.Value(bool) = .init(false),
 
 /// Used for the process cleanup queue.
+///
+/// slab-reuse-ok: overwritten by `SinglyLinkedList.prepend` before it is first read.
 cleanup_node: std.SinglyLinkedList.Node = .{},
 
 /// Used for generating thread names.
@@ -69,6 +71,8 @@ entitlements: innigkeit.user.codesign.Manifest.Entitlements = .{
 ///
 /// TODO: refactor file system to the userspace?
 open_files: [12]?innigkeit.filesystem.simple_fs.OpenFile = @splat(null),
+/// slab-reuse-ok: a splinlock which is never held once the process has no threads
+/// left (every `open_files` access is by a live thread of the process).
 open_files_lock: innigkeit.sync.TicketSpinLock = .{},
 
 /// Per-process file-descriptor table for the read/write/open/close/lseek/
@@ -119,7 +123,15 @@ pub fn create(options: CreateOptions) !*Process {
         process.exit_status = 0;
         process.cap_table.init();
 
-        if (core.is_debug) std.debug.assert(process.reference_count.load(.monotonic) == 0);
+        // Lifetime-end resets: `cleanupProcess` returns these to their idle state
+        // before the slot goes back to the cache. Assert it rather than assume it.
+        if (core.is_debug) {
+            std.debug.assert(process.reference_count.load(.monotonic) == 0);
+            std.debug.assert(!process.queued_for_cleanup.load(.monotonic));
+            std.debug.assert(process.exit_notify == null);
+            std.debug.assert(process.threads.count() == 0);
+            std.debug.assert(!process.threads_lock.isReadLocked() and !process.threads_lock.isWriteLocked());
+        }
 
         process.name = options.name;
         process.pid = globals.next_pid.fetchAdd(1, .monotonic);

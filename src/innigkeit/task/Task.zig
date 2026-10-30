@@ -1,6 +1,10 @@
 //! Represents a schedulable task.
 //!
 //! Can be either a kernel or userspace task.
+/// slab-reuse-ok: `internal.init` rewrites the whole struct (`task.* = .{ ... }`)
+/// on every create and preserves only `stack`, which is built once per slot and
+/// owned by it. `createKernelTask` and `user.Thread.internal.create` both call it
+/// before the task is visible to anything else.
 const Task = @This();
 
 const architecture = @import("architecture");
