@@ -116,21 +116,21 @@ assumed.
 
 ## Several `uacpi_kernel_*` synchronization callbacks are unimplemented stubs that panic (Phase 3 Stage 10b)
 
-`uacpi_kernel_free_event`, `wait_for_event`, `signal_event`, `reset_event`,
-`schedule_work`, `wait_for_work_completion`, and
-`handle_firmware_request` all unconditionally `panic`/`@panic` if uACPI
-ever calls them. `create_event()` doesn't panic but returns a fake,
-non-functional handle (explicitly commented as a dummy implementation) —
-Event objects can be created but every other operation on one crashes the
-kernel. Not observed to fire in the passing test baseline (no ACPI content
-in the test environment exercises Sleep/Event/deferred-work AML operators
-during boot), but real hardware or richer ACPI content (thermal zones,
-embedded controllers, GPE notify handlers) plausibly would. Fixing this
-needs real kernel infrastructure — a counting semaphore for Events (not a
-blind reuse of `sync.Parker`, which is single-waiter-shaped and doesn't
-obviously match Event's counter semantics) and a real deferred-work queue —
-comparable in scope to Stage 9's arm EL0-dispatch gap, not attempted this
-pass. `uacpi_kernel_sleep()` was the one exception: fixed by reusing the
+`schedule_work`, `wait_for_work_completion` and `handle_firmware_request`
+all unconditionally `panic`/`@panic` if uACPI ever calls them, and
+`uacpi_kernel_create_work_item` hands back a non-null placeholder that is
+never dereferenced. As of the uACPI 7.0.0 upgrade the old mutex/event hooks are
+gone: uACPI's only blocking primitive is now a counting semaphore
+(`uacpi_kernel_{create,free,wait_for,signal}_semaphore`), implemented by a
+private `Semaphore` in `uacpi_kernel_api.zig` (spinlock + `WaitQueue`; `signal`
+never sleeps). `wait_for_semaphore` supports `.none` and `.infinite` timeouts
+only; a finite timeout still panics (as the old mutex hook did). Not observed to
+fire in the passing test baseline (no ACPI content in the test environment
+exercises Sleep/Event/deferred-work AML operators during boot), but real
+hardware or richer ACPI content (thermal zones, embedded controllers, GPE
+notify handlers) plausibly would. Fixing the rest needs a real deferred-work
+queue, comparable in scope to Stage 9's arm EL0-dispatch gap, not attempted.
+`uacpi_kernel_sleep()` was the one exception: fixed by reusing the
 already-implemented, already-tested `sync.nanosleep.wait()` queue (Stage 8)
 instead of panicking, since `Sleep()` (unlike `Stall()`, which correctly
 busy-waits) is documented as callable from a context where yielding the CPU

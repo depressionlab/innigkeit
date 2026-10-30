@@ -391,20 +391,60 @@ export fn uacpi_kernel_sleep(msec: u64) void {
     innigkeit.sync.nanosleep.wait(innigkeit.time.init.getUptimeMs() + msec);
 }
 
-/// Create an opaque non-recursive kernel mutex object.
-export fn uacpi_kernel_create_mutex() *innigkeit.sync.Mutex {
-    log.verbose("uacpi_kernel_create_mutex called", .{});
+/// Represents a counting semaphore which backs uACPI's locks and events.
+///
+/// There is no owner (a unit may be given by a different task than the one
+/// that took it) and `signal` never sleeps, so it is usable from interrupt
+/// context and with a spinlock held.
+const Semaphore = struct {
+    spinlock: innigkeit.sync.TicketSpinLock = .{},
+    wait_queue: innigkeit.sync.WaitQueue = .{},
+    units: u32,
 
-    const mutex = innigkeit.memory.heap.allocator.create(innigkeit.sync.Mutex) catch unreachable;
-    mutex.* = .{};
-    return mutex;
+    fn tryTake(self: *Semaphore) bool {
+        self.spinlock.lock();
+        defer self.spinlock.unlock();
+
+        if (self.units == 0) return false;
+        self.units -= 1;
+        return true;
+    }
+
+    fn take(self: *Semaphore) void {
+        self.spinlock.lock();
+        while (self.units == 0) {
+            // unlocks the spinlock on return, so relock prior to rechecking
+            self.wait_queue.wait(&self.spinlock);
+            self.spinlock.lock();
+        }
+        self.units -= 1;
+        self.spinlock.unlock();
+    }
+
+    fn give(self: *Semaphore) void {
+        self.spinlock.lock();
+        defer self.spinlock.unlock();
+
+        self.units += 1;
+        self.wait_queue.wakeOne(&self.spinlock);
+    }
+};
+
+/// Create an opaque kernel counting semaphore object that is provided
+/// with `initial_units` units available.
+export fn uacpi_kernel_create_semaphore(initial_units: u32) *Semaphore {
+    log.verbose("uacpi_kernel_create_semaphore called", .{});
+
+    const semaphore = innigkeit.memory.heap.allocator.create(Semaphore) catch unreachable;
+    semaphore.* = .{ .units = initial_units };
+    return semaphore;
 }
 
-/// Free a opaque non-recursive kernel mutex object.
-export fn uacpi_kernel_free_mutex(mutex: *innigkeit.sync.Mutex) void {
-    log.verbose("uacpi_kernel_free_mutex called", .{});
+/// Free a semaphore created by `uacpi_kernel_create_semaphore`.
+export fn uacpi_kernel_free_semaphore(semaphore: *Semaphore) void {
+    log.verbose("uacpi_kernel_free_semaphore called", .{});
 
-    innigkeit.memory.heap.allocator.destroy(mutex);
+    innigkeit.memory.heap.allocator.destroy(semaphore);
 }
 
 /// Create/free an opaque kernel (semaphore-like) event object.
@@ -456,63 +496,39 @@ export fn uacpi_kernel_restore_interrupts(state: uacpi.InterruptState) void {
     current.decrementInterruptDisable();
 }
 
-/// Try to acquire the mutex with a millisecond timeout.
+/// Attempt to take one unit from the `Semaphore` with a millisecond timeout.
 ///
 /// The timeout value has the following meanings:
-/// - `.none` - Attempt to acquire the mutex once, in a non-blocking manner
-/// - `.infinite` - Infinite wait, block until the mutex is acquired
-/// - else - Attempt to acquire the mutex for at least 'timeout' milliseconds
+/// - `.none` - Attempt to take a unit once, in a non-blocking manner
+/// - `.infinite` - Infinite wait, block until a unit is available
+/// - else - Attempt to take a unit for at least `timeout` milliseconds
+///   (not implemented, currently panics)
 ///
 /// The following are possible return values:
-/// 1. UACPI_STATUS_OK - successful acquire operation
-/// 2. UACPI_STATUS_TIMEOUT - timeout reached while attempting to acquire (or the single attempt to acquire was not
+/// 1. UACPI_STATUS_OK - a unit was taken
+/// 2. UACPI_STATUS_TIMEOUT - timeout reached while waiting for a unit (or the single attempt was not
 ///                           successful for calls with timeout=.none)
 /// 3. Any other value - signifies a host internal error and is treated as such
-export fn uacpi_kernel_acquire_mutex(mutex: *innigkeit.sync.Mutex, timeout: uacpi.Timeout) uacpi.Status {
-    log.verbose("uacpi_kernel_acquire_mutex called", .{});
+export fn uacpi_kernel_wait_for_semaphore(semaphore: *Semaphore, timeout: uacpi.Timeout) uacpi.Status {
+    log.verbose("uacpi_kernel_wait_for_semaphore called", .{});
 
     switch (timeout) {
-        .none => if (!mutex.tryLock()) return .timeout,
-        .infinite => mutex.lock(),
-        else => @panic("mutex timeout lock not implemented!"),
+        .none => if (!semaphore.tryTake()) return .timeout,
+        .infinite => semaphore.take(),
+        else => @panic("semaphore timeout wait not implemented!"),
     }
 
     return .ok;
 }
 
-export fn uacpi_kernel_release_mutex(mutex: *innigkeit.sync.Mutex) void {
-    log.verbose("uacpi_kernel_release_mutex called", .{});
-    mutex.unlock();
-}
-
-/// Try to wait for an event (counter > 0) with a millisecond timeout.
+/// Give one unit to the `Semaphore`, waking up one of the threads that are
+/// waiting for it, if any exist.
 ///
-/// The internal counter is decremented by 1 if wait was successful.
-///
-/// A successful wait is indicated by returning UACPI_TRUE.
-export fn uacpi_kernel_wait_for_event(handle: *anyopaque, timeout: uacpi.Timeout) bool {
-    log.verbose("uacpi_kernel_wait_for_event called", .{});
+/// This function may only be used in interrupt contexts, with a spinlock held.
+export fn uacpi_kernel_signal_semaphore(semaphore: *Semaphore) void {
+    log.verbose("uacpi_kernel_signal_semaphore called", .{});
 
-    std.debug.panic(
-        "uacpi_kernel_wait_for_event(handle={}, timeout={})",
-        .{ handle, timeout },
-    );
-}
-
-/// Signal the event object by incrementing its internal counter by 1.
-///
-/// This function may be used in interrupt contexts.
-export fn uacpi_kernel_signal_event(handle: *anyopaque) void {
-    log.verbose("uacpi_kernel_signal_event called", .{});
-
-    std.debug.panic("uacpi_kernel_signal_event(handle={})", .{handle});
-}
-
-/// Reset the event counter to 0.
-export fn uacpi_kernel_reset_event(handle: *anyopaque) void {
-    log.verbose("uacpi_kernel_reset_event called", .{});
-
-    std.debug.panic("uacpi_kernel_reset_event(handle={})", .{handle});
+    semaphore.give();
 }
 
 /// Handle a firmware request.
@@ -624,19 +640,39 @@ export fn uacpi_kernel_unlock_spinlock(spinlock: *innigkeit.sync.TicketSpinLock,
     spinlock.unlock();
 }
 
-/// Schedules deferred work for execution.
+/// Create an opaque work item object, see `uacpi_kernel_schedule_work`.
+///
+/// Deferred work is not implemented yet (scheduling panics), so this hands back a non-null placeholder that is never
+/// dereferenced.
+export fn uacpi_kernel_create_work_item() *anyopaque {
+    log.verbose("uacpi_kernel_create_work_item called", .{});
+
+    const static = struct {
+        var placeholder: u8 = 0;
+    };
+    return &static.placeholder;
+}
+
+export fn uacpi_kernel_free_work_item(work_item: *anyopaque) void {
+    log.verbose("uacpi_kernel_free_work_item called", .{});
+
+    _ = work_item;
+}
+
+/// Schedules `handler` to be invoked with `ctx` as its only argument.
 ///
 /// Might be invoked from an interrupt context.
 export fn uacpi_kernel_schedule_work(
     work_type: uacpi.WorkType,
+    work_item: *anyopaque,
     handler: uacpi.WorkHandler,
     ctx: *anyopaque,
-) uacpi.Status {
+) void {
     log.verbose("uacpi_kernel_schedule_work called", .{});
 
     std.debug.panic(
-        "uacpi_kernel_schedule_work(work_type={}, handler={}, ctx={})",
-        .{ work_type, handler, ctx },
+        "uacpi_kernel_schedule_work(work_type={}, work_item={}, handler={}, ctx={})",
+        .{ work_type, work_item, handler, ctx },
     );
 }
 

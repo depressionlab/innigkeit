@@ -2512,19 +2512,19 @@ pub const Table = extern struct {
 
     pub const TableInstallationDisposition = enum(c.uacpi_table_installation_disposition) {
         /// Allow the table to be installed as-is
-        allow = c.UACPI_TABLE_INSTALLATION_DISPOSITON_ALLOW,
+        allow = c.UACPI_TABLE_INSTALLATION_DISPOSITION_ALLOW,
 
         /// Deny the table from being installed completely.
         ///
         /// This is useful for debugging various problems, e.g. AML loading bad SSDTs that cause the system to hang or
         /// enter an undesired state.
-        deny = c.UACPI_TABLE_INSTALLATION_DISPOSITON_DENY,
+        deny = c.UACPI_TABLE_INSTALLATION_DISPOSITION_DENY,
 
         /// Override the table being installed with the table at the virtual address returned in 'out_override_address'.
-        virtual_override = c.UACPI_TABLE_INSTALLATION_DISPOSITON_VIRTUAL_OVERRIDE,
+        virtual_override = c.UACPI_TABLE_INSTALLATION_DISPOSITION_VIRTUAL_OVERRIDE,
 
         /// Override the table being installed with the table at the physical address returned in 'out_override_address'.
-        physical_override = c.UACPI_TABLE_INSTALLATION_DISPOSITON_PHYSICAL_OVERRIDE,
+        physical_override = c.UACPI_TABLE_INSTALLATION_DISPOSITION_PHYSICAL_OVERRIDE,
     };
 
     pub const TableInstallationHandler = fn (
@@ -3540,6 +3540,7 @@ pub const Status = enum(c.uacpi_status) {
     aml_invalid_resource = c.UACPI_STATUS_AML_INVALID_RESOURCE,
     aml_loop_timeout = c.UACPI_STATUS_AML_LOOP_TIMEOUT,
     aml_call_stack_depth_limit = c.UACPI_STATUS_AML_CALL_STACK_DEPTH_LIMIT,
+    aml_reference_cycle = c.UACPI_STATUS_AML_REFERENCE_CYCLE,
 
     fn toError(status: Status) Error!void {
         return switch (status) {
@@ -3578,6 +3579,7 @@ pub const Status = enum(c.uacpi_status) {
             .aml_invalid_resource => Error.AMLInvalidResource,
             .aml_loop_timeout => Error.AMLLoopTimeout,
             .aml_call_stack_depth_limit => Error.AMLCallStackDepthLimit,
+            .aml_reference_cycle => Error.AMLReferenceCycle,
         };
     }
 };
@@ -3615,6 +3617,7 @@ pub const Error = error{
     AMLInvalidResource,
     AMLLoopTimeout,
     AMLCallStackDepthLimit,
+    AMLReferenceCycle,
 };
 
 pub const FirmwareRequest = extern struct {

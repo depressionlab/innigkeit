@@ -82,7 +82,7 @@ fn create(
     const describe = b.addRunArtifact(image_builder);
     describe.addArgs(&.{ "describe", @tagName(arch), if (kaslr) "1" else "0" });
     describe.addFileArg(kernel.kernel_binary);
-    describe.addDirectoryArg2(limine_dep.path(""), .{});
+    describe.addDirectoryArg2(limine_dep.path("limine-binary"), .{});
     const manifest = describe.addOutputFileArg("image_description.json");
     _ = describe.addOutputFileArg("limine.conf");
 

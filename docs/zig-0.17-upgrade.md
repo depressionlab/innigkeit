@@ -27,6 +27,10 @@ first; this file owns the 0.17-specific detail.
 | `zlinter` | `0.16.x` → `0.17.x` branch (pinned commit). |
 | `toml` | → `zig-0.17` branch. |
 | `devicetree` | → `main`. |
+| `limine_bin` | `v12.5.1` → `v12.9.6`. The tarball now has a `limine-binary/` top-level directory that Zig does not strip, so every path into the package carries that prefix. |
+| `flanterm` | `v3.1.2` → upstream HEAD (`0b7b2e3`): bounds/overflow hardening. `flanterm_fb_init` gained a trailing `autoflush` argument (we pass `true`, the old behaviour) and takes `const` inputs. |
+| `uacpi` | `6.0.0` → `7.0.0`: UAF/leak/off-by-one fixes in GPE, interpreter and notify code. `shareable.c` is gone; the `kernel_api` mutex/event hooks became a counting semaphore and `schedule_work` takes a work item (see `.claude/rules/acpi.md`). |
+| `edk2`, `devicetree`, `toml`, `doomgeneric` | Reviewed, unchanged: already at the newest edk2 release and at the heads of the `devicetree` / `toml` `zig-0.17` branches; doomgeneric's only newer commits touch the Linux-VT/MinGW backends we don't build. |
 | `sbi` | **Vendored** at `library/sbi` (one line removed). Upstream `main` still sets `b.enable_qemu`, removed in 0.17. Delete the vendored copy and restore the git dependency once upstream drops that line. |
 
 Zig's own HTTP client cannot traverse the cloud proxy, so hashes for the new
